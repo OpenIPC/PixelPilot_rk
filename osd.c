@@ -260,52 +260,23 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
     cairo_move_to(cr, x_center - 50, buf->height - 30);
     cairo_show_text(cr,  msg);
 
-    // Print rate stats
     struct timespec current_timestamp;
     if (!clock_gettime(CLOCK_MONOTONIC_COARSE, &current_timestamp)) {
       double interval = getTimeInterval(&current_timestamp, &last_timestamp);
       if (osd_vars.telemetry_arm > 1700){
         seconds = seconds + interval;
       }
-      if (interval > 1) {
-        last_timestamp = current_timestamp;
-        rx_rate = ((float)stats_rx_bytes+(((float)stats_rx_bytes*25)/100)) / 1024.0f * 8;
-        stats_rx_bytes = 0;
-      }
-    }
-
-    char hud_frames_rx[32];
-    if (osd_vars.telemetry_level > 1){
-    	cairo_move_to(cr, x_center - strlen(hud_frames_rx) / 2 * 16, 40);
-    	cairo_show_text(cr, hud_frames_rx);
-    } else {
-    	cairo_move_to(cr, buf->width - 300, buf->height - 60);
-    	cairo_show_text(cr, hud_frames_rx);
-		sprintf(msg, "TIME:%.2d:%.2d", minutes,seconds);
-		cairo_move_to(cr, buf->width - 300, buf->height - 90);
-		cairo_show_text(cr, msg);
-		if(seconds > 59){
-			seconds = 0;
-			++minutes;  
-		}
-		if(minutes > 59){
-			seconds = 0;
-			minutes = 0;
-		}
-    }
-    float percent = rx_rate / (1024 * 10);
-    if (percent > 1) {
-      percent = 1;
-    }
-
-    uint32_t width = (strlen(hud_frames_rx) * 16) * percent;
-    if (osd_vars.telemetry_level > 1){
-		cairo_set_source_rgba(cr, 255, 255, 255, 0.8); // R, G, B, A
-		cairo_rectangle(cr,  x_center - strlen(hud_frames_rx) / 2 * 16, 64, width, 8); 
-    } else {
-		cairo_set_source_rgba(cr, 255, 255, 255, 0.8); // R, G, B, A
-		cairo_rectangle(cr,  buf->width - 300, buf->height - 36, width, 8);
-    }
+      	sprintf(msg, "TIME:%.2d:%.2d", minutes,seconds);
+	cairo_move_to(cr, buf->width - 300, buf->height - 90);
+	cairo_show_text(cr, msg);
+	if(seconds > 59){
+		seconds = 0;
+		++minutes;  
+	}
+	if(minutes > 59){
+		seconds = 0;
+		minutes = 0;
+	}
 	cairo_fill(cr);
 }
 
