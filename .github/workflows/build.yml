@@ -1,0 +1,35 @@
+name: Build
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          sudo apt-get update
+          sudo apt-get install libdrm-dev libcairo-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev
+          git clone https://github.com/rockchip-linux/mpp --depth 1
+          cd mpp
+          cmake -B build
+          sudo cmake --build build --target install
+          cd ..
+          cmake -B build
+          cmake --build build
+
+      - name: Upload
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: build/fpvue
