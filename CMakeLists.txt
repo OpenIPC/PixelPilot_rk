@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(pixelpilot VERSION 0.12)
+project(pixelpilot)
 
 set(CMAKE_CXX_STANDARD 17)
 

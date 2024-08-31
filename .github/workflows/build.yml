@@ -18,18 +18,39 @@ jobs:
       - name: Build
         run: |
           sudo apt-get update
-          sudo apt-get install libdrm-dev libcairo-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev
+          sudo apt-get install -y qemu-user-static
+          system=radxa-zero3_ubuntu_jammy_cli_b6.img
+          wget -nv https://github.com/radxa-build/radxa-zero3/releases/download/b6/${system}.xz
+          unxz -T4 ${system}.xz
+
+          output=output
+          mkdir $output
+          device=$(sudo losetup -P --show -f ${system})
+          sudo mount ${device}p3 $output
+
+          cat > build.sh << EOL
+          #!/bin/bash
+          apt-get update
+          apt-get install -y cmake g++ git pkg-config libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          cd /home
           git clone https://github.com/rockchip-linux/mpp --depth 1
           cd mpp
           cmake -B build
-          sudo cmake --build build --target install
+          cmake --build build --target install -j4
           cd ..
           cmake -B build
-          cmake --build build
+          cmake --build build -j4
+          EOL
+
+          chmod 755 build.sh
+          sudo cp -r build.sh CMakeLists.txt src $output/home
+          echo nameserver 8.8.8.8 | sudo tee -a $output/etc/resolv.conf
+          sudo chroot $output /home/build.sh
+          sudo cp $output/home/build/pixelpilot .
 
       - name: Upload
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          files: build/pixelpilot
+          files: pixelpilot
