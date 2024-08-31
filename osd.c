@@ -145,45 +145,6 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 	// Mavlink elements
 	uint32_t x_center = buf->width / 2;
 	if (osd_vars.telemetry_level > 1){
-		// TODO(geehe) How to draw lines with cairo?
-		// // Artificial Horizon
-		// int32_t offset_pitch = osd_vars.telemetry_pitch * 4;
-		// int32_t offset_roll = osd_vars.telemetry_roll * 4;
-		// int32_t y_pos_left = ((int32_t)buf->height / 2 - 2 + offset_pitch + offset_roll);
-		// int32_t y_pos_right = ((int32_t)buf->height / 2 - 2 + offset_pitch - offset_roll);
-
-		// for (int i = 0; i < 4; i++) {
-		// if (y_pos_left > 0 && y_pos_left < buf->height &&
-		// 	y_pos_right > 0 && y_pos_right < buf->height) {
-		// 	//fbg_line(cr, x_center - 180, y_pos_left + i, x_center + 180, y_pos_right + i, 255, 255, 255);
-		// }
-		// }
-
-		// // Vertical Speedometer
-		// int32_t offset_vspeed = osd_vars.telemetry_vspeed * 5;
-		// int32_t y_pos_vspeed = ((int32_t)buf->height / 2 - offset_vspeed);
-		// for (int i = 0; i < 8; i++) {
-		// if (y_pos_vspeed > 0 && y_pos_vspeed < buf->height) {
-		// 	//fbg_line(cr, x_center + 242 + i, buf->height / 2, x_center + 242 + i, y_pos_vspeed, 255, 255, 255);
-		// }
-		// }
-
-		// for (int i = 0; i < 25; i++) {
-		// 	uint32_t width = (i == 12) ? 10 : 0;
-
-		// 	//   fbg_line(cr, x_center - 240 - width,
-		// 	//     buf->height / 2 - 120 + i * 10, x_center - 220,
-		// 	//     buf->height / 2 - 120 + i * 10, 255, 255, 255);
-		// 	//   fbg_line(cr, x_center - 240 - width,
-		// 	//     buf->height / 2 - 120 + i * 10 + 1, x_center - 220,
-		// 	//     buf->height / 2 - 120 + i * 10 + 1, 255, 255, 255);
-
-		// 	//   fbg_line(cr, x_center + 220, buf->height / 2 - 120 + i * 10,
-		// 	//     x_center + 240 + width, buf->height / 2 - 120 + i * 10, 255, 255, 255);
-		// 	//   fbg_line(cr, x_center + 220, buf->height / 2 - 120 + i * 10 + 1,
-		// 	//     x_center + 240 + width, buf->height / 2 - 120 + i * 10 + 1, 255, 255, 255);
-		// }
-
 		// OSD telemetry
 		sprintf(msg, "ALT:%.00fM", osd_vars.telemetry_altitude);
 		cairo_move_to(cr, x_center + (20) + 260, buf->height / 2 - 8);
