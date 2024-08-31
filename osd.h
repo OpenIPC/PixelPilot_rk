@@ -54,6 +54,7 @@ struct osd_vars {
     float telemetry_vspeed;
     float telemetry_rssi;
     float telemetry_throttle;
+    float telemetry_raw_imu;
     float telemetry_resolution;
     float telemetry_arm;
     float armed;
