@@ -1,4 +1,4 @@
-#define MODULE_TAG "fpvue"
+#define MODULE_TAG "pixelpilot"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,7 @@ extern "C" {
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"
 #include "time_util.h"
-#include "fpvue_config.h"
+#include "pixelpilot_config.h"
 
 
 #define READ_BUF_SIZE (1024*1024) // SZ_1M https://github.com/rockchip-linux/mpp/blob/ed377c99a733e2cdbcc457a6aa3f0fcd438a9dff/osal/inc/mpp_common.h#L179
@@ -500,10 +500,10 @@ void set_mpp_decoding_parameters(MppApi * mpi,  MppCtx ctx) {
 
 void printHelp() {
   printf(
-    "\n\t\tFPVue FPV Decoder for Rockchip (%d.%d)\n"
+    "\n\t\tPixelPilot FPV Decoder for Rockchip (%d.%d)\n"
     "\n"
     "  Usage:\n"
-    "    fpvue [Arguments]\n"
+    "    pixelpilot [Arguments]\n"
     "\n"
     "  Arguments:\n"
     "    -p [Port]         		- Listen port                           (Default: 5600)\n"
@@ -523,7 +523,7 @@ void printHelp() {
     "    --dvr-fmp4            	- Save the video feed as a fragmented mp4\n"
     "\n"
     "    --screen-mode   		- Override default screen mode. ex:1920x1080@120\n"
-    "\n", fpvue_VERSION_MAJOR , fpvue_VERSION_MINOR
+    "\n", PILOT_VERSION_MAJOR, PILOT_VERSION_MINOR
   );
 }
 
@@ -640,7 +640,7 @@ int main(int argc, char **argv)
 	}
 
 	__OnArgument("--version") {
-		printf("FPVue Rockchip %d.%d\n", fpvue_VERSION_MAJOR , fpvue_VERSION_MINOR);
+		printf("PixelPilot Rockchip %d.%d\n", PILOT_VERSION_MAJOR, PILOT_VERSION_MINOR);
 		return 0;
 	}
 
@@ -651,7 +651,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	printf("FPVue Rockchip %d.%d\n", fpvue_VERSION_MAJOR , fpvue_VERSION_MINOR);
+	printf("PixelPilot Rockchip %d.%d\n", PILOT_VERSION_MAJOR, PILOT_VERSION_MINOR);
 
 	if (enable_osd == 0 ) {
 		video_zpos = 4;

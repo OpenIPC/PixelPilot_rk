@@ -1,4 +1,4 @@
-# FPVue_rk
+# PixelPilot_rk
 > [!IMPORTANT]
 > Warning, this is an experimental project.
 >
@@ -46,7 +46,7 @@ Build and run application in production environment:
 ```
 cmake -B build
 sudo cmake --build build --target install
-build/fpvue
+build/pixelpilot
 ```
 
 Build and run application for debugging purposes:
@@ -54,14 +54,14 @@ Build and run application for debugging purposes:
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
-build/fpvue --osd
+build/pixelpilot --osd
 ```
 
 ## Usage
 
 Show command line options:
 ```
-fpvue --help
+pixelpilot --help
 ```
 
 ## Known issues

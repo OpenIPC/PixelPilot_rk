@@ -1,25 +1,25 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(fpvue VERSION 0.12)
+project(pixelpilot VERSION 0.12)
 
 set(CMAKE_CXX_STANDARD 17)
 
 add_compile_options("-Wno-address-of-packed-member")
 
 set(SOURCE_FILES 
-        drm.h
-        drm.c
-        osd.h
-				osd.c
-        rtp.h
-				rtp.c
-        mavlink.h
-				mavlink.c
-				main.cpp
-        main.h
-        scheduling_helper.hpp
-        gstrtpreceiver.cpp
-        gstrtpreceiver.h)
+        src/drm.h
+        src/drm.c
+        src/osd.h
+        src/osd.c
+        src/rtp.h
+        src/rtp.c
+        src/mavlink.h
+        src/mavlink.c
+        src/main.cpp
+        src/main.h
+        src/scheduling_helper.hpp
+        src/gstrtpreceiver.cpp
+        src/gstrtpreceiver.h)
 
 include_directories("/usr/include/libdrm" "/usr/include/cairo")
 
@@ -46,7 +46,6 @@ if(CMAKE_BUILD_TYPE MATCHES "Debug")
   )
 endif()
 
-configure_file(fpvue_config.h.in fpvue_config.h)
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_BINARY_DIR}")
 
 include(GNUInstallDirs)
