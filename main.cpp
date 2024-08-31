@@ -540,6 +540,9 @@ int main(int argc, char **argv)
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
+	
+	osd_vars.enable_recording = 0;
+	
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
 	
@@ -563,6 +566,8 @@ int main(int argc, char **argv)
 			printf("ERROR: unable to open %s\n", dvr_file);	
 			return -1;
 		}
+
+		osd_vars.enable_recording = 1;
 		continue;
 	}
 

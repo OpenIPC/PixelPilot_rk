@@ -16,6 +16,8 @@ struct osd_vars {
 	float latency_avg;
 	float latency_max;
 	float latency_min;
+    bool enable_recording;
+
 	// Video Feed
 	int bw_curr;
 	long long bw_stats[10];
