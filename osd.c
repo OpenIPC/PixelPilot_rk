@@ -246,17 +246,19 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 		cairo_show_text(cr, msg);
 	}
     
-    sprintf(msg, "RSSI:%.00f", osd_vars.telemetry_rssi);
-    cairo_move_to(cr, x_center - 50, buf->height - 30);
-    cairo_show_text(cr,  msg);
+	sprintf(msg, "RSSI:%.00f", osd_vars.telemetry_rssi);
+	cairo_move_to(cr, x_center - 50, buf->height - 30);
+	cairo_show_text(cr,  msg);
 
-    struct timespec current_timestamp;
-    if (!clock_gettime(CLOCK_MONOTONIC_COARSE, &current_timestamp)) {
-      double interval = getTimeInterval(&current_timestamp, &last_timestamp);
-      if (osd_vars.telemetry_arm > 1700){
-        seconds = seconds + interval;
-      }
-      	sprintf(msg, "TIME:%.2d:%.2d", minutes,seconds);
+	struct timespec current_timestamp;
+	if (!clock_gettime(CLOCK_MONOTONIC_COARSE, &current_timestamp)) {
+		double interval = getTimeInterval(&current_timestamp, &last_timestamp);
+		if (osd_vars.telemetry_arm > 1700){
+			seconds = seconds + interval;
+		}
+	}
+
+	sprintf(msg, "TIME:%.2d:%.2d", minutes,seconds);
 	cairo_move_to(cr, buf->width - 300, buf->height - 90);
 	cairo_show_text(cr, msg);
 	if(seconds > 59){
@@ -267,6 +269,7 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 		seconds = 0;
 		minutes = 0;
 	}
+
 	cairo_fill(cr);
 }
 
