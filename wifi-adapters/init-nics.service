@@ -1,0 +1,11 @@
+[Unit]
+Description=Rename Wireless Interface
+After=network.target
+
+[Service]
+ExecStart=/home/radxa/scripts/autoload-wfb-nics.sh
+Type=oneshot
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

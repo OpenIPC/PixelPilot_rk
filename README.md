@@ -64,6 +64,10 @@ Show command line options:
 pixelpilot --help
 ```
 
+## Enable ability to hot-plug wifi adapters
+
+Follow the `README` inside `wifi-adapters` folder to enable the ability to hot-plug compatible wifi adapters.
+
 ## Known issues
 
 1. Video is cropped when the fpv feed resolution is bigger than the screen mode.
