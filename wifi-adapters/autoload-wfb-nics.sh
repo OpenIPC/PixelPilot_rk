@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the MAC address prefix to exclude (Internal Wifi adapter)
-EXCLUDE_PREFIX="98:03:cf"
+EXCLUDE_PREFIX=("98:03:cf" "38:7a:cc")
 
 # Initialize log file and type variables
 LOG_FILE=""
@@ -29,9 +29,11 @@ done
 # Function to check if an interface's MAC address matches the exclude prefix
 matches_exclude_prefix() {
     local mac_address=$1
-    if [[ $mac_address == $EXCLUDE_PREFIX* ]]; then
-        return 0 # Match found
-    fi
+    for prefix in "${EXCLUDE_PREFIX[@]}"; do
+        if [[ $mac_address == $prefix* ]]; then
+            return 0 # Match found
+        fi
+    done
     return 1 # No match
 }
 
