@@ -415,11 +415,11 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
 }
 
 uint64_t first_frame_ms=0;
-void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoCodec& codec){
+void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, int dvr_enabled, const VideoCodec& codec){
     GstRtpReceiver receiver(gst_udp_port, codec);
 	long long bytes_received = 0; 
 	uint64_t period_start=0;
-    auto cb=[&packet,&decoder_stalled_count, &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
+    auto cb=[&packet,&decoder_stalled_count, &bytes_received, &period_start, &dvr_enabled](std::shared_ptr<std::vector<uint8_t>> frame){
         // Let the gst pull thread run at quite high priority
         static bool first= false;
         if(first){
@@ -436,7 +436,9 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
 		}
         feed_packet_to_decoder(packet,frame->data(),frame->size());
 
-		enqueueDvrPacket(frame);
+        if (dvr_enabled) {
+            enqueueDvrPacket(frame);
+        }
     };
     receiver.start_receiving(cb);
     while (!signal_flag){
@@ -727,7 +729,7 @@ int main(int argc, char **argv)
 	}
 
 	////////////////////////////////////////////// MAIN LOOP
-    read_gstreamerpipe_stream((void**)packet, listen_port, codec);
+    read_gstreamerpipe_stream((void**)packet, listen_port, dvr_file != NULL, codec);
 
 	////////////////////////////////////////////// MPI CLEANUP
 
