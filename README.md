@@ -68,3 +68,39 @@ pixelpilot --help
 
 1. Video is cropped when the fpv feed resolution is bigger than the screen mode.
 1. Crashes when video feed resolution is higher than the screen resolution.
+
+## The way it works
+
+It uses `mpp` library to decode MPEG frames using Rockchip hardware decoder.
+It uses `gstreamer` to read the RTP media stream from video UDP.
+It uses `mavlink` decoder to read Mavlink telemetry from telemetry UDP (if enabled), see `mavlink.c`
+It uses `cairo` library to draw OSD elements (if enabled), see `osd.c`.
+It uses [Direct Rendering Manager (DRM)](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) to
+display video on the screen, see `drm.c`.
+It writes raw MPEG stream to file as DVR (if enabled) using `minimp4.h` library.
+
+Pixelpilot starts several threads:
+
+* main thread
+  controls gstreamer which reads RTP, extracts MPEG frames and
+  - feeds them to MPP hardware decoder
+  - sends them to DVR thread via mutex-protected `std::queue` (if enabled)
+* DVR_THREAD (if enabled)
+  reads frames from main thread via `std::queue` and writes them to disk using `minimp4` library
+  it yields on a condition variable for DVR queue or `kill` signal variable
+* FRAME_THREAD
+  reads decoded video frames from MPP hardware decoder and forwards them to `DISPLAY_THREAD`
+  through DRM `output_list` protected by `video_mutex`
+  Seems that thread vields on `mpi->decode_get_frame()` call waiting for HW decoder to return a new frame
+* DISPLAY_THREAD
+  reads frames and OSD from `video_mutex`-protected `output_list` and calls `drm*` functions to
+  render them on the screen
+  The loop yields on `video_mutex` and `video_cond` waiting for a new frame to
+  display from FRAME_THREAD
+* MAVLINK_THREAD (if OSD and mavlink configured)
+  reads mavlink packets from UDP, decodes and updates `osd_vars` (without any mutex)
+  The loop yields on UDP read
+* OSD_THREAD (if OSD is enabled)
+  takes `drm_fd` and `output_list` as thread parameters
+  draws telemetry on a buffer inside `output_list` based on `osd_vars` using Cairo library
+  The loop yelds on explicit `sleep` to control refresh rate
