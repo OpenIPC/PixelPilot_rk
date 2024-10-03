@@ -19,14 +19,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user-static
-          system=radxa-zero3_ubuntu_jammy_cli_b6.img
-          wget -nv https://github.com/radxa-build/radxa-zero3/releases/download/b6/${system}.xz
-          unxz -T4 ${system}.xz
+
+          # https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-arm64.tar.xz
+          # https://github.com/OpenIPC/sbc-groundstations/releases/download/zero3w-v1.7.0/radxaZero3wrev2.img.xz
+
+          host=https://cloud.debian.org/images/cloud/bullseye
+          release=latest
+          system=debian-11-generic-arm64.tar
+          
+          wget -nv ${host}/${release}/${system}.xz
+          # unxz -T4 ${system}.xz
+          tar -xf ${system}.xz
 
           output=output
           mkdir $output
-          device=$(sudo losetup -P --show -f ${system})
-          sudo mount ${device}p3 $output
+          
+          # device=$(sudo losetup -P --show -f ${system})
+          # sudo mount ${device}p3 $output
+
+          device=$(sudo losetup -P --show -f disk.raw)
+          sudo mount ${device}p1 $output
 
           cat > build.sh << EOL
           #!/bin/bash
@@ -44,7 +56,8 @@ jobs:
 
           chmod 755 build.sh
           sudo cp -r build.sh CMakeLists.txt src $output/home
-          echo nameserver 8.8.8.8 | sudo tee -a $output/etc/resolv.conf
+          sudo rm $output/etc/resolv.conf
+          echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
           sudo chroot $output /home/build.sh
           sudo cp $output/home/build/pixelpilot .
 
