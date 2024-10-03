@@ -56,6 +56,7 @@ jobs:
 
           chmod 755 build.sh
           sudo cp -r build.sh CMakeLists.txt src $output/home
+          sudo rm $output/etc/resolv.conf
           echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
           sudo chroot $output /home/build.sh
           sudo cp $output/home/build/pixelpilot .
