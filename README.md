@@ -19,18 +19,10 @@ Build on the Rockchip linux system directly.
 
 ## Install dependencies
 
-- rockchip_mpp
+- drm, cairo, mpp
 
 ```
-git clone https://github.com/rockchip-linux/mpp.git
-cmake -B build
-sudo cmake --build build --target install
-```
-
-- drm, cairo
-
-```
-sudo apt install libdrm-dev libcairo-dev
+sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev
 ```
 
 - gstreamer
