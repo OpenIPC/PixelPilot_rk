@@ -685,7 +685,11 @@ int main(int argc, char **argv)
 	assert(drm_fd >= 0);
 	output_list = (struct modeset_output *)malloc(sizeof(struct modeset_output));
 	ret = modeset_prepare(drm_fd, output_list, mode_width, mode_height, mode_vrefresh);
-	assert(!ret);
+	if (ret) {
+        fprintf(stderr,
+                "cannot initialize display. Is display connected? Is --screen-mode correct?\n");
+		return -2;
+    }
 	
 	////////////////////////////////// MPI SETUP
 	MppPacket packet;

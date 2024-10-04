@@ -539,7 +539,7 @@ int modeset_prepare(int fd, struct modeset_output *output_list, uint16_t mode_wi
 
 		*output_list = *out;
 	}
-	if (!output_list) {
+	if (!out) {
 		fprintf(stderr, "couldn't create any outputs\n");
 		return -1;
 	}
