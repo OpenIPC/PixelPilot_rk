@@ -43,13 +43,8 @@ jobs:
           cat > build.sh << EOL
           #!/bin/bash
           apt-get update
-          apt-get install -y cmake g++ git pkg-config libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          apt-get install -y cmake g++ git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           cd /home
-          git clone https://github.com/rockchip-linux/mpp --depth 1
-          cd mpp
-          cmake -B build
-          cmake --build build --target install -j4
-          cd ..
           cmake -B build
           cmake --build build -j4
           EOL
