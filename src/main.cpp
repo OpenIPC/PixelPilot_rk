@@ -69,6 +69,31 @@ struct {
 	} frame_to_drm[MAX_FRAMES];
 } mpi;
 
+// DVR
+
+enum class dvr_rpc_command{
+	DVR_RPC_FRAME,
+	DVR_RPC_STOP,
+	DVR_RPC_START
+};
+
+typedef struct {
+	dvr_rpc_command command;
+	std::shared_ptr<std::vector<uint8_t>> frame = NULL;
+} dvr_rpc;
+
+typedef struct {
+	char *filename_template;
+	int mp4_fragmentation_mode = 0;
+	int video_framerate = -1;
+} dvr_thread_params;
+
+std::queue<dvr_rpc> dvrQueue;
+std::mutex mtx;
+std::condition_variable cv;
+int dvr_enabled = 0;
+
+// END DVR
 struct timespec frame_stats[1000];
 
 struct modeset_output *output_list;
@@ -78,13 +103,16 @@ pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
 
 int video_zpos = 1;
-int video_framerate = -1;
-int mp4_fragmentation_mode = 0;
 
 VideoCodec codec = VideoCodec::H265;
-FILE *dvr_file = NULL;
-MP4E_mux_t *mux ;
-mp4_h26x_writer_t mp4wr;
+
+void enqueueDvrCommand(dvr_rpc rpc) { //std::shared_ptr<std::vector<uint8_t>> frame) {
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		dvrQueue.push(rpc);
+	}
+	cv.notify_one();
+}
 
 int write_callback(int64_t offset, const void *buffer, size_t size, void *token){
     FILE *f = (FILE*)token;
@@ -175,15 +203,11 @@ void init_buffer(MppFrame frame) {
 	assert(ret >= 0);
 
 	// dvr setup
-	if (dvr_file != NULL){
+	if (dvr_enabled != 0){
 		printf("setting up dvr and mux\n");
-		mux = MP4E_open(0 /*sequential_mode*/, mp4_fragmentation_mode, dvr_file, write_callback);
-		if (MP4E_STATUS_OK != mp4_h26x_write_init(&mp4wr, mux, output_list->video_frm_width, output_list->video_frm_height, codec==VideoCodec::H265))
-		{
-			printf("error: mp4_h26x_write_init failed\n");
-			mux = NULL;
-			dvr_file = NULL;
-		}
+		dvr_rpc cmd;
+		cmd.command = dvr_rpc_command::DVR_RPC_START;
+		enqueueDvrCommand(cmd);
 	}
 }
 
@@ -355,40 +379,91 @@ void sig_handler(int signum)
 	osd_thread_signal++;
 }
 
-std::queue<std::shared_ptr<std::vector<uint8_t>>> dvrQueue;
-std::mutex mtx;
-std::condition_variable cv;
+void sigusr1_handler(int signum) {
+	printf("Received signal %d\n", signum);
+	dvr_enabled = 0;
+	dvr_rpc rpc;
+	rpc.command = dvr_rpc_command::DVR_RPC_STOP;
+	enqueueDvrCommand(rpc);
+}
 
 void *__DVR_THREAD__(void *param) {
+	dvr_thread_params *p = reinterpret_cast<dvr_thread_params *>(param);
+	FILE *dvr_file = NULL;
+	MP4E_mux_t *mux = NULL;
+	mp4_h26x_writer_t mp4wr;
 	while (true) {
 		std::unique_lock<std::mutex> lock(mtx);
 		cv.wait(lock, [dvrQueue, signal_flag] { return !dvrQueue.empty() || signal_flag; });
+		printf(".");
 		if (signal_flag && dvrQueue.empty()) {
 			break;
 		}
 		if (!dvrQueue.empty()) {
-			std::shared_ptr<std::vector<uint8_t>> frame = dvrQueue.front();
+			dvr_rpc rpc = dvrQueue.front();
 			dvrQueue.pop();
 			lock.unlock();
-			// Process the frame
-			auto res = mp4_h26x_write_nal(&mp4wr, frame->data(), frame->size(), 90000/video_framerate);
-			if (!(MP4E_STATUS_OK == res || MP4E_STATUS_BAD_ARGUMENTS == res)) {
-				printf("mp4_h26x_write_nal failed with error %d\n", res);
+			switch (rpc.command) {
+			case dvr_rpc_command::DVR_RPC_START:
+				{
+					printf("rpc START\n");
+					if (dvr_file != NULL) {
+						break;
+					}
+					char *fname_tpl = p->filename_template;
+					char fname[255];
+					time_t t = time(NULL);
+					strftime(fname, sizeof(fname), fname_tpl, localtime(&t));
+					if ((dvr_file = fopen(fname,"w")) == NULL){
+						fprintf(stderr, "ERROR: unable to open %s\n", fname);
+						break;
+					}
+					printf("setting up dvr and mux to %s\n", fname);
+					mux = MP4E_open(0 /*sequential_mode*/, p->mp4_fragmentation_mode,
+									dvr_file, write_callback);
+					if (MP4E_STATUS_OK != mp4_h26x_write_init(&mp4wr, mux,
+															  output_list->video_frm_width,
+															  output_list->video_frm_height,
+															  codec==VideoCodec::H265)) {
+						fprintf(stderr, "error: mp4_h26x_write_init failed\n");
+						mux = NULL;
+						dvr_file = NULL;
+					}
+					osd_vars.enable_recording = 1;
+					break;
+				}
+			case dvr_rpc_command::DVR_RPC_STOP:
+				{
+					printf("rpc STOP\n");
+					if (dvr_file == NULL) {
+						break;
+					}
+					MP4E_close(mux);
+					mp4_h26x_write_close(&mp4wr);
+					fclose(dvr_file);
+					printf("dvr stopped\n");
+					osd_vars.enable_recording = 0;
+					break;
+				}
+			case dvr_rpc_command::DVR_RPC_FRAME:
+				{
+					std::shared_ptr<std::vector<uint8_t>> frame = rpc.frame;
+					// Process the frame
+					auto res = mp4_h26x_write_nal(&mp4wr, frame->data(), frame->size(), 90000/p->video_framerate);
+					if (!(MP4E_STATUS_OK == res || MP4E_STATUS_BAD_ARGUMENTS == res)) {
+						printf("mp4_h26x_write_nal failed with error %d\n", res);
+					}
+					break;
+				}
 			}
 		}
 	}
-	MP4E_close(mux);
-	mp4_h26x_write_close(&mp4wr);
-	fclose(dvr_file);
-	printf("DVR thread done.\n");
-}
-
-void enqueueDvrPacket(std::shared_ptr<std::vector<uint8_t>> frame) {
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		dvrQueue.push(frame);
+	if (dvr_file != NULL) {
+		MP4E_close(mux);
+		mp4_h26x_write_close(&mp4wr);
+		fclose(dvr_file);
 	}
-	cv.notify_one();
+	printf("DVR thread done.\n");
 }
 
 int decoder_stalled_count=0;
@@ -415,11 +490,11 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
 }
 
 uint64_t first_frame_ms=0;
-void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, int dvr_enabled, const VideoCodec& codec){
+void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoCodec& codec){
     GstRtpReceiver receiver(gst_udp_port, codec);
 	long long bytes_received = 0; 
 	uint64_t period_start=0;
-    auto cb=[&packet,&decoder_stalled_count, &bytes_received, &period_start, &dvr_enabled](std::shared_ptr<std::vector<uint8_t>> frame){
+    auto cb=[&packet,&decoder_stalled_count, &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
         // Let the gst pull thread run at quite high priority
         static bool first= false;
         if(first){
@@ -437,7 +512,10 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, int dvr_enab
         feed_packet_to_decoder(packet,frame->data(),frame->size());
 
         if (dvr_enabled) {
-            enqueueDvrPacket(frame);
+            dvr_rpc rpc;
+            rpc.command = dvr_rpc_command::DVR_RPC_FRAME;
+            rpc.frame = frame;
+            enqueueDvrCommand(rpc);
         }
     };
     receiver.start_receiving(cb);
@@ -522,7 +600,9 @@ void printHelp() {
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
-    "    --dvr <path.mp4>       - Save the video feed (no osd) to the provided filename\n"
+    "    --dvr-template <path>  - Save the video feed (no osd) to the provided filename template.\n"
+    "                             Supports placeholders %%Y - year, %%M - month, %%D - day,\n"
+    "                             %%H - hour, %%m - minute, %%s - second. Ex: /media/DVR/%%Y-%%M-%%D_%%H-%%m-%%s.mp4\n"
     "\n"
     "    --dvr-framerate <rate> - Force the dvr framerate for smoother dvr, ex: 60\n"
     "\n"
@@ -543,6 +623,10 @@ int main(int argc, char **argv)
 	int i, j;
 	int enable_osd = 0;
 	int mavlink_thread = 0;
+	int dvr_autostart = 0;
+	char* dvr_template = NULL;
+	int video_framerate = -1;
+	int mp4_fragmentation_mode = 0;
 	uint16_t listen_port = 5600;
 	uint16_t mavlink_port = 14550;
 	uint16_t mode_width = 0;
@@ -570,12 +654,19 @@ int main(int argc, char **argv)
 	}
 
 	__OnArgument("--dvr") {
-		if ((dvr_file = fopen(__ArgValue,"w")) == NULL){
-			printf("ERROR: unable to open %s\n", dvr_file);	
-			return -1;
-		}
+		dvr_template = const_cast<char*>(__ArgValue);
+		dvr_autostart = 1;
+		fprintf(stderr, "--dvr is deprecated. Use --dvr-template and --dvr-start instead.\n");
+		continue;
+	}
 
-		osd_vars.enable_recording = 1;
+	__OnArgument("--dvr-start") {
+		dvr_autostart = 1;
+		continue;
+	}
+
+	__OnArgument("--dvr-template") {
+		dvr_template = const_cast<char*>(__ArgValue);
 		continue;
 	}
 
@@ -654,7 +745,7 @@ int main(int argc, char **argv)
 
 	__EndParseConsoleArguments__
 
-	if (dvr_file != NULL && video_framerate < 0 ) {
+	if (dvr_template != NULL && video_framerate < 0 ) {
 		printf("--dvr-framerate must be provided when dvr is enabled.\n");
 		return 0;
 	}
@@ -676,6 +767,9 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, sig_handler);
 	signal(SIGPIPE, sig_handler);
+	if (dvr_template) {
+		signal(SIGUSR1, sigusr1_handler);
+	}
 	
 	//////////////////////////////////  DRM SETUP
 	ret = modeset_open(&drm_fd, "/dev/dri/card0");
@@ -719,8 +813,18 @@ int main(int argc, char **argv)
 	assert(!ret);
 
 	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr;
-	if (dvr_file != NULL) {
-		ret = pthread_create(&tid_dvr, NULL, __DVR_THREAD__, NULL);
+	if (dvr_template != NULL) {
+		dvr_thread_params *args = (dvr_thread_params *)malloc(sizeof *args);
+		args->filename_template = dvr_template;
+		args->mp4_fragmentation_mode = mp4_fragmentation_mode;
+		args->video_framerate = video_framerate;
+		ret = pthread_create(&tid_dvr, NULL, __DVR_THREAD__, args);
+		if (dvr_autostart) {
+			dvr_enabled = 1;
+			dvr_rpc cmd;
+			cmd.command = dvr_rpc_command::DVR_RPC_START;
+			enqueueDvrCommand(cmd);
+		}
 	}
 	ret = pthread_create(&tid_frame, NULL, __FRAME_THREAD__, NULL);
 	assert(!ret);
@@ -739,7 +843,7 @@ int main(int argc, char **argv)
 	}
 
 	////////////////////////////////////////////// MAIN LOOP
-    read_gstreamerpipe_stream((void**)packet, listen_port, dvr_file != NULL, codec);
+    read_gstreamerpipe_stream((void**)packet, listen_port, codec);
 
 	////////////////////////////////////////////// MPI CLEANUP
 
@@ -769,7 +873,7 @@ int main(int argc, char **argv)
 		ret = pthread_join(tid_osd, NULL);
 		assert(!ret);
 	}
-	if (dvr_file != NULL ){
+	if (dvr_template != NULL ){
 		ret = pthread_join(tid_dvr, NULL);
 		assert(!ret);
 	}
