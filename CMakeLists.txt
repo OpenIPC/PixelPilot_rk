@@ -11,6 +11,8 @@ set(SOURCE_FILES
         src/drm.c
         src/osd.h
         src/osd.c
+        src/dvr.h
+        src/dvr.cpp
         src/rtp.h
         src/rtp.c
         src/mavlink.h
