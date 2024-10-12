@@ -683,13 +683,12 @@ int main(int argc, char **argv)
 		printf("modeset_open() =  %d\n", ret);
 	}
 	assert(drm_fd >= 0);
-	output_list = (struct modeset_output *)malloc(sizeof(struct modeset_output));
-	ret = modeset_prepare(drm_fd, output_list, mode_width, mode_height, mode_vrefresh);
-	if (ret) {
-        fprintf(stderr,
-                "cannot initialize display. Is display connected? Is --screen-mode correct?\n");
+	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh);
+	if (!output_list) {
+		fprintf(stderr,
+				"cannot initialize display. Is display connected? Is --screen-mode correct?\n");
 		return -2;
-    }
+	}
 	
 	////////////////////////////////// MPI SETUP
 	MppPacket packet;

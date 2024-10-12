@@ -510,7 +510,7 @@ out_error:
 }
 
 
-int modeset_prepare(int fd, struct modeset_output *output_list, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh)
+struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh)
 {
 	drmModeRes *res;
 	drmModeConnector *conn;
@@ -521,7 +521,7 @@ int modeset_prepare(int fd, struct modeset_output *output_list, uint16_t mode_wi
 	if (!res) {
 		fprintf(stderr, "cannot retrieve DRM resources (%d): %m\n",
 			errno);
-		return -errno;
+		return NULL;
 	}
 
 	for (i = 0; i < res->count_connectors; ++i) {
@@ -534,18 +534,14 @@ int modeset_prepare(int fd, struct modeset_output *output_list, uint16_t mode_wi
 
 		out = modeset_output_create(fd, res, conn, mode_width, mode_height, mode_vrefresh);
 		drmModeFreeConnector(conn);
-		if (!out)
-			continue;
-
-		*output_list = *out;
+		if (out) {
+			drmModeFreeResources(res);
+			return out;
+		}
 	}
-	if (!out) {
-		fprintf(stderr, "couldn't create any outputs\n");
-		return -1;
-	}
-
+	fprintf(stderr, "couldn't create any outputs\n");
 	drmModeFreeResources(res);
-	return 0;
+	return NULL;
 }
 
 int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos)
