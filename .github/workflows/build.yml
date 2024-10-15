@@ -40,16 +40,20 @@ jobs:
           device=$(sudo losetup -P --show -f disk.raw)
           sudo mount ${device}p1 $output
 
+          keyring="$output/home/keyring.deb"
+          version="$(curl -L https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/VERSION)"
+          sudo curl -L --output "$keyring" "https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/radxa-archive-keyring_${version}_all.deb"
+
           cat > build.sh << EOL
           #!/bin/bash
-          apt-get update
-          apt-get install -y cmake g++ git pkg-config libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           cd /home
-          git clone https://github.com/rockchip-linux/mpp --depth 1
-          cd mpp
-          cmake -B build
-          cmake --build build --target install -j4
-          cd ..
+          # install radxa APT repo, see https://radxa-repo.github.io/bullseye/
+          sudo dpkg -i keyring.deb
+          # Add apt package repo
+          sudo tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye/ bullseye main"
+
+          apt-get update
+          apt-get install -y cmake g++ git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
           cmake -B build
           cmake --build build -j4
           EOL
