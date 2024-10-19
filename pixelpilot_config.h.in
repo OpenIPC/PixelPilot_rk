@@ -1,0 +1,2 @@
+#define APP_VERSION_MAJOR @pixelpilot_VERSION_MAJOR@
+#define APP_VERSION_MINOR @pixelpilot_VERSION_MINOR@

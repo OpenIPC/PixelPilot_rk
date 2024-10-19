@@ -56,14 +56,20 @@ jobs:
           apt clean
 
           cmake -B build
-          cmake --build build -j4
+          cmake --build build -j4 --target install
           EOL
 
-          chmod 755 build.sh
-          sudo cp -r build.sh CMakeLists.txt src $output/home
+          cat > run.sh <<EOL
+          #!/bin/bash
+          LD_LIBRARY_PATH=/usr/local/lib/ /usr/local/bin/pixelpilot \$@
+          EOL
+
+          chmod 755 build.sh run.sh
+          sudo cp -r build.sh run.sh CMakeLists.txt pixelpilot_config.h.in src $output/home
           sudo rm $output/etc/resolv.conf
           echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
           sudo chroot $output /home/build.sh
+          sudo chroot $output /home/run.sh --version
           sudo cp $output/home/build/pixelpilot .
 
       - name: Upload
