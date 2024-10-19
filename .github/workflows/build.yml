@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - '*'
   pull_request:
     branches:
       - master
@@ -72,7 +74,13 @@ jobs:
           sudo chroot $output /home/run.sh --version
           sudo cp $output/home/build/pixelpilot .
 
-      - name: Upload
+      - name: Versioned release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pixelpilot
+
+      - name: Upload latest
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
