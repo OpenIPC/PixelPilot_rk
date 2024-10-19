@@ -493,7 +493,7 @@ void printHelp() {
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
     "    --version              - Show program version\n"
-    "\n", PILOT_VERSION_MAJOR, PILOT_VERSION_MINOR
+    "\n", APP_VERSION_MAJOR, APP_VERSION_MINOR
   );
 }
 
@@ -621,7 +621,7 @@ int main(int argc, char **argv)
 	}
 
 	__OnArgument("--version") {
-		printf("PixelPilot Rockchip %d.%d\n", PILOT_VERSION_MAJOR, PILOT_VERSION_MINOR);
+		printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 		return 0;
 	}
 
@@ -632,7 +632,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	printf("PixelPilot Rockchip %d.%d\n", PILOT_VERSION_MAJOR, PILOT_VERSION_MINOR);
+	printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 
 	if (enable_osd == 0 ) {
 		video_zpos = 4;

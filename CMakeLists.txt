@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(pixelpilot)
+project(pixelpilot VERSION 0.13.2)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -24,6 +24,8 @@ set(SOURCE_FILES
         src/gstrtpreceiver.h)
 
 include_directories("/usr/include/libdrm" "/usr/include/cairo")
+
+configure_file("${PROJECT_NAME}_config.h.in" "${PROJECT_NAME}_config.h")
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo)
