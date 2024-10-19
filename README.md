@@ -102,4 +102,4 @@ Pixelpilot starts several threads:
 * update project version in `CMakeList.txt`, `project(pixelpilot, VERSION <X.Y.Z>)`, commit
 * push that commit to master (either directly or with PR)
 * tag the tip of the master branch with the same `<X.Y.Z>` version
-* run `git push --tags`
+* run `git push --tags`; it will publish a new GitHub release
