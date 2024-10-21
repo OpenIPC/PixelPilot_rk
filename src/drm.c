@@ -509,6 +509,107 @@ out_error:
 	return NULL;
 }
 
+#define TYPE_V(n) {DRM_MODE_TYPE_ ## n, #n}
+#define FLAG_V(n) {DRM_MODE_FLAG_ ## n, #n}
+
+struct Flag {
+	int value;
+	char *name;
+};
+
+void print_flag(const int flags, struct Flag flag_decoder[])
+{
+	struct Flag *c = flag_decoder;
+	int beenthere = 0;
+
+	for(; c->name; ++c)
+		if(flags & c->value)
+			printf("%s%s", beenthere++ ? "|" : "", c->name);
+}
+
+
+void *modeset_print_modes(int fd, int verbosity)
+{
+	drmModeRes *res;
+	drmModeConnector *conn;
+	drmModeModeInfo info;
+	struct Flag decode_type[] = {
+		TYPE_V(BUILTIN),
+		TYPE_V(PREFERRED),
+		TYPE_V(DEFAULT),
+		TYPE_V(USERDEF),
+		TYPE_V(DRIVER),
+		{0, NULL}
+	};
+	struct Flag decode_flag[] = {
+		FLAG_V(PHSYNC),
+		FLAG_V(NHSYNC),
+		FLAG_V(PVSYNC),
+		FLAG_V(NVSYNC),
+		FLAG_V(INTERLACE),
+		FLAG_V(DBLSCAN),
+		FLAG_V(CSYNC),
+		FLAG_V(PCSYNC),
+		FLAG_V(NCSYNC),
+		FLAG_V(HSKEW),
+		FLAG_V(BCAST),
+		FLAG_V(PIXMUX),
+		FLAG_V(DBLCLK),
+		FLAG_V(CLKDIV2),
+		{0, NULL}
+	};
+	res = drmModeGetResources(fd);
+	if (!res) {
+		fprintf(stderr, "cannot retrieve DRM resources (%d): %m\n",
+			errno);
+		return NULL;
+	}
+
+	for (int i = 0; i < res->count_connectors; ++i) {
+		conn = drmModeGetConnector(fd, res->connectors[i]);
+		if (!conn) {
+			fprintf(stderr, "cannot retrieve DRM connector %u:%u (%d): %m\n",
+				i, res->connectors[i], errno);
+			continue;
+		}
+		if (verbosity > 1) {
+			printf("connector id:%d,width_mm:%d,height_mm:%d\n",
+				   conn->connector_id,
+				   conn->mmWidth,
+				   conn->mmHeight);
+		}
+		for (int i = 0; i < conn->count_modes; i++ ) {
+			info = conn->modes[i];
+			if (verbosity == 1) {
+				printf("%dx%d@%d\n", info.hdisplay, info.vdisplay, info.vrefresh);
+			} else if (verbosity > 1) {
+				printf("mode name:%s,pixel_clock:%d,hdisplay:%d,hsync_start:%d,hsync_end:%d,htotal:%d,hskew:%d,"\
+					   "vdisplay:%d,vsync_start:%d,vsync_end:%d,vtotal:%d,vscan:%d,vrefresh:%d,flags:",
+					   info.name,
+					   info.clock,
+					   info.hdisplay,
+					   info.hsync_start,
+					   info.hsync_end,
+					   info.htotal,
+					   info.hskew,
+					   info.vdisplay,
+					   info.vsync_start,
+					   info.vsync_end,
+					   info.vtotal,
+					   info.vscan,
+					   info.vrefresh);
+				print_flag(info.flags, decode_flag);
+				printf(",type:");
+				print_flag(info.type, decode_type);
+				printf("\n");
+			}
+		}
+		drmModeFreeConnector(conn);
+	}
+	drmModeFreeResources(res);
+	return NULL;
+
+}
 
 struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh)
 {
