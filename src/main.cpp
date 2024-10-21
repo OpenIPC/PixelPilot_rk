@@ -473,9 +473,9 @@ void printHelp() {
     "\n"
     "    --osd                  - Enable OSD\n"
     "\n"
-    "    --osd-elements <els>	- Customize osd elements   			    (Default: video,wfbng,telem)\n"
+    "    --osd-elements <els>   - Customize osd elements   			    (Default: video,wfbng,telem)\n"
     "\n"
-    "    --osd-telem-lvl <lvl>	- Level of details for telemetry in the OSD (Default: 1 [1-2])\n"
+    "    --osd-telem-lvl <lvl>  - Level of details for telemetry in the OSD (Default: 1 [1-2])\n"
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
@@ -492,6 +492,9 @@ void printHelp() {
     "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
+    "    --screen-mode-list <v> - Print the list of connected monitors and supported screen modes and exit.\n"
+    "                             Argument is the verbosity level: 1 - basic, 2 - verbose. See man drm-kms.\n"
+    "\n"
     "    --version              - Show program version\n"
     "\n", APP_VERSION_MAJOR, APP_VERSION_MINOR
   );
@@ -506,6 +509,8 @@ int main(int argc, char **argv)
 	int enable_osd = 0;
 	int mavlink_thread = 0;
 	int dvr_autostart = 0;
+	int print_modelist = 0;
+	int print_modelist_verbosity = 0;
 	char* dvr_template = NULL;
 	int video_framerate = -1;
 	int mp4_fragmentation_mode = 0;
@@ -620,6 +625,12 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--screen-mode-list") {
+		print_modelist_verbosity = atoi(__ArgValue);
+		print_modelist = 1;
+		continue;
+	}
+
 	__OnArgument("--version") {
 		printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 		return 0;
@@ -644,14 +655,6 @@ int main(int argc, char **argv)
 	}
 	ret = mpp_check_support_format(MPP_CTX_DEC, mpp_type);
 	assert(!ret);
-
-	////////////////////////////////// SIGNAL SETUP
-
-	signal(SIGINT, sig_handler);
-	signal(SIGPIPE, sig_handler);
-	if (dvr_template) {
-		signal(SIGUSR1, sigusr1_handler);
-	}
 	
 	//////////////////////////////////  DRM SETUP
 	ret = modeset_open(&drm_fd, "/dev/dri/card0");
@@ -659,6 +662,12 @@ int main(int argc, char **argv)
 		printf("modeset_open() =  %d\n", ret);
 	}
 	assert(drm_fd >= 0);
+	if (print_modelist) {
+		modeset_print_modes(drm_fd, print_modelist_verbosity);
+		close(drm_fd);
+		return 0;
+	}
+
 	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh);
 	if (!output_list) {
 		fprintf(stderr,
@@ -686,6 +695,14 @@ int main(int argc, char **argv)
 	ret = mpi.mpi->control(mpi.ctx, MPP_SET_OUTPUT_BLOCK, &param);
 	assert(!ret);
 
+
+	////////////////////////////////// SIGNAL SETUP
+
+	signal(SIGINT, sig_handler);
+	signal(SIGPIPE, sig_handler);
+	if (dvr_template) {
+		signal(SIGUSR1, sigusr1_handler);
+	}
  	//////////////////// THREADS SETUP
 	
 	ret = pthread_mutex_init(&video_mutex, NULL);
