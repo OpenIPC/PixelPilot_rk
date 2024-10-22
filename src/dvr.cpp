@@ -210,3 +210,19 @@ void Dvr::stop() {
 	dvr_enabled = 0;
 	_ready_to_write = 0;
 }
+
+
+// C-compatible interface
+extern "C" {
+	void dvr_start_recording(Dvr* dvr) {
+		if (dvr) {
+			dvr->start_recording();
+		}
+	}
+
+	void dvr_stop_recording(Dvr* dvr) {
+		if (dvr) {
+			dvr->stop_recording();
+		}
+	}
+}
