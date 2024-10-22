@@ -23,6 +23,22 @@
 #include "mavlink.h"
 #include "osd.h"
 
+// Declare the C-compatible interface functions
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct Dvr* Dvr; // Forward declaration
+
+void dvr_start_recording(Dvr* dvr);
+void dvr_stop_recording(Dvr* dvr);
+
+#ifdef __cplusplus
+}
+#endif
+
+extern Dvr *dvr;
+
 #define earthRadiusKm 6371.0
 #define BILLION 1000000000L
 
@@ -124,10 +140,16 @@ void* __MAVLINK_THREAD__(void* arg) {
     for (int i = 0; i < ret; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_0, buffer[i], &message, &status) == 1) {
         switch (message.msgid) {
-          case MAVLINK_MSG_ID_HEARTBEAT:
-            // handle_heartbeat(&message);
-            break;
-		
+            case MAVLINK_MSG_ID_HEARTBEAT: {
+                mavlink_heartbeat_t heartbeat;
+                mavlink_msg_heartbeat_decode(&message, &heartbeat);
+                if (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) {
+                    dvr_start_recording(dvr);
+                } else {
+                    dvr_stop_recording(dvr);
+                }
+                break;
+            }
 	  case MAVLINK_MSG_ID_RAW_IMU:
             {
               mavlink_raw_imu_t imu;
