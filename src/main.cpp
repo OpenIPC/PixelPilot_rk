@@ -492,8 +492,7 @@ void printHelp() {
     "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
-    "    --screen-mode-list <v> - Print the list of connected monitors and supported screen modes and exit.\n"
-    "                             Argument is the verbosity level: 1 - basic, 2 - verbose. See man drm-kms.\n"
+    "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
     "    --version              - Show program version\n"
     "\n", APP_VERSION_MAJOR, APP_VERSION_MINOR
@@ -510,7 +509,6 @@ int main(int argc, char **argv)
 	int mavlink_thread = 0;
 	int dvr_autostart = 0;
 	int print_modelist = 0;
-	int print_modelist_verbosity = 0;
 	char* dvr_template = NULL;
 	int video_framerate = -1;
 	int mp4_fragmentation_mode = 0;
@@ -626,7 +624,6 @@ int main(int argc, char **argv)
 	}
 
 	__OnArgument("--screen-mode-list") {
-		print_modelist_verbosity = atoi(__ArgValue);
 		print_modelist = 1;
 		continue;
 	}
@@ -663,7 +660,7 @@ int main(int argc, char **argv)
 	}
 	assert(drm_fd >= 0);
 	if (print_modelist) {
-		modeset_print_modes(drm_fd, print_modelist_verbosity);
+		modeset_print_modes(drm_fd);
 		close(drm_fd);
 		return 0;
 	}
