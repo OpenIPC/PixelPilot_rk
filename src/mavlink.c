@@ -23,20 +23,10 @@
 #include "mavlink.h"
 #include "osd.h"
 
-// Declare the C-compatible interface functions
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+// Declare the C-compatible interface to cpp dvr functions
 typedef struct Dvr* Dvr; // Forward declaration
-
 void dvr_start_recording(Dvr* dvr);
 void dvr_stop_recording(Dvr* dvr);
-
-#ifdef __cplusplus
-}
-#endif
-
 extern Dvr *dvr;
 
 #define earthRadiusKm 6371.0
