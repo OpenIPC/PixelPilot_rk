@@ -142,6 +142,7 @@ void* __MAVLINK_THREAD__(void* arg) {
       if (mavlink_parse_char(MAVLINK_COMM_0, buffer[i], &message, &status) == 1) {
         switch (message.msgid) {
             case MAVLINK_MSG_ID_HEARTBEAT: {
+              if (mavlink_rec_on_arm) {
                 mavlink_heartbeat_t heartbeat = {};
                 mavlink_msg_heartbeat_decode(&message, &heartbeat);
                 bool received_arm_state = (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
@@ -153,7 +154,8 @@ void* __MAVLINK_THREAD__(void* arg) {
                         dvr_stop_recording(dvr);
                     }
                 }
-                break;
+              }
+              break;
             }
 	  case MAVLINK_MSG_ID_RAW_IMU:
             {
