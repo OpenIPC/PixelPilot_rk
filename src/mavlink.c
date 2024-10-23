@@ -137,16 +137,21 @@ void* __MAVLINK_THREAD__(void* arg) {
     // Credit to openIPC:https://github.com/OpenIPC/silicon_research/blob/master/vdec/main.c#L1020
     mavlink_message_t message;
     mavlink_status_t status;
+    static bool current_arm_state = false;
     for (int i = 0; i < ret; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_0, buffer[i], &message, &status) == 1) {
         switch (message.msgid) {
             case MAVLINK_MSG_ID_HEARTBEAT: {
-                mavlink_heartbeat_t heartbeat;
+                mavlink_heartbeat_t heartbeat = {};
                 mavlink_msg_heartbeat_decode(&message, &heartbeat);
-                if (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) {
-                    dvr_start_recording(dvr);
-                } else {
-                    dvr_stop_recording(dvr);
+                bool received_arm_state = (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
+                if (current_arm_state != received_arm_state) {
+                    current_arm_state = received_arm_state;
+                    if (received_arm_state) {
+                        dvr_start_recording(dvr);
+                    } else {
+                        dvr_stop_recording(dvr);
+                    }
                 }
                 break;
             }
