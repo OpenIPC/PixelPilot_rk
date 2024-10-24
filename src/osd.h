@@ -71,6 +71,7 @@ struct osd_vars {
 
 extern struct osd_vars osd_vars;
 extern int osd_thread_signal;
+extern bool osd_custom_message;
 extern pthread_mutex_t osd_mutex;
 
 typedef struct {
