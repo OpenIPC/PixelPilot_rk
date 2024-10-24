@@ -1,11 +1,20 @@
-#define _GNU_SOURCE
-#include "osd.h"
 
+extern "C" {
 #include "drm.h"
-#include <cairo.h>
-#include <pthread.h>
 #include "mavlink.h"
 #include "icons/icons.h"
+}
+#include "osd.h"
+
+#include <pthread.h>
+#include <map>
+#include <vector>
+#include <ranges>
+#include <memory>
+#include <variant>
+#include <cstdlib> //KILLME
+#include <string>
+#include <cairo.h>
 
 #define WFB_LINK_LOST 1
 #define WFB_LINK_JAMMED 2
@@ -18,15 +27,298 @@ extern uint32_t frames_received;
 uint32_t stats_rx_bytes = 0;
 struct timespec last_timestamp = {0, 0};
 float rx_rate = 0;
-int hours = 0 , minutes = 0 , seconds = 0 , milliseconds = 0;
+int hours = 0, minutes = 0, seconds = 0, milliseconds = 0;
 char custom_msg[80];
 u_int custom_msg_refresh_count = 0;
-
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
   return (timestamp->tv_sec - last_meansure_timestamp->tv_sec) +
        (timestamp->tv_nsec - last_meansure_timestamp->tv_nsec) / 1000000000.;
 }
+
+//
+// Facts
+//
+
+typedef std::map<std::string, std::string> FactTags;
+
+
+class FactMatcher {
+public:
+	FactMatcher(std::string name, FactTags tags): name(name), tags(tags) {};
+	FactMatcher(std::string name): name(name), tags({}) {};
+	std::string name;
+	FactTags tags;
+};
+
+
+class FactMeta {
+public:
+	FactMeta() {
+		name = "";
+		tags = {};
+	};
+	FactMeta(std::string name): name(name), tags({}) {};
+	FactMeta(std::string name, FactTags tags): name(name), tags(tags) {};
+
+	/**
+	 * Returns true if names are equal and all match_tags are defined and have equal value
+	 */
+	bool match(FactMatcher matcher) {
+		if(matcher.name != name) return false;
+		for (const auto& [key, match_value] : matcher.tags) {
+			if (auto value = tags.find(key); value != tags.end()) {
+				if (value->second != match_value) return false;
+			} else {
+				return false;
+			}
+		}
+		return true;
+	}
+
+private:
+	std::string name;
+	FactTags tags;
+};
+
+
+class Fact {
+public:
+	Fact() {
+		FactMeta meta;
+		type = T_UNDEF;
+	};
+	Fact(FactMeta meta, int val): meta(meta), value(val), type(T_INT) {};
+	Fact(FactMeta meta, uint val): meta(meta), value(val), type(T_UINT) {};
+	Fact(FactMeta meta, double val): meta(meta), value(val), type(T_DOUBLE) {};
+	Fact(FactMeta meta, std::string val): meta(meta), value(val), type(T_STRING) {};
+
+	bool isDefined() {
+		return type != T_UNDEF;
+	}
+
+	// TODO: try to cast instead of crash
+	int getIntValue() {
+		assert(type == T_INT);
+		return std::get<int>(value);
+	}
+
+	int getUintValue() {
+		assert(type == T_UINT);
+		return std::get<uint>(value);
+	}
+
+	int getDoubleValue() {
+		assert(type == T_DOUBLE);
+		return std::get<double>(value);
+	}
+
+	std::string getStrValue() {
+		assert(type == T_STRING);
+		return std::get<std::string>(value);
+	}
+
+	bool matches(FactMatcher matcher) {
+		return meta.match(matcher);
+	}
+
+private:
+	FactMeta meta;
+	// TODO: timestamp
+	enum {
+		T_UNDEF,
+		T_INT,
+		T_UINT,
+		T_DOUBLE,
+		T_STRING
+	} type;
+	std::variant<
+		int,
+		uint,
+		double,
+		std::string
+		> value;
+};
+
+
+//
+// Widgets
+//
+
+class Widget {
+public:
+	Widget(uint pos_x, uint pos_y): pos_x(pos_x), pos_y(pos_y) {};
+
+	virtual void draw(cairo_t *cr) {};
+	virtual void setFact(uint idx, Fact fact) {};
+
+protected:
+	uint pos_x, pos_y;
+};
+
+
+class TextWidget: public Widget {
+public:
+	TextWidget(uint pos_x, uint pos_y, std::string text): Widget(pos_x, pos_y), text(text) {};
+
+	virtual void draw(cairo_t *cr) {
+		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+		cairo_move_to(cr, pos_x, pos_y);
+		cairo_show_text(cr, text.c_str());
+	}
+private:
+	std::string text;
+};
+
+
+class IconTextWidget: Widget {
+public:
+	IconTextWidget(uint pos_x, uint pos_y, cairo_surface_t *icon, std::string text):
+		Widget(pos_x, pos_y), text(text), icon(icon) {};
+
+	virtual void draw(cairo_t *cr) {
+		cairo_set_source_surface(cr, icon, pos_x, pos_y - 20);
+		cairo_paint(cr);
+		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+		cairo_move_to(cr, pos_x + 40, pos_y);
+		cairo_show_text(cr, text.c_str());
+	}
+
+private:
+	std::string text;
+	cairo_surface_t *icon;
+};
+
+
+class TplTextWidget: public Widget {
+public:
+	TplTextWidget(uint pos_x, uint pos_y, std::string tpl, uint num_args):
+		Widget(pos_x, pos_y), tpl(tpl), num_args(num_args) {
+		args.resize(num_args);
+		// todo: validate num_args matches number of placeholders
+	};
+
+	virtual void setFact(uint idx, Fact fact) {
+		args[idx] = fact;
+	}
+
+	virtual void draw(cairo_t *cr) {
+		std::unique_ptr<std::string> msg = render_tpl();
+		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+		cairo_move_to(cr, pos_x, pos_y);
+		cairo_show_text(cr, msg->c_str());
+	}
+
+protected:
+	std::unique_ptr<std::string> render_tpl() {
+		bool at_placeholder = false;
+		int fact_i = 0;
+		Fact *fact;
+		std::unique_ptr<std::string> msg(new std::string);
+		for(char& c : tpl) {
+			if (c == '%') {
+				at_placeholder = true;
+			} else if (!at_placeholder) {
+				msg->push_back(c);
+			} else if (at_placeholder && c == '%') {
+				msg->push_back('%');
+				at_placeholder = false;
+			} else if (at_placeholder) {
+				at_placeholder = false;
+				fact = &args[fact_i];
+				if (!fact->isDefined()) {
+					msg->push_back('?');
+					fact_i++;
+					continue;
+				}
+				switch (c) {
+				case 'd':
+				case 'i':
+					{
+						msg->append(std::to_string(fact->getIntValue()));
+						break;
+					}
+				case 'u':
+					{
+						msg->append(std::to_string(fact->getUintValue()));
+						break;
+					}
+				case 'f':
+					{
+						msg->append(std::to_string(fact->getDoubleValue()));
+						break;
+					}
+				case 's':
+					{
+						msg->append(fact->getStrValue());
+						break;
+					}
+				default:
+					{
+						msg->push_back('?');
+					}
+				}
+				fact_i++;
+			}
+		}
+		return msg;
+	}
+
+private:
+	std::string tpl;
+	uint num_args;
+	std::vector<Fact> args;
+};
+
+
+class IconTplTextWidget: public TplTextWidget {
+public:
+	IconTplTextWidget(uint pos_x, uint pos_y, cairo_surface_t *icon, std::string tpl, uint num_args):
+		TplTextWidget(pos_x, pos_y, tpl, num_args), icon(icon) {};
+
+	virtual void draw(cairo_t *cr) {
+		std::unique_ptr<std::string> msg = render_tpl();
+		cairo_set_source_surface(cr, icon, pos_x, pos_y - 20);
+		cairo_paint(cr);
+		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+		cairo_move_to(cr, pos_x + 40, pos_y);
+		cairo_show_text(cr, msg->c_str());
+	}
+
+private:
+	cairo_surface_t *icon;
+};
+
+
+class Osd {
+public:
+	Osd *addWidget(Widget *widget, std::vector<FactMatcher> param_matchers) {
+		uint arg_idx = 0;
+		widgets.push_back(widget);
+		for (auto matcher : param_matchers) {
+			matchers.push_back(std::make_tuple(matcher, widget, arg_idx));
+			arg_idx++;
+		}
+		return this;
+	};
+
+	void draw(cairo_t *cr) {
+		for(auto &widget : widgets)
+			widget->draw(cr);
+	};
+
+	void setFact(Fact fact) {
+		for (auto [matcher, widget, arg_idx] : matchers) {
+			if (fact.matches(matcher)) {
+				widget->setFact(arg_idx, fact);
+			}
+		}
+	};
+
+private:
+	std::vector<Widget *> widgets;
+	std::vector<std::tuple<FactMatcher, Widget *, uint>> matchers;
+};
 
 
 cairo_surface_t *fps_icon;
@@ -36,7 +328,7 @@ cairo_surface_t* sdcard_icon;
 
 pthread_mutex_t osd_mutex;
 
-void modeset_paint_buffer(struct modeset_buf *buf) {
+void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	unsigned int j,k,off;
 	cairo_t* cr;
 	cairo_surface_t *surface;
@@ -55,6 +347,36 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 
 	cairo_select_font_face (cr, "Roboto", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 	cairo_set_font_size (cr, 20);
+
+	osd->draw(cr);
+	// {
+	// 	TextWidget txt_widget(100, 100, "test test test");
+	// 	IconTextWidget it_widget(100, 130, fps_icon, "icn icn icn");
+	// 	TplTextWidget tpl_widget(100, 150, "Hello %i at %s", 2);
+	// 	IconTplTextWidget icn_tpl_widget(100, 170, fps_icon, "IcnTpl %i on %s", 2);
+
+	// 	FactMeta int_meta("int_fact_name", {{"k1", "v1"}, {"k2", "v2"}});
+	// 	Fact int_fact(int_meta, 12345);
+	// 	FactMeta str_meta("str_fact_name", {{"k1", "v1"}, {"k2", "v2"}});
+	// 	Fact str_fact(str_meta, "qwerty");
+
+	// 	printf("int_fact name matches %i\n", int_fact.matches(FactMatcher("int_fact_name", {})));
+	// 	// printf("int_fact name, tags matches %i\n", int_fact.match(std::make_pair("int_fact_name", { {"k1", "v1"} })));
+	// 	// printf("int_fact name not matches %i\n", int_fact.match(std::make_pair("not_int_fact_name", {})));
+	// 	// printf("int_fact tag not matches %i\n", int_fact.match(std::make_pair("int_fact_name", { {"a", "b"} })));
+	// 	// printf("int_fact tag val not matches %i\n", int_fact.match(std::make_pair("int_fact_name", { {"k1", "b"} })));
+
+	// 	txt_widget.draw(cr);
+	// 	it_widget.draw(cr);
+
+	// 	tpl_widget.setFact(0, int_fact);
+	// 	tpl_widget.setFact(1, str_fact);
+	// 	tpl_widget.draw(cr);
+
+	// 	icn_tpl_widget.setFact(0, int_fact);
+	// 	icn_tpl_widget.setFact(1, str_fact);
+	// 	icn_tpl_widget.draw(cr);
+	// }
 
 	if (osd_vars.enable_video || osd_vars.enable_wfbng ) {
 		// stats height
@@ -337,12 +659,12 @@ cairo_status_t on_read_png_stream(png_closure_t * closure, unsigned char * data,
 	return CAIRO_STATUS_SUCCESS;
 }
 
-cairo_surface_t * surface_from_embedded_png(const unsigned char * png, size_t length)
+cairo_surface_t * surface_from_embedded_png(const char * png, size_t length)
 {
 	int rc = -1;
 	png_closure_t closure[1] = {{
 		.iter = (unsigned char *)png,
-		.bytes_left = length,
+		.bytes_left = (unsigned int)length,
 	}};
 	return cairo_image_surface_create_from_png_stream(
 		(cairo_read_func_t)on_read_png_stream,
@@ -350,13 +672,33 @@ cairo_surface_t * surface_from_embedded_png(const unsigned char * png, size_t le
 }
 
 void *__OSD_THREAD__(void *param) {
-	osd_thread_params *p = param;
+	osd_thread_params *p = (osd_thread_params *)param;
+	Osd *osd = new Osd;
+
 	pthread_setname_np(pthread_self(), "__OSD");
 	fps_icon = surface_from_embedded_png(framerate_icon, framerate_icon_length);
 	lat_icon = surface_from_embedded_png(latency_icon, latency_icon_length);
 	net_icon = surface_from_embedded_png(bandwidth_icon, bandwidth_icon_length);
 	sdcard_icon = surface_from_embedded_png(sdcard_white_icon, sdcard_white_icon_length);
 
+	osd ->addWidget(new IconTplTextWidget(10, 30, lat_icon, "%f ms (%f, %f)", 3),
+					{
+						FactMatcher("latency.avg"),
+						FactMatcher("latency.min"),
+						FactMatcher("latency.max")
+					})
+		->addWidget(new IconTplTextWidget(10, 60, fps_icon, "%d fps | %dx%d", 3),
+					{
+						FactMatcher("video.current_framerate"),
+						FactMatcher("video.width"),
+						FactMatcher("video.height")
+					})
+		->addWidget(new TplTextWidget(10, 90, "WFB %d F%d L%d", 3),
+					{
+						FactMatcher("wfb.rssi"),
+						FactMatcher("wfb.fec_fixed"),
+						FactMatcher("wfb.errors")
+					});
 	int ret = pthread_mutex_init(&osd_mutex, NULL);
 	assert(!ret);
 
@@ -364,9 +706,40 @@ void *__OSD_THREAD__(void *param) {
 	ret = modeset_perform_modeset(p->fd, p->out, p->out->osd_request, &p->out->osd_plane, buf->fb, buf->width, buf->height, osd_vars.plane_zpos);
 	assert(ret >= 0);
 	while(!osd_thread_signal) {
+		uint rnd = std::rand();
 		int buf_idx = p->out->osd_buf_switch ^ 1;
 		struct modeset_buf *buf = &p->out->osd_bufs[buf_idx];
-		modeset_paint_buffer(buf);
+		switch (rnd % 2) {
+		case 0:
+			{
+				printf("0\n");
+				osd->setFact(Fact(FactMeta("latency.avg"), (double)osd_vars.latency_avg));
+				osd->setFact(Fact(FactMeta("latency.min"), (double)osd_vars.latency_min));
+				osd->setFact(Fact(FactMeta("latency.max"), (double)osd_vars.latency_max));
+				osd->setFact(Fact(FactMeta("video.current_framerate"), (int)osd_vars.current_framerate));
+				osd->setFact(Fact(FactMeta("video.width"), (int)osd_vars.video_width));
+				osd->setFact(Fact(FactMeta("video.height"), (int)osd_vars.video_height));
+				osd->setFact(Fact(FactMeta("wfb.rssi"), (int)osd_vars.wfb_rssi));
+				osd->setFact(Fact(FactMeta("wfb.fec_fixed"), (int)osd_vars.wfb_fec_fixed));
+				osd->setFact(Fact(FactMeta("wfb.errors"), (int)osd_vars.wfb_errors));
+				break;
+			}
+		case 1:
+			{
+				printf("1\n");
+				osd->setFact(Fact(FactMeta("latency.avg"), (double)(rnd % 101) ));
+				osd->setFact(Fact(FactMeta("latency.min"), (double)(rnd % 102) ));
+				osd->setFact(Fact(FactMeta("latency.max"), (double)(rnd % 103) ));
+				osd->setFact(Fact(FactMeta("video.current_framerate"), (int)(rnd % 104) ));
+				osd->setFact(Fact(FactMeta("video.width"), (int)640));
+				osd->setFact(Fact(FactMeta("video.height"), (int)480));
+				osd->setFact(Fact(FactMeta("wfb.rssi"), (int)(-rnd % 110) ));
+				osd->setFact(Fact(FactMeta("wfb.fec_fixed"), (int)(rnd % 30) ));
+				osd->setFact(Fact(FactMeta("wfb.errors"), (int)(rnd % 25) ));
+				break;
+			}
+		}
+		modeset_paint_buffer(buf, osd);
 
 		int ret = pthread_mutex_lock(&osd_mutex);
 		assert(!ret);	
@@ -376,4 +749,5 @@ void *__OSD_THREAD__(void *param) {
 		usleep(osd_vars.refresh_frequency_ms*1000);
     }
 	printf("OSD thread done.\n");
+	return nullptr;
 }
