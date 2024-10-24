@@ -37,13 +37,13 @@
 extern "C" {
 #include "main.h"
 #include "drm.h"
-#include "osd.h"
 #include "rtp.h"
 
 #include "mavlink/common/mavlink.h"
 #include "mavlink.h"
 }
 
+#include "osd.h"
 #include "dvr.h"
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"

@@ -10,7 +10,7 @@ set(SOURCE_FILES
         src/drm.h
         src/drm.c
         src/osd.h
-        src/osd.c
+        src/osd.cpp
         src/dvr.h
         src/dvr.cpp
         src/rtp.h
