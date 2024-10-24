@@ -80,6 +80,7 @@ pthread_cond_t video_cond;
 int video_zpos = 1;
 
 bool mavlink_dvr_on_arm = false;
+bool osd_custom_message = false;
 
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
@@ -483,6 +484,8 @@ void printHelp() {
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
+    "    --osd-custom-message   - Enables the display of /run/pixelpilot.msg\n"
+    "\n"
     "    --dvr-template <path>  - Save the video feed (no osd) to the provided filename template.\n"
     "                             DVR is toggled by SIGUSR1 signal\n"
     "                             Supports placeholders %%Y - year, %%m - month, %%d - day,\n"
@@ -623,7 +626,12 @@ int main(int argc, char **argv)
 		osd_vars.telemetry_level = atoi(__ArgValue);
 		continue;
 	}
-	
+
+	__OnArgument("--osd-custom-message") {
+		osd_custom_message = true;
+		continue;
+	}
+
 	__OnArgument("--screen-mode") {
 		char* mode = const_cast<char*>(__ArgValue);
 		mode_width = atoi(strtok(mode, "x"));
