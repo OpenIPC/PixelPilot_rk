@@ -79,7 +79,7 @@ pthread_cond_t video_cond;
 
 int video_zpos = 1;
 
-bool mavlink_rec_on_arm = false;
+bool mavlink_dvr_on_arm = false;
 
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
@@ -471,7 +471,7 @@ void printHelp() {
     "\n"
     "    --mavlink-port <port>  - UDP port for mavlink telemetry        (Default: 14550)\n"
     "\n"
-    "    --mavlink-rec-on-arm   - Start recording when armed\n"
+    "    --mavlink-dvr-on-arm   - Start recording when armed\n"
     "\n"
     "    --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265>)\n"
     "\n"
@@ -574,8 +574,8 @@ int main(int argc, char **argv)
 		continue;
 	}
 
-	__OnArgument("--mavlink-rec-on-arm") {
-		mavlink_rec_on_arm = true;
+	__OnArgument("--mavlink-dvr-on-arm") {
+		mavlink_dvr_on_arm = true;
 		continue;
 	}
 
