@@ -2,7 +2,7 @@
 #define MVLINK_H
 
 extern int mavlink_port;
-extern bool mavlink_rec_on_arm;
+extern bool mavlink_dvr_on_arm;
 extern int mavlink_thread_signal;
 
 void* __MAVLINK_THREAD__(void* arg);
