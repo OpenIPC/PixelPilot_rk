@@ -39,17 +39,15 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 	char msg[80];
 	memset(msg, 0x00, sizeof(msg));
 
-	// TODO(gehee) This takes forever.
-	for (j = 0; j < buf->height; ++j) {
-	    for (k = 0; k < buf->width; ++k) {
-	        off = buf->stride * j + k * 4;
-	        *(uint32_t*)&buf->map[off] = (0 << 24) | (0 << 16) | (0 << 8) | 0;
-	    }
-	}
-
 	int osd_x = buf->width - 300;
 	surface = cairo_image_surface_create_for_data(buf->map, CAIRO_FORMAT_ARGB32, buf->width, buf->height, buf->stride);
 	cr = cairo_create (surface);
+
+	// https://www.cairographics.org/FAQ/#clear_a_surface
+	cairo_save(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+	cairo_paint(cr);
+	cairo_restore(cr);
 
 	cairo_select_font_face (cr, "Roboto", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 	cairo_set_font_size (cr, 20);
