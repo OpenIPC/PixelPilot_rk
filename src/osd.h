@@ -79,6 +79,25 @@ typedef struct {
 	int fd;
 } osd_thread_params;
 
+#define TAG_MAX_LEN 64
+
+typedef struct {
+    char key[TAG_MAX_LEN];
+    char val[TAG_MAX_LEN];
+} osd_tag;
+
 void *__OSD_THREAD__(void *param);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+void osd_publish_bool_fact(char const *name, osd_tag *tags, int n_tags, bool value);
+void osd_publish_int_fact(char const *name, osd_tag *tags, int n_tags, int value);
+void osd_publish_uint_fact(char const *name, osd_tag *tags, int n_tags, uint value);
+void osd_publish_double_fact(char const *name, osd_tag *tags, int n_tags, double value);
+void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, char *value);
+#ifdef __cplusplus
+}
+#endif
 
 #endif

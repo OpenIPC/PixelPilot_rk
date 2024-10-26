@@ -133,28 +133,44 @@ void* __MAVLINK_THREAD__(void* arg) {
     static bool current_arm_state = false;
     for (int i = 0; i < ret; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_0, buffer[i], &message, &status) == 1) {
+        osd_tag tags[3];
+        strcpy(tags[0].key, "sysid");
+        snprintf(tags[0].val, sizeof(tags[0].val), "%d", message.sysid);
+        strcpy(tags[1].key, "compid");
+        snprintf(tags[1].val, sizeof(tags[1].val), "%d", message.compid);
         switch (message.msgid) {
-            case MAVLINK_MSG_ID_HEARTBEAT: {
-              if (mavlink_dvr_on_arm) {
-                mavlink_heartbeat_t heartbeat = {};
-                mavlink_msg_heartbeat_decode(&message, &heartbeat);
-                bool received_arm_state = (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
-                if (current_arm_state != received_arm_state) {
-                    current_arm_state = received_arm_state;
+          case MAVLINK_MSG_ID_HEARTBEAT:
+            {
+              mavlink_heartbeat_t heartbeat = {};
+              mavlink_msg_heartbeat_decode(&message, &heartbeat);
+              bool received_arm_state = (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
+              if (current_arm_state != received_arm_state) {
+                  osd_publish_bool_fact("mavlink.heartbeet.base_mode.armed", tags, 2, received_arm_state);
+                  current_arm_state = received_arm_state;
+                  if (mavlink_dvr_on_arm) {
                     if (received_arm_state) {
-                        dvr_start_recording(dvr);
+                      dvr_start_recording(dvr);
                     } else {
-                        dvr_stop_recording(dvr);
+                      dvr_stop_recording(dvr);
                     }
-                }
+                  }
               }
-              break;
             }
-	  case MAVLINK_MSG_ID_RAW_IMU:
+            break;
+	      case MAVLINK_MSG_ID_RAW_IMU:
             {
               mavlink_raw_imu_t imu;
               mavlink_msg_raw_imu_decode(&message, &imu);
               osd_vars.telemetry_raw_imu = imu.temperature;
+              strcpy(tags[2].key, "imu_id");
+              snprintf(tags[2].val, sizeof(tags[2].val), "%d", imu.id);
+              osd_publish_int_fact("mavlink.raw_imu.xacc", tags, 3, (int) imu.xacc);
+              osd_publish_int_fact("mavlink.raw_imu.yacc", tags, 3, (int) imu.yacc);
+              osd_publish_int_fact("mavlink.raw_imu.zacc", tags, 3, (int) imu.zacc);
+              osd_publish_int_fact("mavlink.raw_imu.xgyro", tags, 3, (int) imu.xgyro);
+              osd_publish_int_fact("mavlink.raw_imu.ygyro", tags, 3, (int) imu.ygyro);
+              osd_publish_int_fact("mavlink.raw_imu.zgyro", tags, 3, (int) imu.zgyro);
+              osd_publish_int_fact("mavlink.raw_imu.temperature", tags, 3, (int) imu.temperature);
             }
             break;
 		
@@ -164,6 +180,8 @@ void* __MAVLINK_THREAD__(void* arg) {
               mavlink_msg_sys_status_decode(&message, &bat);
               osd_vars.telemetry_battery = bat.voltage_battery;
               osd_vars.telemetry_current = bat.current_battery;
+              osd_publish_uint_fact("mavlink.sys_status.voltage_battery", tags, 2, (uint) bat.voltage_battery);
+              osd_publish_int_fact("mavlink.sys_status.current_battery", tags, 2, (int) bat.current_battery);
             }
             break;
 
@@ -171,7 +189,11 @@ void* __MAVLINK_THREAD__(void* arg) {
             {
               mavlink_battery_status_t batt;
               mavlink_msg_battery_status_decode(&message, &batt);
+              strcpy(tags[2].key, "battery_id");
+              snprintf(tags[2].val, sizeof(tags[2].val), "%d", batt.id);
               osd_vars.telemetry_current_consumed = batt.current_consumed;
+              osd_publish_int_fact("mavlink.battery_status.current_consumed", tags, 3, (int) batt.current_consumed);
+              osd_publish_int_fact("mavlink.battery_status.energy_consumed", tags, 3, (int) batt.energy_consumed);
             }
             break;
 
@@ -187,6 +209,14 @@ void* __MAVLINK_THREAD__(void* arg) {
               }
               osd_vars.telemetry_arm = rc_channels_raw.chan5_raw;
               osd_vars.telemetry_resolution = rc_channels_raw.chan8_raw;
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan1", tags, 2, (uint) rc_channels_raw.chan1_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan2", tags, 2, (uint) rc_channels_raw.chan2_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan3", tags, 2, (uint) rc_channels_raw.chan3_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan4", tags, 2, (uint) rc_channels_raw.chan4_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan5", tags, 2, (uint) rc_channels_raw.chan5_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan6", tags, 2, (uint) rc_channels_raw.chan6_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan7", tags, 2, (uint) rc_channels_raw.chan7_raw);
+              osd_publish_uint_fact("mavlink.rc_channels_raw.chan8", tags, 2, (uint) rc_channels_raw.chan8_raw);
               if (osd_vars.telemetry_resolution > 1700) {
                 system("/root/resolution.sh");
             }
@@ -260,6 +290,14 @@ void* __MAVLINK_THREAD__(void* arg) {
                 osd_vars.s2_double = strtod(osd_vars.s2, &osd_vars.ptr);
                 osd_vars.s3_double = strtod(osd_vars.s3, &osd_vars.ptr);
                 osd_vars.s4_double = strtod(osd_vars.s4, &osd_vars.ptr);
+                osd_publish_int_fact("mavlink.gps_raw.lat", tags, 2, (int) gps.lat);
+                osd_publish_int_fact("mavlink.gps_raw.lon", tags, 2, (int) gps.lon);
+                osd_publish_int_fact("mavlink.gps_raw.alt", tags, 2, (int) gps.alt);
+                osd_publish_uint_fact("mavlink.gps_raw.vel", tags, 2, (uint) gps.vel);
+                osd_publish_uint_fact("mavlink.gps_raw.cog", tags, 2, (uint) gps.cog);
+                osd_publish_uint_fact("mavlink.gps_raw.satellites_visible", tags, 2, (uint) gps.satellites_visible);
+                // Fix type: https://mavlink.io/en/messages/common.html#GPS_FIX_TYPE
+                osd_publish_uint_fact("mavlink.gps_raw.fix_type", tags, 2, (uint) gps.fix_type);
               }
               osd_vars.telemetry_distance = distanceEarth(osd_vars.s1_double, osd_vars.s2_double, osd_vars.s3_double, osd_vars.s4_double);
             }
@@ -272,6 +310,12 @@ void* __MAVLINK_THREAD__(void* arg) {
               osd_vars.telemetry_gspeed = vfr.groundspeed * 3.6;
               osd_vars.telemetry_vspeed = vfr.climb;
               osd_vars.telemetry_altitude = vfr.alt;
+              osd_publish_double_fact("mavlink.vfr_hud.airspeed", tags, 2, (double) vfr.airspeed);
+              osd_publish_double_fact("mavlink.vfr_hud.groundspeed", tags, 2, (double) vfr.groundspeed);
+              osd_publish_double_fact("mavlink.vfr_hud.alt", tags, 2, (double) vfr.alt);
+              osd_publish_double_fact("mavlink.vfr_hud.climb", tags, 2, (double) vfr.climb);
+              osd_publish_int_fact("mavlink.vfr_hud.heading", tags, 2, (int) vfr.heading);
+              osd_publish_uint_fact("mavlink.vfr_hud.throttle", tags, 2, (uint) vfr.throttle);
             }
             break;
 
@@ -280,6 +324,14 @@ void* __MAVLINK_THREAD__(void* arg) {
               mavlink_global_position_int_t global_position_int;
               mavlink_msg_global_position_int_decode( &message, &global_position_int);
               osd_vars.telemetry_hdg = global_position_int.hdg / 100;
+              osd_publish_int_fact("mavlink.global_position_int.lat", tags, 2, (int) global_position_int.lat);
+              osd_publish_int_fact("mavlink.global_position_int.lon", tags, 2, (int) global_position_int.lon);
+              osd_publish_int_fact("mavlink.global_position_int.alt", tags, 2, (int) global_position_int.alt);
+              osd_publish_int_fact("mavlink.global_position_int.relative_alt", tags, 2, (int) global_position_int.relative_alt);
+              osd_publish_int_fact("mavlink.global_position_int.vx", tags, 2, (int) global_position_int.vx);
+              osd_publish_int_fact("mavlink.global_position_int.vy", tags, 2, (int) global_position_int.vy);
+              osd_publish_int_fact("mavlink.global_position_int.vz", tags, 2, (int) global_position_int.vz);
+              osd_publish_uint_fact("mavlink.global_position_int.hdg", tags, 2, (uint) global_position_int.hdg);
             }
             break;
 
@@ -290,19 +342,34 @@ void* __MAVLINK_THREAD__(void* arg) {
               osd_vars.telemetry_pitch = att.pitch * (180.0 / 3.141592653589793238463);
               osd_vars.telemetry_roll = att.roll * (180.0 / 3.141592653589793238463);
               osd_vars.telemetry_yaw = att.yaw * (180.0 / 3.141592653589793238463);
+              osd_publish_double_fact("mavlink.attitude.roll", tags, 2, (double) att.roll);
+              osd_publish_double_fact("mavlink.attitude.pitch", tags, 2, (double) att.pitch);
+              osd_publish_double_fact("mavlink.attitude.yaw", tags, 2, (double) att.yaw);
+              osd_publish_double_fact("mavlink.attitude.rollspeed", tags, 2, (double) att.rollspeed);
+              osd_publish_double_fact("mavlink.attitude.pitchpeed", tags, 2, (double) att.pitchspeed);
+              osd_publish_double_fact("mavlink.attitude.yawspeed", tags, 2, (double) att.yawspeed);
             }
             break;
 
           case MAVLINK_MSG_ID_RADIO_STATUS:
             {
+                mavlink_radio_status_t radio;
+                mavlink_msg_radio_status_decode(&message, &radio);
+                osd_publish_uint_fact("mavlink.radio_status.rxerrors", tags, 2, (uint) radio.rxerrors);
+                osd_publish_uint_fact("mavlink.radio_status.fixed", tags, 2, (uint) radio.fixed);
+                osd_publish_uint_fact("mavlink.radio_status.rssi", tags, 2, (uint) radio.rssi);
+                osd_publish_uint_fact("mavlink.radio_status.remrssi", tags, 2, (uint) radio.remrssi);
+                osd_publish_uint_fact("mavlink.radio_status.noise", tags, 2, (uint) radio.noise);
+                osd_publish_uint_fact("mavlink.radio_status.remnoise", tags, 2, (uint) radio.remnoise);
+                
                 if ((message.sysid != 3) || (message.compid != 68)) {
                     break;
                 }
 
-                osd_vars.wfb_rssi = (int8_t)mavlink_msg_radio_status_get_rssi(&message);
-                osd_vars.wfb_errors = mavlink_msg_radio_status_get_rxerrors(&message);
-                osd_vars.wfb_fec_fixed = mavlink_msg_radio_status_get_fixed(&message);
-                osd_vars.wfb_flags = mavlink_msg_radio_status_get_remnoise(&message);
+                osd_vars.wfb_rssi = (int8_t)radio.rssi;
+                osd_vars.wfb_errors = radio.rxerrors;
+                osd_vars.wfb_fec_fixed = radio.fixed;
+                osd_vars.wfb_flags = radio.remnoise;
 
                 // printf("wfb_rssi=%d, wfb_errors=%d, wfb_fec_fixed=%d, wfb_flags=%d\n", osd_vars.wfb_rssi, osd_vars.wfb_errors, osd_vars.wfb_fec_fixed, osd_vars.wfb_flags);
             }

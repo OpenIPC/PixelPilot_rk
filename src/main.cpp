@@ -104,6 +104,8 @@ void init_buffer(MppFrame frame) {
 
 	osd_vars.video_width = output_list->video_frm_width;
 	osd_vars.video_height = output_list->video_frm_height;
+	osd_publish_uint_fact("video.width", NULL, 0, output_list->video_frm_width);
+	osd_publish_uint_fact("video.height", NULL, 0, output_list->video_frm_height);
 
 	// create new external frame group and allocate (commit flow) new DRM buffers and DRM FB
 	int ret = mpp_buffer_group_get_external(&mpi.frm_grp, MPP_BUFFER_TYPE_DRM);
@@ -294,9 +296,11 @@ void *__DISPLAY_THREAD__(void *param)
 
 		assert(!ret);
 		frame_counter++;
+		osd_publish_uint_fact("video.display_frame_count", NULL, 0, 1);
 
 		uint64_t decode_and_handover_display_ms=get_time_ms()-decoding_pts;
         //accumulate_and_print("D&Display",decode_and_handover_display_ms,&m_decode_and_handover_display_latency);
+		osd_publish_uint_fact("video.decode_and_handover_ms", NULL, 0, decode_and_handover_display_ms);
         
 		clock_gettime(CLOCK_MONOTONIC, &fps_end);
 		uint64_t time_us=(fps_end.tv_sec - fps_start.tv_sec)*1000000ll + ((fps_end.tv_nsec - fps_start.tv_nsec)/1000ll) % 1000000ll;
@@ -396,6 +400,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
         }
 		bytes_received += frame->size();
 		uint64_t now = get_time_ms();
+		osd_publish_uint_fact("gstreamer.received_bytes", NULL, 0, frame->size());
 		if ((now-period_start) >= 1000) {
 			period_start = now;
 			osd_vars.bw_curr = (osd_vars.bw_curr + 1) % 10;
