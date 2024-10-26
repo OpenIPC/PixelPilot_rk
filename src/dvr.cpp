@@ -1,4 +1,3 @@
-
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,6 +89,7 @@ void Dvr::enqueue_dvr_command(dvr_rpc rpc) {
 }
 
 void *Dvr::__THREAD__(void *param) {
+	pthread_setname_np(pthread_self(), "__DVR");
 	((Dvr *)param)->loop();
 	return nullptr;
 }

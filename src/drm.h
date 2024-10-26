@@ -7,7 +7,6 @@
 #ifndef DRM_H
 #define DRM_H
 
-#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>

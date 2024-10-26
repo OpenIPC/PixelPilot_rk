@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <sys/prctl.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -9,6 +10,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -83,6 +85,7 @@ int mavlink_port = 14550;
 int mavlink_thread_signal = 0;
 
 void* __MAVLINK_THREAD__(void* arg) {
+  pthread_setname_np(pthread_self(), "__MAVLINK");
   printf("Starting mavlink thread...\n");
   // Create socket
   int fd = socket(AF_INET, SOCK_DGRAM, 0);

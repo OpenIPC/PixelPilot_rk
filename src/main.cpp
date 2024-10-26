@@ -183,6 +183,7 @@ void *__FRAME_THREAD__(void *param)
 	int i, ret;
 	MppFrame  frame  = NULL;
 	uint64_t last_frame_time;
+	pthread_setname_np(pthread_self(), "__FRAME");
 
 	while (!frm_eos) {
 		struct timespec ts, ats;
@@ -249,6 +250,8 @@ void *__DISPLAY_THREAD__(void *param)
 	float min_latency = 1844674407370955161; // almost MAX_uint64_t
 	float max_latency = 0;
     struct timespec fps_start, fps_end;
+
+	pthread_setname_np(pthread_self(), "__DISPLAY");
 	clock_gettime(CLOCK_MONOTONIC, &fps_start);
 
 	while (!frm_eos) {
@@ -379,7 +382,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
     GstRtpReceiver receiver(gst_udp_port, codec);
 	long long bytes_received = 0; 
 	uint64_t period_start=0;
-    auto cb=[&packet,&decoder_stalled_count, &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
+    auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
         // Let the gst pull thread run at quite high priority
         static bool first= false;
         if(first){

@@ -1,8 +1,9 @@
-
+#define _GNU_SOURCE
 #include "osd.h"
 
 #include "drm.h"
 #include <cairo.h>
+#include <pthread.h>
 #include "mavlink.h"
 #include "icons/icons.h"
 
@@ -303,6 +304,7 @@ cairo_surface_t * surface_from_embedded_png(const unsigned char * png, size_t le
 
 void *__OSD_THREAD__(void *param) {
 	osd_thread_params *p = param;
+	pthread_setname_np(pthread_self(), "__OSD");
 	fps_icon = surface_from_embedded_png(framerate_icon, framerate_icon_length);
 	lat_icon = surface_from_embedded_png(latency_icon, latency_icon_length);
 	net_icon = surface_from_embedded_png(bandwidth_icon, bandwidth_icon_length);
