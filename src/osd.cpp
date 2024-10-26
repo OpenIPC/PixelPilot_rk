@@ -5,6 +5,7 @@ extern "C" {
 #include "icons/icons.h"
 }
 #include "osd.h"
+#include "osd.hpp"
 
 #include <pthread.h>
 #include <map>
@@ -18,7 +19,9 @@ extern "C" {
 #include <chrono>
 #include <cstdlib> //KILLME
 #include <string>
+#include <filesystem>
 #include <cairo.h>
+#include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 #include <fmt/ranges.h>
 
@@ -26,6 +29,8 @@ extern "C" {
 #define WFB_LINK_JAMMED 2
 
 #define PATH_MAX	4096
+
+using json = nlohmann::json;
 
 struct osd_vars osd_vars;
 
@@ -201,9 +206,17 @@ std::condition_variable cv;
 class Widget {
 public:
 	Widget(int pos_x, int pos_y): pos_x(pos_x), pos_y(pos_y) {};
+	Widget(int pos_x, int pos_y, uint num_args): pos_x(pos_x), pos_y(pos_y) {
+		for (auto i=0; i < num_args; i++) {
+			args.push_back(Fact());
+		}
+	};
 
 	virtual void draw(cairo_t *cr) {};
-	virtual void setFact(uint idx, Fact fact) {};
+
+	virtual void setFact(uint idx, Fact fact) {
+		args[idx] = fact;
+	}
 
 	int x(cairo_t *cr) {
 		cairo_surface_t *target = cairo_get_target(cr);
@@ -226,6 +239,7 @@ public:
 
 protected:
 	int pos_x, pos_y;
+	std::vector<Fact> args;
 };
 
 
@@ -239,12 +253,12 @@ public:
 		cairo_move_to(cr, x, y);
 		cairo_show_text(cr, text.c_str());
 	}
-private:
+protected:
 	std::string text;
 };
 
 
-class IconTextWidget: Widget {
+class IconTextWidget: public Widget {
 public:
 	IconTextWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string text):
 		Widget(pos_x, pos_y), text(text), icon(icon) {};
@@ -258,7 +272,7 @@ public:
 		cairo_show_text(cr, text.c_str());
 	}
 
-private:
+protected:
 	std::string text;
 	cairo_surface_t *icon;
 };
@@ -267,16 +281,7 @@ private:
 class TplTextWidget: public Widget {
 public:
 	TplTextWidget(int pos_x, int pos_y, std::string tpl, uint num_args):
-		Widget(pos_x, pos_y), tpl(tpl), num_args(num_args) {
-		for (auto i=0; i < num_args; i++) {
-			args.push_back(Fact());
-		}
-		// todo: validate num_args matches number of placeholders
-	};
-
-	virtual void setFact(uint idx, Fact fact) {
-		args[idx] = fact;
-	}
+		Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {};
 
 	virtual void draw(cairo_t *cr) {
 		auto [x, y] = xy(cr);
@@ -346,10 +351,9 @@ protected:
 		return msg;
 	}
 
-private:
+protected:
 	std::string tpl;
 	uint num_args;
-	std::vector<Fact> args;
 };
 
 
@@ -368,13 +372,108 @@ public:
 		cairo_show_text(cr, msg->c_str());
 	}
 
-private:
+protected:
 	cairo_surface_t *icon;
 };
 
+class DvrStatusWidget: public IconTextWidget {
+public:
+	DvrStatusWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string text) :
+		IconTextWidget(pos_x, pos_y, icon, text) {
+		args.push_back(Fact());
+	};
+
+	void draw(cairo_t *cr) {
+		if(args[0].isDefined() && args[0].getBoolValue()) {
+			auto [x, y] = xy(cr);
+			cairo_save(cr);
+			cairo_set_source_surface(cr, icon, x, y - 20);
+			cairo_paint(cr);
+			cairo_set_source_rgba(cr, 255.0, 0.0, 0.0, 1);
+			cairo_move_to(cr, x + 40, y);
+			cairo_show_text(cr, text.c_str());
+			cairo_restore(cr);
+		}
+	}
+};
 
 class Osd {
 public:
+	void loadConfig(json cfg) {
+		json obj;
+		if (!cfg.contains("format")) {
+			spdlog::error("OSD config doesn't have 'format' key");
+			return;
+		}
+		if (!cfg.contains("widgets")) {
+			//|| cfg["widgets"].type() != json::value_t::array)
+			spdlog::error("OSD config doesn't have 'widgets' key");
+			return;
+		}
+		std::filesystem::path assets_dir(".");
+		if (cfg.contains("assets_dir")) {
+			assets_dir = cfg.at("assets_dir").template get<std::filesystem::path>();
+		}
+		json widgets_j = cfg.at("widgets");
+		for (json widget_j : widgets_j) {
+			if(!(widget_j.contains("name") || widget_j.contains("type") || widget_j.contains("x") ||
+				 widget_j.contains("y") || widget_j.contains("facts"))) {
+				spdlog::error("Missing required key name/type/x/y/facts");
+				return;
+			}
+			auto name = widget_j.at("name").template get<std::string>();
+			auto type = widget_j.at("type").template get<std::string>();
+			auto x = widget_j.at("x").template get<int>();
+			auto y = widget_j.at("y").template get<int>();
+			std::vector<FactMatcher> matchers;
+			for(json matcher_j : widget_j.at("facts")) {
+				auto matcher_name = matcher_j.at("name").template get<std::string>();
+				FactTags tags;
+				if (matcher_j.contains("tags")) {
+					for (auto& [key, value] : matcher_j.at("tags").items()) {
+						tags.insert({key, value});
+					}
+				}
+				matchers.push_back(FactMatcher(matcher_name, tags));
+			}
+			if (type == "TextWidget") {
+				addWidget(new TextWidget(x, y, widget_j.at("text").template get<std::string>()),
+						  matchers);
+			} else if (type == "TplTextWidget") {
+				auto tpl = widget_j.at("template").template get<std::string>();
+				addWidget(new TplTextWidget(x, y, tpl, (uint)matchers.size()), matchers);
+			} else if(type == "IconTplTextWidget") {
+				auto tpl = widget_j.at("template").template get<std::string>();
+				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
+				if (icon_path.is_relative()) {
+					icon_path = assets_dir / icon_path;
+				}
+				cairo_surface_t *icon = cairo_image_surface_create_from_png(icon_path.c_str());
+				if (cairo_surface_status(icon) != CAIRO_STATUS_SUCCESS) {
+					spdlog::error("Widget '{}': Can't open icon '{}': {}",
+								  name, icon_path.string(), cairo_surface_status(icon));
+					return;
+				}
+				addWidget(new IconTplTextWidget(x, y, icon, tpl, (uint)matchers.size()), matchers);
+			} else if(type == "DvrStatusWidget") {
+				auto text = widget_j.at("text").template get<std::string>();
+				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
+				if (icon_path.is_relative()) {
+					icon_path = assets_dir / icon_path;
+				}
+				cairo_surface_t *icon = cairo_image_surface_create_from_png(icon_path.c_str());
+				if (cairo_surface_status(icon) != CAIRO_STATUS_SUCCESS) {
+					spdlog::error("Widget '{}': Can't open icon '{}': {}",
+								  name, icon_path.string(), cairo_surface_status(icon));
+					return;
+				}
+				addWidget(new DvrStatusWidget(x, y, icon, text), matchers);
+			} else {
+				spdlog::warn("Widget '{}': unknown type: {}", name, type);
+			}
+		}
+	}
+
 	Osd *addWidget(Widget *widget, std::vector<FactMatcher> param_matchers) {
 		uint arg_idx = 0;
 		widgets.push_back(widget);
@@ -731,14 +830,13 @@ void *__OSD_THREAD__(void *param) {
 	Osd *osd = new Osd;
 	pthread_setname_np(pthread_self(), "__OSD");
 
+	osd->loadConfig(p->config);
 	auto last_display_at = std::chrono::steady_clock::now();
 
 	fps_icon = surface_from_embedded_png(framerate_icon, framerate_icon_length);
 	lat_icon = surface_from_embedded_png(latency_icon, latency_icon_length);
 	net_icon = surface_from_embedded_png(bandwidth_icon, bandwidth_icon_length);
 	sdcard_icon = surface_from_embedded_png(sdcard_white_icon, sdcard_white_icon_length);
-
-	Fact fact = Fact();
 
 	int ret = pthread_mutex_init(&osd_mutex, NULL);
 	assert(!ret);
@@ -762,7 +860,7 @@ void *__OSD_THREAD__(void *param) {
 			// thread woke up because we got a new fact(s)
 			// copy all the facts to the temporary buffer to unlock the queue ASAP
 			for(; !fact_queue.empty(); fact_queue.pop()) {
-				SPDLOG_DEBUG("got fact {}", fact_queue.front().getName());
+				SPDLOG_DEBUG("got fact {}({})", fact_queue.front().getName(), fact_queue.front().getTags());
 				fact_buf.push_back(fact_queue.front());
 			}
 			lock.unlock();
@@ -773,39 +871,9 @@ void *__OSD_THREAD__(void *param) {
 		} else {
 			// thread woke up because of refresh timeout
 			lock.unlock();
-			uint rnd = std::rand();
+			SPDLOG_DEBUG("refresh OSD");
 			int buf_idx = p->out->osd_buf_switch ^ 1;
 			struct modeset_buf *buf = &p->out->osd_bufs[buf_idx];
-			switch (rnd % 2) {
-			case 0:
-				{
-					SPDLOG_DEBUG("rand 0");
-					osd->setFact(Fact(FactMeta("latency.avg"), (double)osd_vars.latency_avg));
-					osd->setFact(Fact(FactMeta("latency.min"), (double)osd_vars.latency_min));
-					osd->setFact(Fact(FactMeta("latency.max"), (double)osd_vars.latency_max));
-					osd->setFact(Fact(FactMeta("video.current_framerate"), (int)osd_vars.current_framerate));
-					// osd->setFact(Fact(FactMeta("video.width"), (int)osd_vars.video_width));
-					// osd->setFact(Fact(FactMeta("video.height"), (int)osd_vars.video_height));
-					osd->setFact(Fact(FactMeta("wfb.rssi"), (int)osd_vars.wfb_rssi));
-					osd->setFact(Fact(FactMeta("wfb.fec_fixed"), (int)osd_vars.wfb_fec_fixed));
-					osd->setFact(Fact(FactMeta("wfb.errors"), (int)osd_vars.wfb_errors));
-					break;
-				}
-			case 1:
-				{
-					SPDLOG_DEBUG("rnd 1");
-					osd->setFact(Fact(FactMeta("latency.avg"), (double)(rnd % 101) ));
-					osd->setFact(Fact(FactMeta("latency.min"), (double)(rnd % 102) ));
-					osd->setFact(Fact(FactMeta("latency.max"), (double)(rnd % 103) ));
-					osd->setFact(Fact(FactMeta("video.current_framerate"), (int)(rnd % 104) ));
-					// osd->setFact(Fact(FactMeta("video.width"), (int)640));
-					// osd->setFact(Fact(FactMeta("video.height"), (int)480));
-					osd->setFact(Fact(FactMeta("wfb.rssi"), (int)(-rnd % 110) ));
-					osd->setFact(Fact(FactMeta("wfb.fec_fixed"), (int)(rnd % 30) ));
-					osd->setFact(Fact(FactMeta("wfb.errors"), (int)(rnd % 25) ));
-					break;
-				}
-			}
 			modeset_paint_buffer(buf, osd);
 
 			int ret = pthread_mutex_lock(&osd_mutex);
@@ -829,7 +897,7 @@ void mk_tags(osd_tag *tags, int n_tags, FactTags *fact_tags) {
 }
 
 void publish(Fact fact) {
-	SPDLOG_DEBUG("publish {}({})", fact.getName(), fact.getTags());
+	SPDLOG_DEBUG("post fact {}({})", fact.getName(), fact.getTags());
 	{
 		std::lock_guard<std::mutex> lock(mtx);
 		fact_queue.push(fact);
@@ -840,6 +908,64 @@ void publish(Fact fact) {
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Batch APIs
+
+void *osd_batch_init(uint n) {
+	auto batch = new std::vector<Fact>;
+	batch->reserve(n);
+	return batch;
+}
+void osd_publish_batch(void *batch) {
+	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		for (Fact fact : *facts) {
+			SPDLOG_DEBUG("batch post fact {}({})", fact.getName(), fact.getTags());
+			fact_queue.push(fact);
+		}
+	}
+	delete facts;
+	cv.notify_one();
+};
+
+void osd_add_bool_fact(void *batch, char const *name, osd_tag *tags, int n_tags, bool value) {
+	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
+	FactTags fact_tags;
+	mk_tags(tags, n_tags, &fact_tags);
+	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
+};
+
+void osd_add_int_fact(void *batch, char const *name, osd_tag *tags, int n_tags, int value) {
+	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
+	FactTags fact_tags;
+	mk_tags(tags, n_tags, &fact_tags);
+	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
+};
+
+void osd_add_uint_fact(void *batch, char const *name, osd_tag *tags, int n_tags, uint value) {
+	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
+	FactTags fact_tags;
+	mk_tags(tags, n_tags, &fact_tags);
+	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
+};
+
+void osd_add_double_fact(void *batch, char const *name, osd_tag *tags, int n_tags, double value) {
+	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
+	FactTags fact_tags;
+	mk_tags(tags, n_tags, &fact_tags);
+	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
+};
+
+void osd_add_str_fact(void *batch, char const *name, osd_tag *tags, int n_tags, char *value) {
+	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
+	FactTags fact_tags;
+	mk_tags(tags, n_tags, &fact_tags);
+	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
+};
+
+
+// Individual APIs
 
 void osd_publish_bool_fact(char const *name, osd_tag *tags, int n_tags, bool value) {
 	FactTags fact_tags;

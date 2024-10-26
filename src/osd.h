@@ -1,8 +1,9 @@
 #ifndef OSD_H
 #define OSD_H
-
-#include "drm.h"
-#include <cairo.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 // OSD Vars
 struct osd_vars {
@@ -74,11 +75,6 @@ extern int osd_thread_signal;
 extern bool osd_custom_message;
 extern pthread_mutex_t osd_mutex;
 
-typedef struct {
-	struct modeset_output *out;
-	int fd;
-} osd_thread_params;
-
 #define TAG_MAX_LEN 64
 
 typedef struct {
@@ -86,11 +82,20 @@ typedef struct {
     char val[TAG_MAX_LEN];
 } osd_tag;
 
-void *__OSD_THREAD__(void *param);
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+// Batch functions are when you publish several facts from the same place
+// It has optimized publishing algorithm - takes the lock only once per-batch
+void *osd_batch_init(uint n);
+void osd_publish_batch(void *batch);
+void osd_add_bool_fact(void *batch, char const *name, osd_tag *tags, int n_tags, bool value);
+void osd_add_int_fact(void *batch, char const *name, osd_tag *tags, int n_tags, int value);
+void osd_add_uint_fact(void *batch, char const *name, osd_tag *tags, int n_tags, uint value);
+void osd_add_double_fact(void *batch, char const *name, osd_tag *tags, int n_tags, double value);
+void osd_add_str_fact(void *batch, char const *name, osd_tag *tags, int n_tags, char *value);
+
+// Publish individual facts
 void osd_publish_bool_fact(char const *name, osd_tag *tags, int n_tags, bool value);
 void osd_publish_int_fact(char const *name, osd_tag *tags, int n_tags, int value);
 void osd_publish_uint_fact(char const *name, osd_tag *tags, int n_tags, uint value);
