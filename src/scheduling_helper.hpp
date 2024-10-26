@@ -9,8 +9,8 @@
 #include <pthread.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#include "spdlog/spdlog.h"
 
-#include <iostream>
 #include <sstream>
 #include <string>
 
@@ -33,17 +33,9 @@ static void set_thread_params_max_realtime(const std::string& tag,
     param.sched_priority = priority;
     auto result = pthread_setschedparam(target, policy, &param);
     if (result != 0) {
-        std::stringstream ss;
-        ss << "Cannot setThreadParamsMaxRealtime " << result;
-        std::cerr << ss.str() << std::endl;
+        spdlog::warn("Cannot setThreadParamsMaxRealtime {}", result);
     } else {
-        std::stringstream ss;
-        ss << "Changed prio ";
-        if (!tag.empty()) {
-            ss << "for " << tag << " ";
-        }
-        ss << "to SCHED_FIFO:" << param.sched_priority;
-        std::cout << ss.str() << std::endl;
+        spdlog::info("Changed prio for {} for to SCHED_FIFO: {}", tag, param.sched_priority);
     }
 }
 

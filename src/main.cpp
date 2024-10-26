@@ -32,6 +32,7 @@
 #include <drm_fourcc.h>
 #include <linux/videodev2.h>
 #include <rockchip/rk_mpi.h>
+#include "spdlog/spdlog.h"
 
 extern "C" {
 #include "main.h"
@@ -92,7 +93,8 @@ void init_buffer(MppFrame frame) {
 	MppFrameFormat fmt = mpp_frame_get_fmt(frame);
 	assert((fmt == MPP_FMT_YUV420SP) || (fmt == MPP_FMT_YUV420SP_10BIT));
 
-	printf("Frame info changed %d(%d)x%d(%d)\n", output_list->video_frm_width, hor_stride, output_list->video_frm_height, ver_stride);
+	spdlog::info("Frame info changed {}({})x{}({})",
+				 output_list->video_frm_width, hor_stride, output_list->video_frm_height, ver_stride);
 
 	output_list->video_fb_x = 0;
 	output_list->video_fb_y = 0;
@@ -237,7 +239,7 @@ void *__FRAME_THREAD__(void *param)
 			frame = NULL;
 		} else assert(0);
 	}
-	printf("Frame thread done.\n");
+	spdlog::info("Frame thread done.");
 	return nullptr;
 }
 
@@ -313,7 +315,9 @@ void *__DISPLAY_THREAD__(void *param)
 			osd_vars.latency_min = min_latency;
 			osd_vars.current_framerate = frame_counter*(1000/osd_vars.refresh_frequency_ms);
 
-			// printf("decoding decoding latency=%.2f ms (%.2f, %.2f), framerate=%d fps\n", osd_vars.latency_avg/1000.0, osd_vars.latency_max/1000.0, osd_vars.latency_min/1000.0, osd_vars.current_framerate);
+			SPDLOG_DEBUG("decoding decoding latency={:.2f} ms ({:.2f}, {:.2f}), framerate={} fps",
+						  osd_vars.latency_avg/1000.0, osd_vars.latency_max/1000.0,
+						  osd_vars.latency_min/1000.0, osd_vars.current_framerate);
 			
 			fps_start = fps_end;
 			frame_counter = 0;
@@ -327,7 +331,7 @@ void *__DISPLAY_THREAD__(void *param)
 		
 	}
 end:	
-	printf("Display thread done.\n");
+	spdlog::info("Display thread done.");
 	return nullptr;
 }
 
@@ -337,7 +341,7 @@ int signal_flag = 0;
 
 void sig_handler(int signum)
 {
-	printf("Received signal %d\n", signum);
+	spdlog::info("Received signal {}", signum);
 	signal_flag++;
 	mavlink_thread_signal++;
 	osd_thread_signal++;
@@ -347,7 +351,7 @@ void sig_handler(int signum)
 }
 
 void sigusr1_handler(int signum) {
-	printf("Received signal %d\n", signum);
+	spdlog::info("Received signal {}", signum);
 	if (dvr) {
 		dvr->toggle_recording();
 	}
@@ -369,7 +373,7 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
         uint64_t elapsed = get_time_ms() - data_feed_begin;
         if (elapsed > 100) {
             decoder_stalled_count++;
-            printf("Cannot feed decoder, stalled %d ?\n",decoder_stalled_count);
+            spdlog::warn("Cannot feed decoder, stalled {} ?", decoder_stalled_count);
             return false;
         }
         usleep(2 * 1000);
@@ -407,7 +411,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
         sleep(10);
     }
     receiver.stop_receiving();
-    printf("Feeding eos\n");
+    spdlog::info("Feeding eos");
     mpp_packet_set_eos(packet);
     //mpp_packet_set_pos(packet, nal_buffer);
     mpp_packet_set_length(packet, 0);
@@ -420,7 +424,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
 void set_control_verbose(MppApi * mpi,  MppCtx ctx,MpiCmd control,RK_U32 enable){
     RK_U32 res = mpi->control(ctx, control, &enable);
     if(res){
-        printf("Could not set control %d %d\n",control,enable);
+        spdlog::warn("Could not set control {} {}", control, enable);
         assert(false);
     }
 }
@@ -432,7 +436,7 @@ void set_mpp_decoding_parameters(MppApi * mpi,  MppCtx ctx) {
     // get default config from decoder context
     int ret = mpi->control(ctx, MPP_DEC_GET_CFG, cfg);
     if (ret) {
-        printf("%p failed to get decoder cfg ret %d\n", ctx, ret);
+        spdlog::warn("{} failed to get decoder cfg ret {}", ctx, ret);
         assert(false);
     }
     // split_parse is to enable mpp internal frame spliter when the input
@@ -440,12 +444,12 @@ void set_mpp_decoding_parameters(MppApi * mpi,  MppCtx ctx) {
     RK_U32 need_split   = 1;
     ret = mpp_dec_cfg_set_u32(cfg, "base:split_parse", need_split);
     if (ret) {
-        printf("%p failed to set split_parse ret %d\n", ctx, ret);
+        spdlog::warn("{} failed to set split_parse ret {}", ctx, ret);
         assert(false);
     }
     ret = mpi->control(ctx, MPP_DEC_SET_CFG, cfg);
     if (ret) {
-        printf("%p failed to set cfg %p ret %d\n", ctx, cfg, ret);
+        spdlog::warn("{} failed to set cfg {} ret {}", ctx, cfg, ret);
         assert(false);
     }
 	int mpp_split_mode =0;
@@ -477,6 +481,8 @@ void printHelp() {
     "    --mavlink-dvr-on-arm   - Start recording when armed\n"
     "\n"
     "    --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265>)\n"
+    "\n"
+    "    --log-level <level>    - Log verbosity level, debug|info|warn|error (Default: info)\n"
     "\n"
     "    --osd                  - Enable OSD\n"
     "\n"
@@ -524,9 +530,10 @@ int main(int argc, char **argv)
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
+	auto log_level = spdlog::level::info;
 	
 	osd_vars.enable_recording = 0;
-	
+
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
 	
@@ -539,7 +546,7 @@ int main(int argc, char **argv)
 		char * codec_str = const_cast<char*>(__ArgValue);
 		codec = video_codec(codec_str);
 		if (codec == VideoCodec::UNKNOWN ) {
-			printf("unsupported video codec");
+			fprintf(stderr, "unsupported video codec");
 			return -1;
 		}
 		continue;
@@ -569,6 +576,25 @@ int main(int argc, char **argv)
 
 	__OnArgument("--dvr-fmp4") {
 		mp4_fragmentation_mode = 1;
+		continue;
+	}
+
+	__OnArgument("--log-level") {
+		std::string log_l = std::string(__ArgValue);
+		if (log_l == "info") {
+			log_level = spdlog::level::info;
+		} else if (log_l == "debug"){
+			log_level = spdlog::level::debug;
+			spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [thread %t] [%s:%#] [%^%l%$] %v");
+		} else if (log_l == "warn"){
+			log_level = spdlog::level::warn;
+		} else if (log_l == "error"){
+			log_level = spdlog::level::err;
+		} else {
+			fprintf(stderr, "invalid log level %s\n", log_l.c_str());
+			printHelp();
+			return -1;
+		}
 		continue;
 	}
 
@@ -647,6 +673,8 @@ int main(int argc, char **argv)
 
 	__EndParseConsoleArguments__
 
+	spdlog::set_level(log_level);
+
 	if (dvr_template != NULL && video_framerate < 0 ) {
 		printf("--dvr-framerate must be provided when dvr is enabled.\n");
 		return 0;
@@ -668,7 +696,7 @@ int main(int argc, char **argv)
 	//////////////////////////////////  DRM SETUP
 	ret = modeset_open(&drm_fd, "/dev/dri/card0");
 	if (ret < 0) {
-		printf("modeset_open() =  %d\n", ret);
+		spdlog::warn("modeset_open() =  {}", ret);
 	}
 	assert(drm_fd >= 0);
 	if (print_modelist) {
