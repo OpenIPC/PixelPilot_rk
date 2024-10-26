@@ -23,12 +23,14 @@ set(SOURCE_FILES
         src/gstrtpreceiver.cpp
         src/gstrtpreceiver.h)
 
-include_directories("/usr/include/libdrm" "/usr/include/cairo")
+include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog")
 
 configure_file("${PROJECT_NAME}_config.h.in" "${PROJECT_NAME}_config.h")
 
+find_package(spdlog REQUIRED)
+
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo)
+target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog)
 
 # Embed gstreamer
 find_package(PkgConfig REQUIRED)
@@ -41,6 +43,7 @@ pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
 target_link_libraries(${PROJECT_NAME} PkgConfig::gstreamer PkgConfig::gstreamer-app)
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
   set(
     CMAKE_C_FLAGS
     "${CMAKE_C_FLAGS} -Werror -fsanitize=undefined -fsanitize=address"

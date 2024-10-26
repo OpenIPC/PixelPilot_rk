@@ -7,6 +7,7 @@
 #include "gst/gstparse.h"
 #include "gst/gstpipeline.h"
 #include "gst/app/gstappsink.h"
+#include "spdlog/spdlog.h"
 #include <cstring>
 #include <stdexcept>
 #include <cassert>
@@ -14,8 +15,6 @@
 #include <iostream>
 #include <memory>
 #include <utility>
-
-#define qDebug() std::cout
 
 namespace pipeline {
     static std::string gst_create_rtp_caps(const VideoCodec& videoCodec){
@@ -143,20 +142,20 @@ void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample
 
 void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb)
 {
-    std::cout<<"GstRtpReceiver::start_receiving begin"<<std::endl;
+    spdlog::info("GstRtpReceiver::start_receiving begin");
     assert(m_gst_pipeline==nullptr);
     m_cb=cb;
 
     const auto pipeline=construct_gstreamer_pipeline();
     GError *error = nullptr;
     m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
-    std::cout<< "GSTREAMER PIPE=[" << pipeline.c_str()<<"]"<<std::endl;
+    spdlog::info("GSTREAMER PIPE=[{}]", pipeline);
     if (error) {
-        qDebug() << "gst_parse_launch error: " << error->message;
+        spdlog::warn("gst_parse_launch error: {}", error->message);
         return;
     }
     if(!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))){
-        qDebug()<<"Cannot construct pipeline";
+        spdlog::warn("Cannot construct pipeline");
         m_gst_pipeline = nullptr;
         return;
     }
@@ -168,7 +167,7 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb)
     m_pull_samples_run= true;
     m_pull_samples_thread=std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
 
-    qDebug()<<"GstRtpReceiver::start_receiving end";
+    spdlog::info("GstRtpReceiver::start_receiving end");
 }
 
 void GstRtpReceiver::stop_receiving()

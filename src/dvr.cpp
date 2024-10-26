@@ -1,7 +1,8 @@
 #include <pthread.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+
+#include "spdlog/spdlog.h"
 
 #include "dvr.h"
 #include "minimp4.h"
@@ -108,7 +109,7 @@ void Dvr::loop() {
 			switch (rpc.command) {
 			case dvr_rpc::RPC_SET_PARAMS:
 				{
-					printf("got rpc SET_PARAMS\n");
+					SPDLOG_DEBUG("got rpc SET_PARAMS");
 					if (dvr_file == NULL) {
 						break;
 					}
@@ -117,7 +118,7 @@ void Dvr::loop() {
 				}
 			case dvr_rpc::RPC_START:
 				{
-					printf("got rpc START\n");
+					SPDLOG_DEBUG("got rpc START");
 					if (dvr_file != NULL) {
 						break;
 					}
@@ -129,7 +130,7 @@ void Dvr::loop() {
 				}
 			case dvr_rpc::RPC_STOP:
 				{
-					printf("got rpc STOP\n");
+					SPDLOG_DEBUG("got rpc STOP");
 					if (dvr_file == NULL) {
 						break;
 					}
@@ -138,7 +139,7 @@ void Dvr::loop() {
 				}
 			case dvr_rpc::RPC_TOGGLE:
 				{
-					printf("got rpc TOGGLE\n");
+					SPDLOG_DEBUG("got rpc TOGGLE");
 					if (dvr_file == NULL) {
 						start();
 						if (video_frm_width > 0 && video_frm_height > 0) {
@@ -157,7 +158,7 @@ void Dvr::loop() {
 					std::shared_ptr<std::vector<uint8_t>> frame = rpc.frame;
 					auto res = mp4_h26x_write_nal(mp4wr, frame->data(), frame->size(), 90000/video_framerate);
 					if (!(MP4E_STATUS_OK == res || MP4E_STATUS_BAD_ARGUMENTS == res)) {
-						printf("mp4_h26x_write_nal failed with error %d\n", res);
+						spdlog::warn("mp4_h26x_write_nal failed with error {}", res);
 					}
 					break;
 				}
@@ -170,7 +171,7 @@ end:
 	if (dvr_file != NULL) {
 		stop();
 	}
-	printf("DVR thread done.\n");
+	spdlog::info("DVR thread done.");
 }
 
 int Dvr::start() {
@@ -179,7 +180,7 @@ int Dvr::start() {
 	time_t t = time(NULL);
 	strftime(fname, sizeof(fname), fname_tpl, localtime(&t));
 	if ((dvr_file = fopen(fname,"w")) == NULL){
-		fprintf(stderr, "ERROR: unable to open %s\n", fname);
+		spdlog::error("unable to open DVR file {}", fname);
 		return -1;
 	}
 	osd_vars.enable_recording = 1;
@@ -189,12 +190,12 @@ int Dvr::start() {
 }
 
 void Dvr::init() {
-	printf("setting up dvr and mux to %dx%d\n", video_frm_width, video_frm_height);
+	spdlog::info("setting up dvr and mux to {}x{}", video_frm_width, video_frm_height);
 	if (MP4E_STATUS_OK != mp4_h26x_write_init(mp4wr, mux,
 											  video_frm_width,
 											  video_frm_height,
 											  codec==VideoCodec::H265)) {
-		fprintf(stderr, "error: mp4_h26x_write_init failed\n");
+		spdlog::error("mp4_h26x_write_init failed");
 		mux = NULL;
 		dvr_file = NULL;
 	}
