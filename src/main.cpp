@@ -32,6 +32,7 @@
 #include <drm_fourcc.h>
 #include <linux/videodev2.h>
 #include <rockchip/rk_mpi.h>
+#include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 
 extern "C" {
@@ -44,6 +45,7 @@ extern "C" {
 }
 
 #include "osd.h"
+#include "osd.hpp"
 #include "dvr.h"
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"
@@ -494,6 +496,8 @@ void printHelp() {
     "\n"
     "    --osd-elements <els>   - Customize osd elements   			    (Default: video,wfbng,telem)\n"
     "\n"
+    "    --osd-config <file>    - Path to OSD configuration file\n"
+    "\n"
     "    --osd-telem-lvl <lvl>  - Level of details for telemetry in the OSD (Default: 1 [1-2])\n"
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
@@ -538,6 +542,7 @@ int main(int argc, char **argv)
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
+	std::string osd_config_path;
 	auto log_level = spdlog::level::info;
 	
 	osd_vars.enable_recording = 0;
@@ -629,7 +634,10 @@ int main(int argc, char **argv)
 		mavlink_thread = 1;
 		continue;
 	}
-
+	__OnArgument("--osd-config") {
+		osd_config_path = std::string(__ArgValue);
+		continue;
+	}
 	__OnArgument("--osd-refresh") {
 		osd_vars.refresh_frequency_ms = atoi(__ArgValue);
 		continue;
@@ -780,6 +788,13 @@ int main(int argc, char **argv)
 	ret = pthread_create(&tid_display, NULL, __DISPLAY_THREAD__, NULL);
 	assert(!ret);
 	if (enable_osd) {
+		nlohmann::json osd_config;
+		if(osd_config_path != "") {
+			std::ifstream f(osd_config_path);
+			osd_config = nlohmann::json::parse(f);
+		} else {
+			osd_config = {};
+		}
 		if (mavlink_thread) {
 			ret = pthread_create(&tid_mavlink, NULL, __MAVLINK_THREAD__, &signal_flag);
 			assert(!ret);
@@ -787,6 +802,7 @@ int main(int argc, char **argv)
 		osd_thread_params *args = (osd_thread_params *)malloc(sizeof *args);
         args->fd = drm_fd;
         args->out = output_list;
+		args->config = osd_config;
 		ret = pthread_create(&tid_osd, NULL, __OSD_THREAD__, args);
 		assert(!ret);
 	}

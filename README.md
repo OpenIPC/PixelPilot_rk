@@ -19,10 +19,10 @@ Build on the Rockchip linux system directly.
 
 ## Install dependencies
 
-- drm, cairo, mpp, logging
+- drm, cairo, mpp, logging, json
 
 ```
-sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev
+sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev
 ```
 
 - gstreamer
@@ -55,6 +55,10 @@ Show command line options:
 ```
 pixelpilot --help
 ```
+
+### OSD config
+
+TODO
 
 ## Known issues
 
