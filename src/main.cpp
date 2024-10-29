@@ -484,7 +484,7 @@ void printHelp() {
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
-    "    --osd-custom-message   - Enables the display of /run/pixelpilot.msg\n"
+    "    --osd-custom-message   - Enables the display of /run/pixelpilot.msg (beta feature, may be removed)\n"
     "\n"
     "    --dvr-template <path>  - Save the video feed (no osd) to the provided filename template.\n"
     "                             DVR is toggled by SIGUSR1 signal\n"
