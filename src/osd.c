@@ -164,6 +164,50 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 		}
 	}
 
+	//display custom message
+	if (osd_custom_message) {
+		FILE *file = fopen("/run/pixelpilot.msg", "r");
+		if (file != NULL) {
+
+			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
+				perror("Error reading from file");
+				fclose(file);
+			}
+			fclose(file);
+			if (unlink("/run/pixelpilot.msg") != 0) {
+				perror("Error deleting the file");
+			}
+			custom_msg_refresh_count = 1;
+		}
+		if (custom_msg_refresh_count > 0) {
+
+			if (custom_msg_refresh_count++ > 5) custom_msg_refresh_count=0;
+
+			size_t msg_length = strlen(custom_msg);
+
+			// Ensure null termination at the 80th position to prevent overflow
+			custom_msg[79] = '\0';
+
+			// Find the first newline character, if it exists
+			char *newline_pos = strchr(custom_msg, '\n');
+			if (newline_pos != NULL) {
+				*newline_pos = '\0';  // Null-terminate at the newline
+			}
+
+			// Measure the text width
+			cairo_text_extents_t extents;
+			cairo_text_extents(cr, custom_msg, &extents);
+
+			// Calculate the position to center the text horizontally
+			double x = (buf->width / 2) - (extents.width / 2);
+			double y = (buf->height / 2);
+
+			// Set the position and draw the text
+			cairo_move_to(cr, x, y);
+			cairo_show_text(cr, custom_msg);
+		}
+	}	
+
 	if (!osd_vars.enable_telemetry){
 		return;
 	}
@@ -269,47 +313,6 @@ void modeset_paint_buffer(struct modeset_buf *buf) {
 	if(minutes > 59){
 		seconds = 0;
 		minutes = 0;
-	}
-
-	//display custom message
-	if (osd_custom_message) {
-		FILE *file = fopen("/run/pixelpilot.msg", "r");
-		if (file != NULL) {
-
-			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
-				perror("Error reading from file");
-				fclose(file);
-			}
-			fclose(file);
-			if (unlink("/run/pixelpilot.msg") != 0) {
-				perror("Error deleting the file");
-			}
-			custom_msg_refresh_count = 1;
-		}
-		if (custom_msg_refresh_count > 0) {
-
-			if (custom_msg_refresh_count++ > 5) custom_msg_refresh_count=0;
-
-			size_t msg_length = strlen(custom_msg);
-
-			//remove any trailing newline that fgets may read
-			if (msg_length > 0 && custom_msg[msg_length - 1] == '\n') {
-				custom_msg[msg_length - 1] = '\0';
-				msg_length--;  // Adjust length after removing newline
-			}
-
-			// Measure the text width
-			cairo_text_extents_t extents;
-			cairo_text_extents(cr, custom_msg, &extents);
-
-			// Calculate the position to center the text horizontally
-			double x = (buf->width / 2) - (extents.width / 2);
-			double y = (buf->height / 2);
-
-			// Set the position and draw the text
-			cairo_move_to(cr, x, y);
-			cairo_show_text(cr, custom_msg);
-		}
 	}
 
 	cairo_fill(cr);
