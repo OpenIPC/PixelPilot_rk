@@ -4,15 +4,17 @@
     "widgets": [
         {
             "name": "Video FPS and resolution",
-            "type": "VideoIconTplTextWidget",
-            "x": -200,
+            "type": "VideoWidget",
+            "x": -300,
             "y": 20,
             "icon_path": "framerate.png",
-            "template": "%d fps | %ux%u",
+            "template": "%u fps | %ux%u",
+            "per_second_window_s": 2,
+            "per_second_bucket_ms": 200,
             "facts": [
                 {
-                    "__comment": "Should be per-second",
-                    "name": "video.display_frame_count"
+                    "__comment": "Will be converted to per-second",
+                    "name": "video.displayed_frame"
                 },
                 {
                     "name": "video.width"
@@ -25,7 +27,7 @@
         {
             "name": "Video decode and display latency",
             "type": "VideoIconTplTextWidget",
-            "x": -200,
+            "x": -300,
             "y": 50,
             "icon_path": "latency.png",
             "template": "%d fps | %ux%u",
@@ -46,11 +48,13 @@
         },
         {
             "name": "Video link throughput",
-            "type": "IconTplTextWidget",
-            "x": -200,
+            "type": "VideoBitrateWidget",
+            "x": -300,
             "y": 80,
             "icon_path": "network.png",
             "template": "%f Mbps",
+            "per_second_window_s": 2,
+            "per_second_bucket_ms": 100,
             "facts": [
                 {
                     "__comment": "Should be sum per-second, scaled to Megs",
@@ -61,7 +65,7 @@
         {
             "name": "WFB radio",
             "type": "TplTextWidget",
-            "x": -200,
+            "x": -300,
             "y": 110,
             "template": "WFB %d F%u L%u",
             "facts": [
@@ -91,7 +95,7 @@
         {
             "name": "DVR status",
             "type": "DvrStatusWidget",
-            "x": -200,
+            "x": -300,
             "y": 140,
             "icon_path": "sdcard-white.png",
             "text": "Recording",

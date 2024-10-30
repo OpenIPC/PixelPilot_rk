@@ -298,7 +298,7 @@ void *__DISPLAY_THREAD__(void *param)
 
 		assert(!ret);
 		frame_counter++;
-		osd_publish_uint_fact("video.display_frame_count", NULL, 0, 1);
+		osd_publish_uint_fact("video.displayed_frame", NULL, 0, 1);
 
 		uint64_t decode_and_handover_display_ms=get_time_ms()-decoding_pts;
         //accumulate_and_print("D&Display",decode_and_handover_display_ms,&m_decode_and_handover_display_latency);
@@ -378,6 +378,7 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
     int ret=0;
     while (!signal_flag && MPP_OK != (ret = mpi.mpi->decode_put_packet(mpi.ctx, packet))) {
         uint64_t elapsed = get_time_ms() - data_feed_begin;
+        osd_publish_uint_fact("video.decoder_feed_time_ms", NULL, 0, elapsed);
         if (elapsed > 100) {
             decoder_stalled_count++;
             spdlog::warn("Cannot feed decoder, stalled {} ?", decoder_stalled_count);
