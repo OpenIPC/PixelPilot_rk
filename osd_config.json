@@ -25,23 +25,17 @@
             ]
         },
         {
-            "name": "Video decode and display latency",
-            "type": "VideoIconTplTextWidget",
+            "name": "Video decode&display latency",
+            "type": "VideoDecodeLatencyWidget",
             "x": -300,
             "y": 50,
             "icon_path": "latency.png",
-            "template": "%d fps | %ux%u",
+            "template": "avg%f (min%u, max%u) ms",
+            "per_second_window_s": 2,
+            "per_second_bucket_ms": 100,
             "facts": [
                 {
-                    "__comment": "Should be avg per-second",
-                    "name": "video.decode_and_handover_ms"
-                },
-                {
-                    "__comment": "Should be min per-second",
-                    "name": "video.decode_and_handover_ms"
-                },
-                {
-                    "__comment": "Should be max per-second",
+                    "__comment": "Avg, min, max per-second",
                     "name": "video.decode_and_handover_ms"
                 }
             ]
