@@ -4,6 +4,21 @@
     "widgets": [
         {
             "name": "Video FPS and resolution",
+            "type": "BoxWidget",
+            "x": -320,
+            "y": 0,
+            "width": 320,
+            "height": 150,
+            "color": {
+                "r": 0.0,
+                "g": 0.0,
+                "b": 0.0,
+                "alpha": 0.4
+            },
+            "facts": []
+        },
+        {
+            "name": "Video FPS and resolution",
             "type": "VideoWidget",
             "x": -300,
             "y": 20,
@@ -107,7 +122,7 @@
             "template": "Alt:%fM",
             "facts": [
                 {
-                    "name": "mavlink."
+                    "name": "mavlink.vfr_hud.alt"
                 }
             ]
         },
@@ -119,7 +134,7 @@
             "template": "Spd:%fkm/h",
             "facts": [
                 {
-                    "name": "mavlink."
+                    "name": "mavlink.vfr_hud.groundspeed"
                 }
             ]
         },
@@ -131,7 +146,7 @@
             "template": "VSpd:%fm/h",
             "facts": [
                 {
-                    "name": "mavlink."
+                    "name": "mavlink.vfr_hud.climb"
                 }
             ]
         },
@@ -155,10 +170,13 @@
             "type": "GPSWidget",
             "x": 10,
             "y": 140,
-            "template": "Sats:%f",
+            "template": "GPS:%u,%u",
             "facts": [
                 {
-                    "name": "mavlink."
+                    "name": "mavlink.gps_raw.lat"
+                },
+                {
+                    "name": "mavlink.gps_raw.lon"
                 }
             ]
         },
@@ -171,7 +189,7 @@
             "template": "Pitch:%f",
             "facts": [
                 {
-                    "name": "mavlink."
+                    "name": "mavlink.attitude.pitch"
                 }
             ]
         },
@@ -183,7 +201,7 @@
             "template": "Roll:%f",
             "facts": [
                 {
-                    "name": "mavlink."
+                    "name": "mavlink.attitude.roll"
                 }
             ]
         },

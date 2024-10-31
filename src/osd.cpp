@@ -518,6 +518,23 @@ protected:
 	cairo_surface_t *icon;
 };
 
+class BoxWidget: public Widget {
+public:
+	BoxWidget(int pos_x, int pos_y, uint w, uint h, double r, double g, double b, double a):
+		Widget(pos_x, pos_y), w(w), h(h), r(r), g(g), b(b), a(a) {};
+
+	virtual void draw(cairo_t *cr) {
+		auto [x, y] = xy(cr);
+		cairo_set_source_rgba(cr, r, g, b, a);
+		cairo_rectangle(cr, x, y, w, h);
+		cairo_fill(cr);
+	}
+
+private:
+	uint w, h;
+	double r, g, b, a;
+};
+
 //
 // Specific widgets
 //
@@ -579,7 +596,7 @@ public:
 		// replace the value with its increment rate per-second
 		ulong num_bytes = fact.getUintValue();
 		bps.add(num_bytes);
-		// wtf is 125000.0? Why not (1024 * 1024?)
+		// 125000 is 1_000_000 / 8 (megabits, not megabytes)
 		args[idx] = Fact(FactMeta("video_mbps"), bps.rate_per_second_over_last_ms(1000) / 125000.0);
 	}
 
@@ -698,6 +715,15 @@ public:
 				addWidget(new VideoDecodeLatencyWidget(x, y, window_size_s * 1000, bucket_size_ms,
 													   icon, tpl, 1),
 						  matchers);
+			} else if(type == "BoxWidget") {
+				auto width = widget_j.at("width").template get<uint>();
+				auto height = widget_j.at("height").template get<uint>();
+				json color_j = widget_j.at("color");
+				auto r = color_j.at("r").template get<double>();
+				auto g = color_j.at("g").template get<double>();
+				auto b = color_j.at("b").template get<double>();
+				auto a = color_j.at("alpha").template get<double>();
+				addWidget(new BoxWidget(x, y, width, height, r, g, b, a), matchers);
 			} else {
 				spdlog::warn("Widget '{}': unknown type: {}", name, type);
 			}
@@ -1064,6 +1090,7 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	}
 
 	cairo_fill(cr);
+	cairo_destroy(cr);
 }
 
 int osd_thread_signal;
