@@ -100,8 +100,8 @@ class Fact {
 public:
 	Fact(): meta(FactMeta("", {})), type(T_UNDEF) {};
 	Fact(FactMeta meta, bool val): meta(meta), value(val), type(T_BOOL) {};
-	Fact(FactMeta meta, int val): meta(meta), value(val), type(T_INT) {};
-	Fact(FactMeta meta, uint val): meta(meta), value(val), type(T_UINT) {};
+	Fact(FactMeta meta, long val): meta(meta), value(val), type(T_INT) {};
+	Fact(FactMeta meta, ulong val): meta(meta), value(val), type(T_UINT) {};
 	Fact(FactMeta meta, double val): meta(meta), value(val), type(T_DOUBLE) {};
 	Fact(FactMeta meta, std::string val): meta(meta), value(val), type(T_STRING) {};
 
@@ -115,14 +115,14 @@ public:
 		return std::get<bool>(value);
 	}
 
-	int getIntValue() {
+	long getIntValue() {
 		assertType(T_INT);
-		return std::get<int>(value);
+		return std::get<long>(value);
 	}
 
-	uint getUintValue() {
+	ulong getUintValue() {
 		assertType(T_UINT);
-		return std::get<uint>(value);
+		return std::get<ulong>(value);
 	}
 
 	double getDoubleValue() {
@@ -189,8 +189,8 @@ private:
 	// TODO: timestamp
 	std::variant<
 		bool,
-		int,
-		uint,
+		long,
+		ulong,
 		double,
 		std::string
 		> value;
@@ -523,9 +523,9 @@ public:
 	virtual void setFact(uint idx, Fact fact) {
 		if (idx == 0) {
 			// replace the value with its increment rate per-second
-			uint num_frames = fact.getUintValue(); // should be always '1'
-			fps.add((ulong)num_frames);
-			args[idx] = Fact(FactMeta("video_fps"), (uint)fps.rate_per_second_over_last_ms(1000));
+			ulong num_frames = fact.getUintValue(); // should be always '1'
+			fps.add(num_frames);
+			args[idx] = Fact(FactMeta("video_fps"), (ulong)fps.rate_per_second_over_last_ms(1000));
 		} else {
 			args[idx] = fact;
 		}
@@ -548,8 +548,8 @@ public:
 	virtual void setFact(uint idx, Fact fact) {
 		assert(idx == 0);
 		// replace the value with its increment rate per-second
-		uint num_bytes = fact.getUintValue();
-		bps.add((ulong)num_bytes);
+		ulong num_bytes = fact.getUintValue();
+		bps.add(num_bytes);
 		// wtf is 125000.0? Why not (1024 * 1024?)
 		args[idx] = Fact(FactMeta("video_mbps"), bps.rate_per_second_over_last_ms(1000) / 125000.0);
 	}
@@ -1145,14 +1145,14 @@ void osd_add_bool_fact(void *batch, char const *name, osd_tag *tags, int n_tags,
 	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
 };
 
-void osd_add_int_fact(void *batch, char const *name, osd_tag *tags, int n_tags, int value) {
+void osd_add_int_fact(void *batch, char const *name, osd_tag *tags, int n_tags, long value) {
 	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
 	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
 };
 
-void osd_add_uint_fact(void *batch, char const *name, osd_tag *tags, int n_tags, uint value) {
+void osd_add_uint_fact(void *batch, char const *name, osd_tag *tags, int n_tags, ulong value) {
 	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
@@ -1182,13 +1182,13 @@ void osd_publish_bool_fact(char const *name, osd_tag *tags, int n_tags, bool val
 	publish(Fact(FactMeta(std::string(name), fact_tags), value));
 };
 
-void osd_publish_int_fact(char const *name, osd_tag *tags, int n_tags, int value) {
+void osd_publish_int_fact(char const *name, osd_tag *tags, int n_tags, long value) {
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
 	publish(Fact(FactMeta(std::string(name), fact_tags), value));
 };
 
-void osd_publish_uint_fact(char const *name, osd_tag *tags, int n_tags, uint value) {
+void osd_publish_uint_fact(char const *name, osd_tag *tags, int n_tags, ulong value) {
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
 	publish(Fact(FactMeta(std::string(name), fact_tags), value));
