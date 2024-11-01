@@ -98,6 +98,15 @@ private:
 
 class Fact {
 public:
+	enum Type {
+		T_UNDEF,
+		T_BOOL,
+		T_INT,
+		T_UINT,
+		T_DOUBLE,
+		T_STRING
+	};
+
 	Fact(): meta(FactMeta("", {})), type(T_UNDEF) {};
 	Fact(FactMeta meta, bool val): meta(meta), value(val), type(T_BOOL) {};
 	Fact(FactMeta meta, long val): meta(meta), value(val), type(T_INT) {};
@@ -143,6 +152,10 @@ public:
 		return typeName(type);
 	}
 
+	Type getType() {
+		return type;
+	}
+
 	std::string getName() {
 		return meta.getName();
 	}
@@ -152,14 +165,7 @@ public:
 	}
 	
 private:
-	enum Type {
-		T_UNDEF,
-		T_BOOL,
-		T_INT,
-		T_UINT,
-		T_DOUBLE,
-		T_STRING
-	} type = T_UNDEF;
+	Type type = T_UNDEF;
 	std::string typeName(Type t) {
 		switch(t) {
 		case T_UNDEF:
@@ -200,24 +206,24 @@ private:
 
 struct Bucket {
 	long long timestamp;
-	ulong sum;
+	long sum;
 	int count;
-	ulong min_value;
-	ulong max_value;
+	long min_value;
+	long max_value;
 
-	Bucket(long long ts, ulong value)
+	Bucket(long long ts, long value)
 		: timestamp(ts), sum(value), count(1), min_value(value), max_value(value) {}
 };
 
 // Struct to hold extended statistics
 struct Stats {
-	ulong min;
-	ulong max;
+	long min;
+	long max;
 	double average;
-	ulong sum;
+	long sum;
 	int count;
 
-	Stats(ulong min_value, ulong max_value, double avg, ulong total_sum, int total_count)
+	Stats(long min_value, long max_value, double avg, long total_sum, int total_count)
 		: min(min_value), max(max_value), average(avg), sum(total_sum), count(total_count) {}
 };
 
@@ -235,7 +241,7 @@ public:
 		assert(window_size_ms >= bucket_size_ms);
 	}
 
-	ulong add(ulong value) {
+	long add(long value) {
 		auto now = std::chrono::steady_clock::now();
 		auto current_time = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
@@ -264,9 +270,9 @@ public:
 	}
 
 	double average_over_last_ms(uint last_ms) const {
-		ulong min = std::numeric_limits<ulong>::max();
-		ulong max = std::numeric_limits<ulong>::min();
-		ulong last_sum;
+		long min = std::numeric_limits<long>::max();
+		long max = std::numeric_limits<long>::min();
+		long last_sum;
 		int last_count;
 		calculate_stats_in_window(last_ms, last_sum, last_count, min, max);
 
@@ -274,9 +280,9 @@ public:
 	}
 
 	double rate_per_second_over_last_ms(uint last_ms) const {
-		ulong min = std::numeric_limits<ulong>::max();
-		ulong max = std::numeric_limits<ulong>::min();
-		ulong last_sum;
+		long min = std::numeric_limits<long>::max();
+		long max = std::numeric_limits<long>::min();
+		long last_sum;
 		int last_count;
 		calculate_stats_in_window(last_ms, last_sum, last_count, min, max);
 
@@ -284,12 +290,12 @@ public:
 		return elapsed_seconds > 0 ? static_cast<double>(last_sum) / elapsed_seconds : 0.0;
 	}
 
-	void get_stats_over_last_ms(uint last_ms, ulong& min, ulong& max, double& average) const {
-		ulong last_sum;
+	void get_stats_over_last_ms(uint last_ms, long& min, long& max, double& average) const {
+		long last_sum;
 		int last_count;
 
-		min = std::numeric_limits<ulong>::max();
-		max = std::numeric_limits<ulong>::min();
+		min = std::numeric_limits<long>::max();
+		max = std::numeric_limits<long>::min();
 
 		calculate_stats_in_window(last_ms, last_sum, last_count, min, max);
 
@@ -298,9 +304,9 @@ public:
 
 	// New method to return Stats struct with sum and count
 	Stats get_stats_over_last_ms_result(uint last_ms) const {
-		ulong min = std::numeric_limits<ulong>::max();
-		ulong max = std::numeric_limits<ulong>::min();
-		ulong last_sum = 0;
+		long min = std::numeric_limits<long>::max();
+		long max = std::numeric_limits<long>::min();
+		long last_sum = 0;
 		int last_count = 0;
 
 		calculate_stats_in_window(last_ms, last_sum, last_count, min, max);
@@ -309,8 +315,8 @@ public:
 		return Stats(min, max, average, last_sum, last_count);
 	}
 
-	std::vector<ulong> get_bucket_sums() const {
-		std::vector<ulong> sums;
+	std::vector<long> get_bucket_sums() const {
+		std::vector<long> sums;
 		sums.reserve(buckets.size());
 		for (const auto& bucket : buckets) {
 			sums.push_back(bucket.sum);
@@ -318,8 +324,18 @@ public:
 		return sums;
 	}
 
+	std::vector<Stats> get_bucket_stats() const {
+		std::vector<Stats> stats;
+		stats.reserve(buckets.size());
+		for (const auto& bucket : buckets) {
+			double average = bucket.count > 0 ? static_cast<double>(bucket.sum) / bucket.count : 0.0;
+			stats.push_back(Stats(bucket.min_value, bucket.max_value, average, bucket.sum, bucket.count));
+		}
+		return stats;
+	}
+
 private:
-	void calculate_stats_in_window(uint last_ms, ulong& sum_out, int& count_out, ulong& min_out, ulong& max_out) const {
+	void calculate_stats_in_window(uint last_ms, long& sum_out, int& count_out, long& min_out, long& max_out) const {
 		auto now = std::chrono::steady_clock::now();
 		auto current_time = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
@@ -341,7 +357,7 @@ private:
 	int window_size;
 	int bucket_size;
 	std::deque<Bucket> buckets;
-	ulong sum;
+	long sum;
 	int count;
 };
 
@@ -546,14 +562,27 @@ private:
 
 class BarChartWidget: public Widget {
 public:
-	BarChartWidget(int pos_x, int pos_y, uint w, uint h, uint window_s, uint num_buckets):
-		Widget(pos_x, pos_y, 0), w(w), h(h), window_ms(window_s * 1000), num_buckets(num_buckets),
+	enum StatsField {
+		STATS_MIN,
+		STATS_MAX,
+		STATS_SUM,
+		STATS_COUNT,
+		STATS_AVG
+	};
+
+	BarChartWidget(int pos_x, int pos_y, uint w, uint h, uint window_s, uint num_buckets, BarChartWidget::StatsField stats_field):
+		Widget(pos_x, pos_y, 0), w(w), h(h), window_ms(window_s * 1000), num_buckets(num_buckets), stats_field(stats_field),
 		stats(window_s * 1000, window_s * 1000 / num_buckets) {};
 
 	virtual void setFact(uint idx, Fact fact) {
 		assert(idx == 0);
-		ulong val = fact.getUintValue();
-		stats.add(val);
+		switch (fact.getType()) {
+		case Fact::T_INT:
+			stats.add(fact.getIntValue());
+			break;
+		case Fact::T_UINT:
+			stats.add(static_cast<long>(fact.getUintValue()));
+		}
 	}
 
 	virtual void draw(cairo_t *cr) {
@@ -563,18 +592,19 @@ public:
 		cairo_rectangle(cr, x, y, w, h);
 		cairo_fill(cr);
 
-		std::vector<ulong> sums = stats.get_bucket_sums();
-		if (sums.size() < 3) {
+		std::vector<Stats> all_stats = stats.get_bucket_stats();
+		if (all_stats.size() < 3) {
 			SPDLOG_DEBUG("Can't draw bar chart - too few values");
 			return;
 		}
-		sums.pop_back(); // drop last bucket, because it is usually still not full
-		ulong min = *std::min_element(sums.begin(), sums.end());
-		ulong max = *std::max_element(sums.begin(), sums.end());
+		all_stats.pop_back(); // drop last bucket, because it is usually still not full
+		std::vector<double> stats = select_stats(all_stats);
+		double min = *std::min_element(stats.begin(), stats.end());
+		double max = *std::max_element(stats.begin(), stats.end());
 
 		// legend
 		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x + 2, y + 10);
+		cairo_move_to(cr, x + 2, y + 15);
 		cairo_show_text(cr, shorten(max).c_str());
 
 		cairo_move_to(cr, x + 2, y + h);
@@ -583,9 +613,9 @@ public:
 		// bars
 		cairo_set_source_rgba(cr, 200.0, 200.0, 200.0, 0.8);
 
-		ulong scale = max - min;
+		double scale = max - min;
 		SPDLOG_DEBUG("Scale: {}, min {}, max {}", scale, min, max);
-		uint legend_w = 60;
+		uint legend_w = 65;
 		uint chart_w = w - legend_w;
 
 		uint bar_pad = 4;
@@ -595,13 +625,13 @@ public:
 					 "chart_w {} bar_w {}, bar_x {}",
 					 chart_w, bar_w, bar_x
                     );
-		for (auto sum : sums) {
-			double normalized = sum - min;
-			double bar_h = -1.0 * (normalized * h) / scale;
+		for (auto val : stats) {
+			double normalized = val - min;
+			double bar_h = -1.0 * (normalized * (h - 10)) / scale;
 			// h -> max-min
 			// ? -> normalized
-			SPDLOG_DEBUG("sum {}, cairo_rectangle(cr, {}, {}, {}, {})",
-						 sum, bar_x, y + h, bar_w, bar_h);
+			SPDLOG_DEBUG("val {}, cairo_rectangle(cr, {}, {}, {}, {})",
+						 val, bar_x, y + h, bar_w, bar_h);
 			cairo_rectangle(cr, bar_x, y + h, bar_w, bar_h - 2);
 			cairo_fill(cr);
 			bar_x += (bar_pad + bar_w);
@@ -614,7 +644,7 @@ private:
 	 * up to 3 digits and "giga" / "mega" / "kilo" suffix
 	 * made by ChatGPT
 	 */
-	std::string shorten(ulong num) {
+	std::string shorten(long num) {
 		double value = num;
 		std::string suffix;
 
@@ -636,8 +666,33 @@ private:
 		oss << std::fixed << std::setprecision(3 - static_cast<int>(std::log10(value) + 1)) << value;
 		return oss.str() + " " + suffix;
 	}
+	std::vector<double> select_stats(std::vector<Stats> stats) {
+		std::vector<double> res;
+		res.reserve(stats.size());
+		for (auto stat : stats) {
+			switch(stats_field) {
+			case STATS_MIN:
+				res.push_back(static_cast<double>(stat.min));
+				break;
+			case STATS_MAX:
+				res.push_back(static_cast<double>(stat.max));
+				break;
+			case STATS_SUM:
+				res.push_back(static_cast<double>(stat.sum));
+				break;
+			case STATS_COUNT:
+				res.push_back(static_cast<double>(stat.count));
+				break;
+			case STATS_AVG:
+				res.push_back(stat.average);
+				break;
+			}
+		}
+		return res;
+	}
 	uint w, h;
 	uint window_ms, num_buckets;
+	StatsField stats_field = STATS_SUM;
 	RunningAverage stats;
 };
 
@@ -833,9 +888,25 @@ public:
 			} else if(type == "BarChartWidget") {
 				auto width = widget_j.at("width").template get<uint>();
 				auto height = widget_j.at("height").template get<uint>();
-				uint window_s = widget_j.at("window_s").template get<uint>();
-				uint num_buckets = widget_j.at("num_buckets").template get<uint>();
-				addWidget(new BarChartWidget(x, y, width, height, window_s, num_buckets),
+				auto window_s = widget_j.at("window_s").template get<uint>();
+				auto num_buckets = widget_j.at("num_buckets").template get<uint>();
+				auto stats_kind_str = widget_j.at("stats_kind").template get<std::string>();
+				BarChartWidget::StatsField stats_kind;
+				if (stats_kind_str == "sum") {
+					stats_kind = BarChartWidget::STATS_SUM;
+				} else if (stats_kind_str == "min") {
+					stats_kind = BarChartWidget::STATS_MIN;
+				} else if (stats_kind_str == "max") {
+					stats_kind = BarChartWidget::STATS_MAX;
+				} else if (stats_kind_str == "count") {
+					stats_kind = BarChartWidget::STATS_COUNT;
+				} else if (stats_kind_str == "avg") {
+					stats_kind = BarChartWidget::STATS_AVG;
+				} else {
+					SPDLOG_WARN("{}: invalid stats_kind {}", name, stats_kind_str);
+					break;
+				}
+				addWidget(new BarChartWidget(x, y, width, height, window_s, num_buckets, stats_kind),
 						  matchers);
 			} else {
 				spdlog::warn("Widget '{}': unknown type: {}", name, type);
