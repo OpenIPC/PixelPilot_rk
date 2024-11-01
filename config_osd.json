@@ -3,7 +3,23 @@
     "assets_dir": "/usr/local/share/pixelpilot/",
     "widgets": [
         {
-            "name": "Video FPS and resolution",
+            "name": "Video link throughput chart",
+            "type": "BarChartWidget",
+            "x": -320,
+            "y": 200,
+            "width": 310,
+            "height": 80,
+            "window_s": 10,
+            "num_buckets": 10,
+            "facts": [
+                {
+                    "__comment": "Should be sum per-second, scaled to Megs",
+                    "name": "gstreamer.received_bytes"
+                }
+            ]
+        },
+        {
+            "name": "Metrics background",
             "type": "BoxWidget",
             "x": -320,
             "y": 0,

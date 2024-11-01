@@ -25,6 +25,7 @@ set(SOURCE_FILES
         src/gstrtpreceiver.cpp
         src/gstrtpreceiver.h)
 file(GLOB ICONS src/icons/*.png)
+file(GLOB OSD_CONFIGS *_osd.json)
 
 include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog")
 
@@ -66,4 +67,7 @@ install(TARGETS ${PROJECT_NAME}
 )
 install(FILES ${ICONS}
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}
+)
+install(FILES ${OSD_CONFIGS}
+    DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/${PROJECT_NAME}
 )
