@@ -3,17 +3,39 @@
     "assets_dir": "/usr/local/share/pixelpilot/",
     "widgets": [
         {
+            "name": "WFB RSSI chart",
+            "type": "BarChartWidget",
+            "x": -320,
+            "y": 300,
+            "width": 310,
+            "height": 80,
+            "__comment": "stats_kind can be min, max, sum, count, avg",
+            "stats_kind": "avg",
+            "window_s": 10,
+            "num_buckets": 10,
+            "facts": [
+                {
+                    "name": "mavlink.radio_status.rssi",
+                    "tags": {
+                        "sysid": "3",
+                        "compid": "68"
+                    }
+                }
+            ]
+        },
+        {
             "name": "Video link throughput chart",
             "type": "BarChartWidget",
             "x": -320,
             "y": 200,
             "width": 310,
             "height": 80,
+            "__comment": "stats_kind can be min, max, sum, count, avg",
+            "stats_kind": "sum",
             "window_s": 10,
             "num_buckets": 10,
             "facts": [
                 {
-                    "__comment": "Should be sum per-second, scaled to Megs",
                     "name": "gstreamer.received_bytes"
                 }
             ]
@@ -61,7 +83,7 @@
             "x": -300,
             "y": 50,
             "icon_path": "latency.png",
-            "template": "avg%f (min%u, max%u) ms",
+            "template": "avg%f (min%d, max%d) ms",
             "per_second_window_s": 2,
             "per_second_bucket_ms": 100,
             "facts": [
