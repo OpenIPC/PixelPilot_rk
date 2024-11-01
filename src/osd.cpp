@@ -309,6 +309,15 @@ public:
 		return Stats(min, max, average, last_sum, last_count);
 	}
 
+	std::vector<ulong> get_bucket_sums() const {
+		std::vector<ulong> sums;
+		sums.reserve(buckets.size());
+		for (const auto& bucket : buckets) {
+			sums.push_back(bucket.sum);
+		}
+		return sums;
+	}
+
 private:
 	void calculate_stats_in_window(uint last_ms, ulong& sum_out, int& count_out, ulong& min_out, ulong& max_out) const {
 		auto now = std::chrono::steady_clock::now();
@@ -535,6 +544,103 @@ private:
 	double r, g, b, a;
 };
 
+class BarChartWidget: public Widget {
+public:
+	BarChartWidget(int pos_x, int pos_y, uint w, uint h, uint window_s, uint num_buckets):
+		Widget(pos_x, pos_y, 0), w(w), h(h), window_ms(window_s * 1000), num_buckets(num_buckets),
+		stats(window_s * 1000, window_s * 1000 / num_buckets) {};
+
+	virtual void setFact(uint idx, Fact fact) {
+		assert(idx == 0);
+		ulong val = fact.getUintValue();
+		stats.add(val);
+	}
+
+	virtual void draw(cairo_t *cr) {
+		auto [x, y] = xy(cr);
+		// box
+		cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.4);
+		cairo_rectangle(cr, x, y, w, h);
+		cairo_fill(cr);
+
+		std::vector<ulong> sums = stats.get_bucket_sums();
+		if (sums.size() < 3) {
+			SPDLOG_DEBUG("Can't draw bar chart - too few values");
+			return;
+		}
+		sums.pop_back(); // drop last bucket, because it is usually still not full
+		ulong min = *std::min_element(sums.begin(), sums.end());
+		ulong max = *std::max_element(sums.begin(), sums.end());
+
+		// legend
+		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+		cairo_move_to(cr, x + 2, y + 10);
+		cairo_show_text(cr, shorten(max).c_str());
+
+		cairo_move_to(cr, x + 2, y + h);
+		cairo_show_text(cr, shorten(min).c_str());
+
+		// bars
+		cairo_set_source_rgba(cr, 200.0, 200.0, 200.0, 0.8);
+
+		ulong scale = max - min;
+		SPDLOG_DEBUG("Scale: {}, min {}, max {}", scale, min, max);
+		uint legend_w = 60;
+		uint chart_w = w - legend_w;
+
+		uint bar_pad = 4;
+		uint bar_w = (chart_w - (bar_pad * num_buckets)) / num_buckets;
+		uint bar_x = x + legend_w;
+		SPDLOG_DEBUG(
+					 "chart_w {} bar_w {}, bar_x {}",
+					 chart_w, bar_w, bar_x
+                    );
+		for (auto sum : sums) {
+			double normalized = sum - min;
+			double bar_h = -1.0 * (normalized * h) / scale;
+			// h -> max-min
+			// ? -> normalized
+			SPDLOG_DEBUG("sum {}, cairo_rectangle(cr, {}, {}, {}, {})",
+						 sum, bar_x, y + h, bar_w, bar_h);
+			cairo_rectangle(cr, bar_x, y + h, bar_w, bar_h - 2);
+			cairo_fill(cr);
+			bar_x += (bar_pad + bar_w);
+		}
+	}
+
+private:
+	/**
+	 * function that takes ulong and returns string with short form of the number:
+	 * up to 3 digits and "giga" / "mega" / "kilo" suffix
+	 * made by ChatGPT
+	 */
+	std::string shorten(ulong num) {
+		double value = num;
+		std::string suffix;
+
+		if (num >= 1'000'000'000) {  // Giga
+			value = num / 1'000'000'000.0;
+			suffix = "G";
+		} else if (num >= 1'000'000) {  // Mega
+			value = num / 1'000'000.0;
+			suffix = "M";
+		} else if (num >= 1'000) {  // Kilo
+			value = num / 1'000.0;
+			suffix = "K";
+		} else {
+			suffix = "";  // No suffix needed
+		}
+
+		// Format to 3 significant digits
+		std::ostringstream oss;
+		oss << std::fixed << std::setprecision(3 - static_cast<int>(std::log10(value) + 1)) << value;
+		return oss.str() + " " + suffix;
+	}
+	uint w, h;
+	uint window_ms, num_buckets;
+	RunningAverage stats;
+};
+
 //
 // Specific widgets
 //
@@ -724,6 +830,13 @@ public:
 				auto b = color_j.at("b").template get<double>();
 				auto a = color_j.at("alpha").template get<double>();
 				addWidget(new BoxWidget(x, y, width, height, r, g, b, a), matchers);
+			} else if(type == "BarChartWidget") {
+				auto width = widget_j.at("width").template get<uint>();
+				auto height = widget_j.at("height").template get<uint>();
+				uint window_s = widget_j.at("window_s").template get<uint>();
+				uint num_buckets = widget_j.at("num_buckets").template get<uint>();
+				addWidget(new BarChartWidget(x, y, width, height, window_s, num_buckets),
+						  matchers);
 			} else {
 				spdlog::warn("Widget '{}': unknown type: {}", name, type);
 			}
