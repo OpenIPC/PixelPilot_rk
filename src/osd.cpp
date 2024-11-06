@@ -34,6 +34,7 @@ extern "C" {
 using json = nlohmann::json;
 
 struct osd_vars osd_vars;
+int enable_osd = 0;
 
 extern uint32_t frames_received;
 uint32_t stats_rx_bytes = 0;
@@ -1486,6 +1487,7 @@ void mk_tags(osd_tag *tags, int n_tags, FactTags *fact_tags) {
 }
 
 void publish(Fact fact) {
+	if (!enable_osd) return;
 	//SPDLOG_DEBUG("post fact {}({})", fact.getName(), fact.getTags());
 	{
 		std::lock_guard<std::mutex> lock(mtx);
@@ -1507,15 +1509,17 @@ void *osd_batch_init(uint n) {
 }
 void osd_publish_batch(void *batch) {
 	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		for (Fact fact : *facts) {
-			// SPDLOG_DEBUG("batch post fact {}({})", fact.getName(), fact.getTags());
-			fact_queue.push(fact);
+	if (enable_osd) {
+		{
+			std::lock_guard<std::mutex> lock(mtx);
+			for (Fact fact : *facts) {
+				// SPDLOG_DEBUG("batch post fact {}({})", fact.getName(), fact.getTags());
+				fact_queue.push(fact);
+			}
 		}
+		cv.notify_one();
 	}
 	delete facts;
-	cv.notify_one();
 };
 
 void osd_add_bool_fact(void *batch, char const *name, osd_tag *tags, int n_tags, bool value) {

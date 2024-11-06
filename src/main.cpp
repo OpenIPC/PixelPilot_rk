@@ -531,7 +531,6 @@ int main(int argc, char **argv)
 {
 	int ret;	
 	int i, j;
-	int enable_osd = 0;
 	int mavlink_thread = 0;
 	int dvr_autostart = 0;
 	int print_modelist = 0;

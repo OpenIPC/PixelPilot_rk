@@ -12,6 +12,8 @@ typedef struct {
 	nlohmann::json config;
 } osd_thread_params;
 
+extern int osd_thread_signal;
+
 void *__OSD_THREAD__(void *param);
 
 #endif
