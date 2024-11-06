@@ -291,12 +291,14 @@ void *__DISPLAY_THREAD__(void *param)
 
 		ret = pthread_mutex_lock(&osd_mutex);
 		assert(!ret);	
-		ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
-		assert(ret>0);
+		if(enable_osd) {
+			ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
+			assert(ret>0);
+		}
 		drmModeAtomicCommit(drm_fd, output_list->video_request, DRM_MODE_ATOMIC_NONBLOCK, NULL);
 		ret = pthread_mutex_unlock(&osd_mutex);
-
 		assert(!ret);
+
 		frame_counter++;
 		osd_publish_uint_fact("video.displayed_frame", NULL, 0, 1);
 
