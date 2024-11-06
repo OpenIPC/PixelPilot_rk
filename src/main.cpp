@@ -495,11 +495,11 @@ void printHelp() {
     "\n"
     "    --osd                  - Enable OSD\n"
     "\n"
-    "    --osd-elements <els>   - Customize osd elements   			    (Default: video,wfbng,telem)\n"
+    "    --osd-elements <els>   - (deprecated) Customize osd elements   	(Default: video,wfbng,telem)\n"
     "\n"
     "    --osd-config <file>    - Path to OSD configuration file\n"
     "\n"
-    "    --osd-telem-lvl <lvl>  - Level of details for telemetry in the OSD (Default: 1 [1-2])\n"
+    "    --osd-telem-lvl <lvl>  - (deprecated) Level of details for telemetry in the OSD (Default: 1 [1-2])\n"
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
@@ -662,11 +662,13 @@ int main(int argc, char **argv)
 			}
 			element = strtok(NULL, ",");
 		}
+		spdlog::warn("--osd-elements parameter is deprecated. Use --osd-config instead.");
 		continue;
 	}
 
 	__OnArgument("--osd-telem-lvl") {
 		osd_vars.telemetry_level = atoi(__ArgValue);
+		spdlog::warn("--osd-telem-lvl parameter is deprecated. Use --osd-config instead.");
 		continue;
 	}
 

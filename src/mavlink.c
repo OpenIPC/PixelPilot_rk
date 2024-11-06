@@ -130,7 +130,7 @@ void* __MAVLINK_THREAD__(void* arg) {
     // Credit to openIPC:https://github.com/OpenIPC/silicon_research/blob/master/vdec/main.c#L1020
     mavlink_message_t message;
     mavlink_status_t status;
-    static bool current_arm_state = false;
+    static int current_arm_state = -1;
     for (int i = 0; i < ret; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_0, buffer[i], &message, &status) == 1) {
         osd_tag tags[3];
@@ -143,7 +143,7 @@ void* __MAVLINK_THREAD__(void* arg) {
             {
               mavlink_heartbeat_t heartbeat = {};
               mavlink_msg_heartbeat_decode(&message, &heartbeat);
-              bool received_arm_state = (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
+              int received_arm_state = (heartbeat.base_mode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
               if (current_arm_state != received_arm_state) {
                   osd_publish_bool_fact("mavlink.heartbeet.base_mode.armed", tags, 2, received_arm_state);
                   current_arm_state = received_arm_state;
@@ -300,11 +300,11 @@ void* __MAVLINK_THREAD__(void* arg) {
                 osd_vars.s3_double = strtod(osd_vars.s3, &osd_vars.ptr);
                 osd_vars.s4_double = strtod(osd_vars.s4, &osd_vars.ptr);
               }
-              osd_add_int_fact(batch, "mavlink.gps_raw.lat", tags, 2, (long) gps.lat);
-              osd_add_int_fact(batch, "mavlink.gps_raw.lon", tags, 2, (long) gps.lon);
-              osd_add_int_fact(batch, "mavlink.gps_raw.alt", tags, 2, (long) gps.alt);
-              osd_add_uint_fact(batch, "mavlink.gps_raw.vel", tags, 2, (ulong) gps.vel);
-              osd_add_uint_fact(batch, "mavlink.gps_raw.cog", tags, 2, (ulong) gps.cog);
+              osd_add_int_fact(batch, "mavlink.gps_raw.lat", tags, 2, (long) gps.lat); //degE7
+              osd_add_int_fact(batch, "mavlink.gps_raw.lon", tags, 2, (long) gps.lon); //degE7
+              osd_add_int_fact(batch, "mavlink.gps_raw.alt", tags, 2, (long) gps.alt); //mm
+              osd_add_uint_fact(batch, "mavlink.gps_raw.vel", tags, 2, (ulong) gps.vel); //cm/s
+              osd_add_uint_fact(batch, "mavlink.gps_raw.cog", tags, 2, (ulong) gps.cog); //cdeg
               osd_add_uint_fact(batch, "mavlink.gps_raw.satellites_visible", tags, 2, (ulong) gps.satellites_visible);
               // Fix type: https://mavlink.io/en/messages/common.html#GPS_FIX_TYPE
               osd_add_uint_fact(batch, "mavlink.gps_raw.fix_type", tags, 2, (ulong) gps.fix_type);
@@ -337,14 +337,14 @@ void* __MAVLINK_THREAD__(void* arg) {
               void *batch = osd_batch_init(8);
               mavlink_msg_global_position_int_decode( &message, &global_position_int);
               osd_vars.telemetry_hdg = global_position_int.hdg / 100;
-              osd_add_int_fact(batch, "mavlink.global_position_int.lat", tags, 2, (long) global_position_int.lat);
-              osd_add_int_fact(batch, "mavlink.global_position_int.lon", tags, 2, (long) global_position_int.lon);
-              osd_add_int_fact(batch, "mavlink.global_position_int.alt", tags, 2, (long) global_position_int.alt);
-              osd_add_int_fact(batch, "mavlink.global_position_int.relative_alt", tags, 2, (long) global_position_int.relative_alt);
-              osd_add_int_fact(batch, "mavlink.global_position_int.vx", tags, 2, (long) global_position_int.vx);
-              osd_add_int_fact(batch, "mavlink.global_position_int.vy", tags, 2, (long) global_position_int.vy);
-              osd_add_int_fact(batch, "mavlink.global_position_int.vz", tags, 2, (long) global_position_int.vz);
-              osd_add_uint_fact(batch, "mavlink.global_position_int.hdg", tags, 2, (ulong) global_position_int.hdg);
+              osd_add_int_fact(batch, "mavlink.global_position_int.lat", tags, 2, (long) global_position_int.lat); //degE7
+              osd_add_int_fact(batch, "mavlink.global_position_int.lon", tags, 2, (long) global_position_int.lon); //degE7
+              osd_add_int_fact(batch, "mavlink.global_position_int.alt", tags, 2, (long) global_position_int.alt); //mm
+              osd_add_int_fact(batch, "mavlink.global_position_int.relative_alt", tags, 2, (long) global_position_int.relative_alt); //mm
+              osd_add_int_fact(batch, "mavlink.global_position_int.vx", tags, 2, (long) global_position_int.vx); //cm/s
+              osd_add_int_fact(batch, "mavlink.global_position_int.vy", tags, 2, (long) global_position_int.vy); //cm/s
+              osd_add_int_fact(batch, "mavlink.global_position_int.vz", tags, 2, (long) global_position_int.vz); //cm/s
+              osd_add_uint_fact(batch, "mavlink.global_position_int.hdg", tags, 2, (ulong) global_position_int.hdg); //cdeg
               osd_publish_batch(batch);
             }
             break;
