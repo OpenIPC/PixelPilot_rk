@@ -208,8 +208,10 @@
             "type": "GPSWidget",
             "x": 10,
             "y": 140,
-            "template": "GPS:%u,%u",
             "facts": [
+                {
+                    "name": "mavlink.gps_raw.fix_type"
+                },
                 {
                     "name": "mavlink.gps_raw.lat"
                 },
@@ -240,6 +242,39 @@
             "facts": [
                 {
                     "name": "mavlink.attitude.roll"
+                }
+            ]
+        },
+        {
+            "name": "Dump raw facts to the scren",
+            "type": "---DebugWidget",
+            "x": 10,
+            "y": 250,
+            "facts": [
+                {
+                    "name": "mavlink.heartbeet.base_mode.armed"
+                },
+                {
+                    "name": "mavlink.radio_status.rssi",
+                    "tags": {
+                        "sysid": "3",
+                        "compid": "68"
+                    }
+                },
+                {
+                    "name": "mavlink.gps_raw.lat"
+                },
+                {
+                    "name": "mavlink.gps_raw.lon"
+                },
+                {
+                    "name": "mavlink.gps_raw.fix_type"
+                },
+                {
+                    "name": "mavlink.global_position_int.lat"
+                },
+                {
+                    "name": "mavlink.global_position_int.lon"
                 }
             ]
         },

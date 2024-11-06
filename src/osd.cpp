@@ -163,6 +163,28 @@ public:
 	FactTags getTags() {
 		return meta.getTags();
 	}
+
+	std::string asString() {
+		switch(type) {
+		case T_UNDEF:
+			return "(undefined)";
+		case T_BOOL:
+			if (getBoolValue()) {
+				return "true";
+			} else {
+				return "false";
+			};
+		case T_INT:
+			return std::to_string(getIntValue());
+		case T_UINT:
+			return std::to_string(getUintValue());
+		case T_DOUBLE:
+			return std::to_string(getDoubleValue());
+		case T_STRING:
+			return getStrValue();
+		}
+		return "(unknown)";
+	}
 	
 private:
 	Type type = T_UNDEF;
@@ -614,14 +636,14 @@ public:
 		cairo_set_source_rgba(cr, 200.0, 200.0, 200.0, 0.8);
 
 		double scale = max - min;
-		SPDLOG_DEBUG("Scale: {}, min {}, max {}", scale, min, max);
+		SPDLOG_TRACE("Scale: {}, min {}, max {}", scale, min, max);
 		uint legend_w = 65;
 		uint chart_w = w - legend_w;
 
 		uint bar_pad = 4;
 		uint bar_w = (chart_w - (bar_pad * num_buckets)) / num_buckets;
 		uint bar_x = x + legend_w;
-		SPDLOG_DEBUG(
+		SPDLOG_TRACE(
 					 "chart_w {} bar_w {}, bar_x {}",
 					 chart_w, bar_w, bar_x
                     );
@@ -630,7 +652,7 @@ public:
 			double bar_h = -1.0 * (normalized * (h - 10)) / scale;
 			// h -> max-min
 			// ? -> normalized
-			SPDLOG_DEBUG("val {}, cairo_rectangle(cr, {}, {}, {}, {})",
+			SPDLOG_TRACE("val {}, cairo_rectangle(cr, {}, {}, {}, {})",
 						 val, bar_x, y + h, bar_w, bar_h);
 			cairo_rectangle(cr, bar_x, y + h, bar_w, bar_h - 2);
 			cairo_fill(cr);
@@ -789,6 +811,87 @@ private:
 };
 
 
+class GPSWidget: public Widget {
+public:
+	GPSWidget(int pos_x, int pos_y, uint num_args) :
+		Widget(pos_x, pos_y, num_args) {
+		assert(num_args == 3);
+	};
+
+	void draw(cairo_t *cr) {
+		if( !(args[0].isDefined() && args[1].isDefined() && args[2].isDefined()) ) return;
+		auto [x, y] = xy(cr);
+		std::string fix_type = "undef";
+		char buf[64];
+		switch (args[0].getUintValue()) {
+		case 0:
+			fix_type = "no GPS";
+			break;
+		case 1:
+			fix_type = "no fix";
+			break;
+		case 2:
+			fix_type = "2D fix";
+			break;
+		case 3:
+			fix_type = "3D fix";
+			break;
+		case 4:
+			fix_type = "DGPS/SBAS 3D";
+			break;
+		case 5:
+			fix_type = "RTK float 3D";
+			break;
+		case 6:
+			fix_type = "RTK Fixed 3D";
+			break;
+		case 7:
+			fix_type = "Static fixed";
+			break;
+		case 8:
+			fix_type = "PPP 3D";
+			break;
+		}
+		double lat = args[1].getIntValue() * 1.0e-7;
+		double lon = args[2].getIntValue() * 1.0e-7;
+		snprintf(buf, sizeof(buf), "%s Lat:%f, Lon:%f", fix_type.c_str(), lat, lon);
+		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+		cairo_move_to(cr, x, y);
+		cairo_show_text(cr, buf);
+	}
+};
+
+
+class DebugWidget: public Widget {
+public:
+	DebugWidget(int pos_x, int pos_y, uint num_args) :
+		Widget(pos_x, pos_y, num_args) {};
+
+	void draw(cairo_t *cr) {
+		auto [x, y] = xy(cr);
+		auto y_offset = y;
+		for (Fact &fact : args) {
+			std::ostringstream oss;
+			if (!fact.isDefined()) {
+				oss << "undef";
+			} else {
+				oss << fact.getName() << " (" << fact.getTypeName() << ") {";
+				for (const auto &tag : fact.getTags()) {
+					oss << tag.first << "=>" << tag.second << ", ";
+				}
+				oss << "} = " << fact.asString();
+			}
+			std::string text =  oss.str();
+			cairo_set_source_rgba(cr, 255.0, 50.0, 50.0, 1);
+			cairo_move_to(cr, x, y_offset);
+			cairo_show_text(cr, text.c_str());
+			y_offset += 20;
+			SPDLOG_INFO("dbg draw {}", text);
+		}
+	}
+};
+
+
 class Osd {
 public:
 	void loadConfig(json cfg) {
@@ -908,6 +1011,10 @@ public:
 				}
 				addWidget(new BarChartWidget(x, y, width, height, window_s, num_buckets, stats_kind),
 						  matchers);
+			} else if (type == "GPSWidget") {
+				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
+			} else if(type == "DebugWidget") {
+				addWidget(new DebugWidget(x, y, (uint)matchers.size()), matchers);
 			} else {
 				spdlog::warn("Widget '{}': unknown type: {}", name, type);
 			}
