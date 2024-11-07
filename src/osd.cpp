@@ -719,6 +719,64 @@ private:
 	RunningAverage stats;
 };
 
+/**
+ * Displays text facts for a period of time, stacking them one after another; fading-out opacity.
+ * Convenient for warnings, custom messages and pop-ups.
+ *
+ * @param timeout_ms stop displaying the fact after this many milliseconds since it was received
+ */
+class PopupWidget: public Widget {
+public:
+	PopupWidget(int pos_x, int pos_y, uint timeout_ms, uint num_args) :
+		Widget(pos_x, pos_y, num_args), timeout(timeout_ms) {};
+
+	virtual void setFact(uint _idx, Fact fact) {
+		auto now = std::chrono::steady_clock::now();
+		std::string msg = fact.getStrValue();
+		msgs.push_back(std::pair(now, msg));
+	}
+
+	void draw(cairo_t *cr) {
+		auto [x, y] = xy(cr);
+		auto now = std::chrono::steady_clock::now();
+
+		// Remove outdated messages
+		while (!msgs.empty() && (now - msgs.front().first > timeout)) {
+			msgs.pop_front();
+		}
+		uint y_offset = y;
+		for (auto [time, msg] : msgs) {
+			auto past = std::chrono::duration_cast<std::chrono::milliseconds>(now - time);
+			double fade_fraction = 1.0 - static_cast<double>(past.count()) / static_cast<double>(timeout.count());
+
+			cairo_text_extents_t extents;
+			cairo_text_extents(cr, msg.c_str(), &extents);
+
+			// Draw popup box
+			double padding = 5.0;
+			cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, fade_fraction / 3.0);
+			cairo_rectangle(cr,
+							x - padding,
+							y_offset + padding,
+							extents.width + (padding * 2), -(extents.height + (padding * 2)));
+			cairo_fill(cr);
+
+			// Draw popup text
+			cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, fade_fraction);
+			cairo_move_to(cr, x, y_offset);
+			cairo_show_text(cr, msg.c_str());
+			y_offset += extents.height + (padding * 2) + 2;
+		}
+	}
+
+private:
+	std::deque<std::pair<
+				   std::chrono::time_point<std::chrono::steady_clock>,
+				   std::string
+				   >> msgs;
+	std::chrono::milliseconds timeout;
+};
+
 //
 // Specific widgets
 //
@@ -1014,6 +1072,10 @@ public:
 						  matchers);
 			} else if (type == "GPSWidget") {
 				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
+			} else if(type == "PopupWidget") {
+				auto timeout_ms = widget_j.at("timeout_ms").template get<uint>();
+				addWidget(new PopupWidget(x, y, timeout_ms, (uint)matchers.size()),
+						  matchers);
 			} else if(type == "DebugWidget") {
 				addWidget(new DebugWidget(x, y, (uint)matchers.size()), matchers);
 			} else {
@@ -1105,6 +1167,37 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	cairo_surface_t *surface;
 	char msg[80];
 	memset(msg, 0x00, sizeof(msg));
+
+	//check custom message
+	//TODO: move this code to the main thread's main loop (read_gstreamerpipe_stream, sleep(10))
+	if (osd_custom_message) {
+		std::string filename = "/run/pixelpilot.msg";
+		FILE *file = fopen(filename.c_str(), "r");
+		osd_tag tag;
+		if (file != NULL) {
+
+			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
+				perror("Error reading from file");
+				fclose(file);
+			}
+			fclose(file);
+			if (unlink(filename.c_str()) != 0) {
+				perror("Error deleting the file");
+			}
+			// Ensure null termination at the 80th position to prevent overflow
+			custom_msg[79] = '\0';
+
+			// Find the first newline character, if it exists
+			char *newline_pos = strchr(custom_msg, '\n');
+			if (newline_pos != NULL) {
+				*newline_pos = '\0';  // Null-terminate at the newline
+			}
+			FactTags fact_tags = { {"file", filename} };
+			osd->setFact(Fact(FactMeta("osd.custom_message", fact_tags), std::string(custom_msg)));
+			//osd_publish_str_fact("osd.custom_message", &tag, 1, std::string(custom_msg))
+			custom_msg_refresh_count = 1;
+		}
+	}
 
 	int osd_x = buf->width - 300;
 	surface = cairo_image_surface_create_for_data(buf->map, CAIRO_FORMAT_ARGB32, buf->width, buf->height, buf->stride);
@@ -1231,47 +1324,20 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	}
 
 	//display custom message
-	if (osd_custom_message) {
-		FILE *file = fopen("/run/pixelpilot.msg", "r");
-		if (file != NULL) {
+	if (osd_custom_message && custom_msg_refresh_count > 0) {
+		if (custom_msg_refresh_count++ > 5) custom_msg_refresh_count=0;
 
-			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
-				perror("Error reading from file");
-				fclose(file);
-			}
-			fclose(file);
-			if (unlink("/run/pixelpilot.msg") != 0) {
-				perror("Error deleting the file");
-			}
-			custom_msg_refresh_count = 1;
-		}
-		if (custom_msg_refresh_count > 0) {
+		// Measure the text width
+		cairo_text_extents_t extents;
+		cairo_text_extents(cr, custom_msg, &extents);
 
-			if (custom_msg_refresh_count++ > 5) custom_msg_refresh_count=0;
+		// Calculate the position to center the text horizontally
+		double x = (buf->width / 2) - (extents.width / 2);
+		double y = (buf->height / 2);
 
-			size_t msg_length = strlen(custom_msg);
-
-			// Ensure null termination at the 80th position to prevent overflow
-			custom_msg[79] = '\0';
-
-			// Find the first newline character, if it exists
-			char *newline_pos = strchr(custom_msg, '\n');
-			if (newline_pos != NULL) {
-				*newline_pos = '\0';  // Null-terminate at the newline
-			}
-
-			// Measure the text width
-			cairo_text_extents_t extents;
-			cairo_text_extents(cr, custom_msg, &extents);
-
-			// Calculate the position to center the text horizontally
-			double x = (buf->width / 2) - (extents.width / 2);
-			double y = (buf->height / 2);
-
-			// Set the position and draw the text
-			cairo_move_to(cr, x, y);
-			cairo_show_text(cr, custom_msg);
-		}
+		// Set the position and draw the text
+		cairo_move_to(cr, x, y);
+		cairo_show_text(cr, custom_msg);
 	}	
 
 	if (!osd_vars.enable_telemetry){
