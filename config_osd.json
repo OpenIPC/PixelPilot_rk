@@ -246,10 +246,58 @@
             ]
         },
         {
-            "name": "Dump raw facts to the scren",
+            "name": "Battery voltage",
+            "type": "TplTextWidget",
+            "x": 10,
+            "y": 230,
+            "template": "BAT:%umV",
+            "facts": [
+                {
+                    "name": "mavlink.sys_status.voltage_battery"
+                }
+            ]
+        },
+        {
+            "name": "Battery consumed",
+            "type": "TplTextWidget",
+            "x": 10,
+            "y": 260,
+            "template": "CONS:%imAh",
+            "facts": [
+                {
+                    "name": "mavlink.battery_status.current_consumed"
+                }
+            ]
+        },
+        {
+            "name": "Battery current",
+            "type": "TplTextWidget",
+            "x": 10,
+            "y": 290,
+            "template": "CUR:%i/100 A",
+            "facts": [
+                {
+                    "name": "mavlink.sys_status.current_battery"
+                }
+            ]
+        },
+        {
+            "name": "Custom fading message",
+            "type": "PopupWidget",
+            "x": 400,
+            "y": 50,
+            "timeout_ms": 10000,
+            "facts": [
+                {
+                    "name": "osd.custom_message"
+                }
+            ]
+        },
+        {
+            "name": "Dump raw facts to the scren (remove `--` from `type` to enable)",
             "type": "---DebugWidget",
             "x": 10,
-            "y": 250,
+            "y": -100,
             "facts": [
                 {
                     "name": "mavlink.heartbeet.base_mode.armed"
