@@ -60,6 +60,7 @@ pixelpilot --help
 
 OSD is set-up declaratively in `/etc/pixelpilot/config_osd.json` file (or whatever is set via `--osd-config`
 command line key.
+
 OSD is described as an array of widgets which may subscribe to fact updates (they receive each fact
 update they subscribe to) and those widgets are periodically rendered on the screen (in the order they
 declared in config). So the goal is that widgets would decide how they should be rendered based on
@@ -67,9 +68,11 @@ the values of the facts they are subscribed to. If widget needs to render not th
 fact, but some processed value (like average / max / total etc), the widget should keep the necessary
 state for that. There is a helper class `MovingAverage` that would be helpful to calculate common
 statistical parameters.
+
 Each fact has a specific datatype: one of `int` (signed integer) / `uint` (unsigned integer) /
 `double` (floating point) / `bool` (true/false) / `string` (text). Type cast is currently not
 implemented, so it is important to use the right type in the widget code and templates.
+
 Facts may also have tags: a set of string key->value pairs. Widget may filter facts by tags as well as by name.
 Currently there are several generic OSD widgets and several specific ad-hoc ones. There are quite a
 lot of facts to which widgets can subscribe to:
@@ -83,6 +86,7 @@ lot of facts to which widgets can subscribe to:
 | `video.decode_and_handover_ms` | uint | Time from the moment packet is received to time it is displayed on screen |
 | `video.decoder_feed_time_ms`   | uint | Time to feed the video packet to hardware decoder                         |
 | `gstreamer.received_bytes`     | uint | Number of bytes received from gstreamer (published for each packet)       |
+| `osd.custom_message`           | str  | The custom message passed via `--osd-custom-message` feature              |
 
 There are many facts based on Mavlink telemetry, see `mavlink.c`. All of them have tags "sysid" and
 "compid", but some have extra tags.
@@ -102,6 +106,33 @@ Currently implemented fact categories are grouped by Mavlink message types:
 | `mavlink.radio_status.*`            | uint/int | Status of various radio equipment. Tags `{sysid: 3, compid: 68}` encode the [injected status of WFB-ng receiver](https://github.com/svpcom/wfb-ng/blob/4ea700606c259960ea169bad1f55fde77850013d/wfb_ng/conf/master.cfg#L227-L228) |
 
 More can be easily added later. You can use `DebugWidget` to inspect the current raw value of the fact(s).
+
+Currently we have generic widgets and more ad-hoc specific ones. Generic widgets normally can be used
+to display any fact (as long as datatype matches):
+
+* `TextWidget` - displays a static string of text
+* `IconTextWidget` - displays a graphical icon followed by a static text
+* `TplTextWidget` - displays a string of text by replacing placeholders with the fact values
+* `IconTplTextWidget` - displays a graphical icon followed by templatized text string
+* `BoxWidget` - displays a static square. Might be good as a background.
+* `BarChartWidget` - displays a simple bar chart for the single fact's statistics. Each bar represents
+ either minimum or maximum or sum or count or average of the fact over time interval. Can be used to show
+ eg the average video bitrate or RSSI or FPS.
+* `PopupWidget` - displays a stacked pop-ups with text facts which fade-away after timeout.
+* `DebugWidget` - displays debug information (name, type, tags, value) about fact(s)
+
+Specific widgets expect quite concrete facts as input:
+
+* `DvrStatusWidget` - shows up when DVR is recording and is hidden when not.
+  Uses `dvr.recording` fact
+* `VideoWidget` - shows FPS and video resolution.
+  Uses `video.displayed_frame`, `video.width`, `video.height` facts
+* `VideoBitrateWidget` - shows video bitrate (not radio link, but video!).
+  Uses `gstreamer.received_bytes` fact
+* `VideoDecodeLatencyWidget` - shows video frame decode and display latency (avg/min/max).
+  Uses `video.decode_and_handover_ms` fact
+* `GPSWidget` - displays GPS fix type (no fix / 2D fix / 3D fix etc) and GPS coordinates.
+  Uses `mavlink.gps_raw.fix_type`, `mavlink.gps_raw.lat` and `mavlink.gps_raw.lon` facts
 
 ## Known issues
 
