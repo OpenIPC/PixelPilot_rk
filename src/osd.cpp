@@ -1616,7 +1616,7 @@ void osd_add_double_fact(void *batch, char const *name, osd_tag *tags, int n_tag
 	facts->push_back(Fact(FactMeta(std::string(name), fact_tags), value));
 };
 
-void osd_add_str_fact(void *batch, char const *name, osd_tag *tags, int n_tags, char *value) {
+void osd_add_str_fact(void *batch, char const *name, osd_tag *tags, int n_tags, const char *value) {
 	std::vector<Fact> *facts = static_cast<std::vector<Fact> *>(batch);
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
@@ -1650,7 +1650,7 @@ void osd_publish_double_fact(char const *name, osd_tag *tags, int n_tags, double
 	publish(Fact(FactMeta(std::string(name), fact_tags), value));
 };
 
-void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, char *value) {
+void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const char *value) {
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
 	publish(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
