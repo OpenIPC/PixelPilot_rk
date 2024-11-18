@@ -14,6 +14,12 @@ typedef struct {
 
 extern int osd_thread_signal;
 
+struct SharedMemoryRegion {
+    uint16_t width;       // Image width
+    uint16_t height;      // Image height
+    unsigned char data[]; // Flexible array member for image data
+};
+
 void *__OSD_THREAD__(void *param);
 
 #endif
