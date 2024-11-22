@@ -297,32 +297,64 @@
             "name": "Dump raw facts to the scren (remove `--` from `type` to enable)",
             "type": "---DebugWidget",
             "x": 10,
-            "y": -100,
+            "y": -200,
             "facts": [
                 {
                     "name": "mavlink.heartbeet.base_mode.armed"
                 },
                 {
-                    "name": "mavlink.radio_status.rssi",
+                    "name": "wfbcli.rx.packets.all",
                     "tags": {
-                        "sysid": "3",
-                        "compid": "68"
+                        "id": "video rx"
                     }
                 },
                 {
-                    "name": "mavlink.gps_raw.lat"
+                    "name": "wfbcli.rx.packets.lost",
+                    "tags": {
+                        "id": "video rx"
+                    }
                 },
                 {
-                    "name": "mavlink.gps_raw.lon"
+                    "name": "wfbcli.rx.ant_stats.freq",
+                    "tags": {
+                        "id": "video rx",
+                        "ant_id": "0"
+                    }
                 },
                 {
-                    "name": "mavlink.gps_raw.fix_type"
+                    "name": "wfbcli.rx.ant_stats.mcs",
+                    "tags": {
+                        "id": "video rx",
+                        "ant_id": "0"
+                    }
                 },
                 {
-                    "name": "mavlink.global_position_int.lat"
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "id": "video rx",
+                        "ant_id": "0"
+                    }
                 },
                 {
-                    "name": "mavlink.global_position_int.lon"
+                    "name": "wfbcli.rx.ant_stats.freq",
+                    "tags": {
+                        "id": "video rx",
+                        "ant_id": "1"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.mcs",
+                    "tags": {
+                        "id": "video rx",
+                        "ant_id": "1"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "id": "video rx",
+                        "ant_id": "1"
+                    }
                 }
             ]
         },
