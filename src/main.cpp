@@ -543,6 +543,7 @@ int main(int argc, char **argv)
 	int mp4_fragmentation_mode = 0;
 	uint16_t listen_port = 5600;
 	uint16_t mavlink_port = 14550;
+	uint16_t wfb_port = 8103;
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
@@ -693,6 +694,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--wfb-api-port") {
+		wfb_port = atoi(__ArgValue);
+		continue;
+	}
+
 	__OnArgument("--version") {
 		printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 		return 0;
@@ -806,7 +812,7 @@ int main(int argc, char **argv)
 			assert(!ret);
 		}
 		wfb_thread_params *wfb_args = (wfb_thread_params *)malloc(sizeof *wfb_args);
-		wfb_args->port = 8003; // TODO: configurable
+		wfb_args->port = wfb_port;
 		ret = pthread_create(&tid_wfbcli, NULL, __WFB_CLI_THREAD__, wfb_args);
 		assert(!ret);
 

@@ -29,16 +29,15 @@ set(SOURCE_FILES
 file(GLOB ICONS src/icons/*.png)
 file(GLOB OSD_CONFIGS *_osd.json)
 
-include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog" "/usr/include/msgpack")
+include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog")
 
 configure_file("${PROJECT_NAME}_config.h.in" "${PROJECT_NAME}_config.h")
 
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json 3 REQUIRED)
-#find_package(msgpack REQUIRED)  # called msgpack-c in Ubunty
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json) # msgpack)
+target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json)
 
 # Embed gstreamer
 find_package(PkgConfig REQUIRED)
