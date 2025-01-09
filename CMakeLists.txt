@@ -23,7 +23,9 @@ set(SOURCE_FILES
         src/main.h
         src/scheduling_helper.hpp
         src/gstrtpreceiver.cpp
-        src/gstrtpreceiver.h)
+        src/gstrtpreceiver.h
+        src/json_stats.h
+        src/json_stats.cpp)
 file(GLOB ICONS src/icons/*.png)
 file(GLOB OSD_CONFIGS *_osd.json)
 
