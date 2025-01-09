@@ -51,6 +51,7 @@ extern "C" {
 #include "scheduling_helper.hpp"
 #include "time_util.h"
 #include "pixelpilot_config.h"
+#include "json_stats.h"
 
 
 #define READ_BUF_SIZE (1024*1024) // SZ_1M https://github.com/rockchip-linux/mpp/blob/ed377c99a733e2cdbcc457a6aa3f0fcd438a9dff/osal/inc/mpp_common.h#L179
@@ -79,6 +80,7 @@ int frm_eos = 0;
 int drm_fd = 0;
 pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
+pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_json_stats;
 
 int video_zpos = 1;
 
@@ -354,6 +356,7 @@ void sig_handler(int signum)
 	signal_flag++;
 	mavlink_thread_signal++;
 	osd_thread_signal++;
+	json_stats_thread_signal++;
 	if (dvr != NULL) {
 		dvr->shutdown();
 	}
@@ -809,6 +812,9 @@ int main(int argc, char **argv)
 		args->config = osd_config;
 		ret = pthread_create(&tid_osd, NULL, __OSD_THREAD__, args);
 		assert(!ret);
+
+		ret = pthread_create(&tid_json_stats, NULL, __JSON_STATS_THREAD__, NULL);
+   		assert(!ret);
 	}
 
 	////////////////////////////////////////////// MAIN LOOP
@@ -841,6 +847,8 @@ int main(int argc, char **argv)
 	if (enable_osd) {
 		ret = pthread_join(tid_osd, NULL);
 		assert(!ret);
+		ret = pthread_join(tid_json_stats, NULL);
+    		assert(!ret);
 	}
 	if (dvr_template != NULL ){
 		ret = pthread_join(tid_dvr, NULL);
