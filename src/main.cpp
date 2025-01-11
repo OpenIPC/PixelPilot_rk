@@ -396,7 +396,12 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
     GstRtpReceiver receiver(gst_udp_port, codec);
 	long long bytes_received = 0; 
 	uint64_t period_start=0;
-    auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
+    auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start, &signal_flag](std::shared_ptr<std::vector<uint8_t>> frame){
+	
+	if (signal_flag) {
+            return;
+        }
+    
         // Let the gst pull thread run at quite high priority
         static bool first= false;
         if(first){
