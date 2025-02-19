@@ -22,6 +22,7 @@ struct video_params {
 struct dvr_thread_params {
     char *filename_template;
     int mp4_fragmentation_mode = 0;
+    bool dvr_filenames_with_sequence = false;
     int video_framerate = -1;
     video_params video_p;
 };
@@ -74,6 +75,7 @@ private:
     std::condition_variable cv;
     char *filename_template;
     int mp4_fragmentation_mode = 0;
+    bool dvr_filenames_with_sequence = false;
     int video_framerate = -1;
     uint32_t video_frm_width;
     uint32_t video_frm_height;
