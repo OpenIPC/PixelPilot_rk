@@ -512,6 +512,8 @@ void printHelp() {
     "                             Supports placeholders %%Y - year, %%m - month, %%d - day,\n"
     "                             %%H - hour, %%M - minute, %%S - second. Ex: /media/DVR/%%Y-%%m-%%d_%%H-%%M-%%S.mp4\n"
     "\n"
+	"    --dvr-sequenced-files  - Prepend a sequence number to the names of the dvr files\n"
+	"\n"
     "    --dvr-start            - Start DVR immediately\n"
     "\n"
     "    --dvr-framerate <rate> - Force the dvr framerate for smoother dvr, ex: 60\n"
@@ -539,6 +541,7 @@ int main(int argc, char **argv)
 	char* dvr_template = NULL;
 	int video_framerate = -1;
 	int mp4_fragmentation_mode = 0;
+	bool dvr_filenames_with_sequence = false;
 	uint16_t listen_port = 5600;
 	uint16_t mavlink_port = 14550;
 	uint16_t mode_width = 0;
@@ -581,6 +584,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("--dvr-template") {
 		dvr_template = const_cast<char*>(__ArgValue);
+		continue;
+	}
+
+	__OnArgument("--dvr-sequenced-files") {
+		dvr_filenames_with_sequence = true;
 		continue;
 	}
 
@@ -777,6 +785,7 @@ int main(int argc, char **argv)
 		dvr_thread_params args;
 		args.filename_template = dvr_template;
 		args.mp4_fragmentation_mode = mp4_fragmentation_mode;
+		args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
 		args.video_framerate = video_framerate;
 		args.video_p.video_frm_width = output_list->video_frm_width;
 		args.video_p.video_frm_height = output_list->video_frm_height;

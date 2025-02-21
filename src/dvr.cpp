@@ -1,6 +1,9 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <iostream>
+#include <filesystem>
+#include <regex>
 
 #include "spdlog/spdlog.h"
 
@@ -12,7 +15,10 @@ extern "C" {
 #include "osd.h"
 }
 
+namespace fs = std::filesystem;
+
 int dvr_enabled = 0;
+const int SEQUENCE_PADDING = 4; // Configurable padding for sequence numbers
 
 int write_callback(int64_t offset, const void *buffer, size_t size, void *token){
 	FILE *f = (FILE*)token;
@@ -23,6 +29,7 @@ int write_callback(int64_t offset, const void *buffer, size_t size, void *token)
 Dvr::Dvr(dvr_thread_params params) {
 	filename_template = params.filename_template;
 	mp4_fragmentation_mode = params.mp4_fragmentation_mode;
+	dvr_filenames_with_sequence = params.dvr_filenames_with_sequence;
 	video_framerate = params.video_framerate;
 	video_frm_width = params.video_p.video_frm_width;
 	video_frm_height = params.video_p.video_frm_height;
@@ -176,11 +183,62 @@ end:
 
 int Dvr::start() {
 	char *fname_tpl = filename_template;
-	char fname[255];
-	time_t t = time(NULL);
-	strftime(fname, sizeof(fname), fname_tpl, localtime(&t));
-	if ((dvr_file = fopen(fname,"w")) == NULL){
-		spdlog::error("unable to open DVR file {}", fname);
+	std::string rec_dir, filename_pattern;
+	fs::path pathObj(filename_template);
+	rec_dir = pathObj.parent_path().string();
+	filename_pattern = pathObj.filename().string();
+	std::string paddedNumber = "";
+
+	// Ensure the directory exists
+	if (!fs::exists(rec_dir))
+	{
+		spdlog::error("Error: Directory does not exist: {}", rec_dir);
+		return -1;
+	}
+
+	if (dvr_filenames_with_sequence) {
+		// Get the next file number
+		std::regex pattern(R"(^(\d+)_.*)"); // Matches filenames that start with digits followed by '_'
+		int maxNumber = -1;
+		int nextFileNumber = 0;
+
+		for (const auto &entry : fs::directory_iterator(rec_dir)) {
+			if (entry.is_regular_file())
+			{
+				std::string filename = entry.path().filename().string();
+				std::smatch match;
+
+				if (std::regex_match(filename, match, pattern))
+				{
+					int number = std::stoi(match[1].str());
+					maxNumber = std::max(maxNumber, number);
+				}
+			}
+		}
+		if (maxNumber == -1) {
+			nextFileNumber = 0;
+		} else {
+			nextFileNumber = maxNumber + 1;
+		}
+
+		// Zero-pad the number
+		std::ostringstream stream;
+		stream << std::setw(SEQUENCE_PADDING) << std::setfill('0') << nextFileNumber;
+		paddedNumber = stream.str() + "_";
+	}
+
+	// Generate timestamped filename
+	std::time_t now = std::time(nullptr);
+	std::tm *localTime = std::localtime(&now);
+
+	char formattedFilename[256];
+	std::strftime(formattedFilename, sizeof(formattedFilename), filename_pattern.c_str(), localTime);
+
+	// Construct final filename
+	std::string finalFilename = rec_dir + "/" + paddedNumber + formattedFilename;
+
+	if ((dvr_file = fopen(finalFilename.c_str(), "w")) == NULL) {
+		spdlog::error("unable to open DVR file {}", finalFilename);
 		return -1;
 	}
 	osd_vars.enable_recording = 1;
