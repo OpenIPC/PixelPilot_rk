@@ -1367,7 +1367,7 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 		// WFB-ng Elements
 		if (osd_vars.enable_wfbng) {
 			cairo_set_source_rgba (cr, 255.0, 255.0, 255.0, 1);
-			sprintf(msg, "WFB %3d F%d L%d", osd_vars.wfb_rssi, osd_vars.wfb_fec_fixed, osd_vars.wfb_errors);
+			sprintf(msg, "RSSI: %3d FEC: %d Lost: %d", osd_vars.wfb_rssi, osd_vars.wfb_fec_fixed, osd_vars.wfb_errors);
 			// //TODO (gehee) Only getting WFB_LINK_LOST when testing.
 			// if (osd_vars.wfb_flags & WFB_LINK_LOST) {
 			// 		sprintf(msg, "%s (LOST)", msg);
