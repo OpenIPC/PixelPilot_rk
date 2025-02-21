@@ -552,6 +552,11 @@ int main(int argc, char **argv)
 	
 	osd_vars.enable_recording = 0;
 
+    std::string pidFilePath = "/run/pixelpilot.pid";
+    std::ofstream pidFile(pidFilePath);
+    pidFile << getpid();
+    pidFile.close();
+
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
 	
@@ -895,6 +900,8 @@ int main(int argc, char **argv)
 	drmModeAtomicFree(output_list->osd_request);
 	modeset_cleanup(drm_fd, output_list);
 	close(drm_fd);
+
+    remove(pidFilePath.c_str());
 
 	return 0;
 }
