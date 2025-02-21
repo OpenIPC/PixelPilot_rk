@@ -950,6 +950,83 @@ public:
 	}
 };
 
+class ExternalSurfaceWidget: public Widget {
+public:
+	ExternalSurfaceWidget(int pos_x, int pos_y, std::string shm_name ): Widget(pos_x, pos_y), shm_name(shm_name)  {};
+
+	virtual void init_shm(cairo_t *cr) {
+		SPDLOG_INFO("creating shm region {}", shm_name);
+
+		cairo_surface_t *target = cairo_get_target(cr);
+		int width = cairo_image_surface_get_width(target);
+		int height = cairo_image_surface_get_height(target);
+
+		// Calculate total shared memory size
+		shm_size = sizeof(SharedMemoryRegion) + (width * height * 4); // Metadata + Image data
+
+		// Create shared memory region
+		int shm_fd = shm_open(shm_name.c_str(), O_CREAT | O_RDWR, 0666);
+		if (shm_fd == -1) {
+			perror("Failed to create shared memory");
+			return;
+		}
+
+		if (ftruncate(shm_fd, shm_size) == -1) {
+			perror("Failed to set shared memory size");
+			shm_unlink(shm_name.c_str());
+			return;
+		}
+
+		// Map shared memory to process address space
+		auto *shm_region = static_cast<SharedMemoryRegion*>(
+			mmap(0, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0)
+		);
+		if (shm_region == MAP_FAILED) {
+			perror("Failed to map shared memory");
+			shm_unlink(shm_name.c_str());
+			return;
+		}
+
+		// Write metadata
+		shm_region->width = width;
+		shm_region->height = height;
+
+		// Create Cairo surface for the image data
+		shm_surface = cairo_image_surface_create_for_data(
+			shm_region->data, CAIRO_FORMAT_ARGB32, width, height, width * 4
+		);
+
+		// Store pointer for cleanup
+		shm_data = reinterpret_cast<unsigned char*>(shm_region);
+	}
+
+
+	virtual void draw(cairo_t *cr) {
+
+		if (! shm_surface) 
+			init_shm(cr);
+		auto [x, y] = xy(cr);
+		cairo_set_source_surface(cr, shm_surface, x, y); // Position at (0, 0)
+    	cairo_paint(cr); // Paint shm_surface onto base_surface
+	}
+
+	~ExternalSurfaceWidget() {
+		SPDLOG_INFO("bye, bye, shm region {}", shm_name);
+		if (shm_surface) {
+			cairo_surface_destroy(shm_surface);
+		}
+		if (shm_data) {
+			munmap(shm_data, shm_size);
+		}
+		shm_unlink(shm_name.c_str());
+	}
+
+protected:
+	cairo_surface_t *shm_surface = nullptr;
+	unsigned char *shm_data = nullptr;
+	size_t shm_size;
+	std::string shm_name;
+};
 
 class Osd {
 public:
@@ -993,6 +1070,9 @@ public:
 			if (type == "TextWidget") {
 				addWidget(new TextWidget(x, y, widget_j.at("text").template get<std::string>()),
 						  matchers);
+			}
+			else if (type == "ExternalSurfaceWidget") {
+				addWidget(new ExternalSurfaceWidget(x, y, name), matchers);
 			} else if (type == "TplTextWidget") {
 				auto tpl = widget_j.at("template").template get<std::string>();
 				addWidget(new TplTextWidget(x, y, tpl, (uint)matchers.size()), matchers);

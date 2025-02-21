@@ -3,6 +3,13 @@
     "assets_dir": "/usr/local/share/pixelpilot/",
     "widgets": [
         {
+            "name": "msposd",
+            "type": "ExternalSurfaceWidget",
+            "x": 0,
+            "y": 0,
+            "facts": []
+        },
+        {
             "name": "WFB RSSI chart",
             "type": "BarChartWidget",
             "x": -320,
