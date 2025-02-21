@@ -445,7 +445,10 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 			conn->modes[i].vdisplay == mode_height &&
 			conn->modes[i].vrefresh == mode_vrefresh
 			) {
-				fc = i;
+				if (fc < 0)
+					fc = i;
+				if (fc >= 0 && (conn->modes[i].flags & DRM_MODE_FLAG_INTERLACE) == 0) // prefer progressive modes
+					fc = i;
 			}
 		}
 		if (fc < 0) {
