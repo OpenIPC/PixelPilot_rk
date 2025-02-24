@@ -436,6 +436,7 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 	}
 
 	int fc = 0;
+	int preferred_fc = -1;
 	if (mode_width>0 && mode_height>0 && mode_vrefresh>0) {
 		fc = -1;
 		printf( "Available modes:\n");
@@ -445,13 +446,21 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 			conn->modes[i].vdisplay == mode_height &&
 			conn->modes[i].vrefresh == mode_vrefresh
 			) {
-				fc = i;
+				if (fc < 0)
+					fc = i;
+				if (fc >= 0 && (conn->modes[i].flags & DRM_MODE_FLAG_INTERLACE) == 0) // prefer progressive modes
+					fc = i;
+			} else if (conn->modes[i].type & DRM_MODE_TYPE_PREFERRED) {
+				preferred_fc = i;
 			}
 		}
-		if (fc < 0) {
+		if (fc < 0  && preferred_fc < 0) {
 			fprintf(stderr, "couldn't find a matching mode for %dx%d@%d\n", mode_width , mode_height , mode_vrefresh);
 			goto out_error;
-		} 
+		} else if (fc < 0  && preferred_fc >= 0) {
+			fprintf(stderr, "couldn't find a matching mode, useing preferred mode %dx%d@%d\n", conn->modes[preferred_fc].hdisplay, conn->modes[preferred_fc].vdisplay , conn->modes[preferred_fc].vrefresh);
+			fc = preferred_fc;
+		}
 		printf( "Using screen mode %dx%d@%d\n",conn->modes[fc].hdisplay, conn->modes[fc].vdisplay , conn->modes[fc].vrefresh );
 	}
 	memcpy(&out->mode, &conn->modes[fc], sizeof(out->mode));
