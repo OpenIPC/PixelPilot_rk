@@ -1615,9 +1615,6 @@ void *__OSD_THREAD__(void *param) {
 			int ret = pthread_mutex_lock(&osd_mutex);
 			assert(!ret);	
 			p->out->osd_buf_switch = buf_idx;
-			ret = set_drm_object_property(p->out->video_request, &p->out->osd_plane, "FB_ID", p->out->osd_bufs[p->out->osd_buf_switch].fb);
-			assert(ret>0);
-			drmModeAtomicCommit(p->fd, p->out->video_request, DRM_MODE_ATOMIC_NONBLOCK, NULL);				
 			ret = pthread_mutex_unlock(&osd_mutex);
 			assert(!ret);
 			last_display_at = std::chrono::steady_clock::now();
