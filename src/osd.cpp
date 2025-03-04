@@ -1421,6 +1421,8 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	}	
 
 	if (!osd_vars.enable_telemetry){
+		cairo_destroy(cr);
+	    cairo_surface_destroy(surface);
 		return;
 	}
 
@@ -1529,6 +1531,7 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 
 	cairo_fill(cr);
 	cairo_destroy(cr);
+	cairo_surface_destroy(surface);
 }
 
 int osd_thread_signal;
