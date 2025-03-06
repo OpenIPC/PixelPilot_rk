@@ -29,6 +29,8 @@ extern "C" {
 
 int wfb_thread_signal = 0;
 
+uint64_t gtotal_tunnel_bytes = 0; // global variable for easyer access in gsmenu
+
 int process_rx(const msgpack::object& packet) {
 
     void *batch = osd_batch_init(2);
@@ -58,7 +60,8 @@ int process_rx(const msgpack::object& packet) {
 		msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
 		uint32_t delta = array.ptr[0].as<uint32_t>();
 		uint64_t total = array.ptr[1].as<uint64_t>();
-		
+		if (! strcmp("out_bytes",key.c_str()) && ! strcmp("tunnel rx",tags[0].val))
+			 gtotal_tunnel_bytes = total; // store total in global variable for gsmenu
 		// If you need to use these values elsewhere, you can pass them to other functions
 		osd_add_uint_fact(batch, (std::string("wfbcli.rx.packets.") + key + ".delta").c_str(), tags, 1, delta);
 		osd_add_uint_fact(batch, (std::string("wfbcli.rx.packets.") + key + ".total").c_str(), tags, 1, total);
