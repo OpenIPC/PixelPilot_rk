@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build
         run: |
@@ -56,7 +58,7 @@ jobs:
           rm -r /boot/* #save space
           apt-get update
           apt clean
-          apt-get install -y cmake g++ git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev
+          apt-get install -y cmake g++ git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev
           apt clean
 
           cmake -B build
@@ -69,7 +71,7 @@ jobs:
           EOL
 
           chmod 755 build.sh run.sh
-          sudo cp -r build.sh run.sh CMakeLists.txt pixelpilot_config.h.in src $output/home
+          sudo cp -r build.sh run.sh CMakeLists.txt pixelpilot_config.h.in src lvgl lv_conf.h $output/home
           sudo rm $output/etc/resolv.conf
           echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
           sudo chroot $output /home/build.sh

@@ -2,6 +2,8 @@
 extern "C" {
 #include "drm.h"
 #include "mavlink.h"
+#include "menu.h"
+#include "input.h"
 }
 #include "osd.h"
 #include "osd.hpp"
@@ -21,9 +23,12 @@ extern "C" {
 #include <string>
 #include <filesystem>
 #include <cairo.h>
+#include <time.h>
+#include <stdint.h>
 #include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 #include <fmt/ranges.h>
+#include "lvgl/lvgl.h"
 
 #define WFB_LINK_LOST 1
 #define WFB_LINK_JAMMED 2
@@ -45,6 +50,10 @@ u_int custom_msg_refresh_count = 0;
 extern pthread_mutex_t video_mutex;
 extern pthread_cond_t video_cond;
 bool osd_update_ready = false;
+bool menu_active = false;
+bool gsmenu_enabled = true;
+
+osd_thread_params *p;
 
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
@@ -1416,9 +1425,85 @@ cairo_status_t on_read_png_stream(png_closure_t * closure, unsigned char * data,
 	closure->bytes_left -= length;
 	return CAIRO_STATUS_SUCCESS;
 }
+cairo_surface_t * surface_from_embedded_png(const char * png, size_t length)
+{
+	int rc = -1;
+	png_closure_t closure[1] = {{
+		.iter = (unsigned char *)png,
+		.bytes_left = (unsigned int)length,
+	}};
+	return cairo_image_surface_create_from_png_stream(
+		(cairo_read_func_t)on_read_png_stream,
+		closure);
+}
+
+
+void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_map)
+{
+
+    struct modeset_buf *buf1 = &p->out->osd_bufs[0];
+    struct modeset_buf *buf2 = &p->out->osd_bufs[1];
+	int ret = pthread_mutex_lock(&osd_mutex);
+	assert(!ret);	
+    if (px_map == buf1->map) {
+		p->out->osd_buf_switch = 0;
+    } else if (px_map == buf2->map) {
+		p->out->osd_buf_switch = 1;
+    } else {
+        spdlog::error("Unknown buffer being flushed");
+    }
+	ret = pthread_mutex_unlock(&osd_mutex);
+	assert(!ret);
+
+	// tell the display thread that we have a update
+	ret = pthread_mutex_lock(&video_mutex);
+	assert(!ret);
+	osd_update_ready = true;
+	ret = pthread_cond_signal(&video_cond);
+	assert(!ret);
+	ret = pthread_mutex_unlock(&video_mutex);
+	assert(!ret);
+
+    /* IMPORTANT!!!
+     * Inform LVGL that flushing is complete so buffer can be modified again. */
+    lv_display_flush_ready(display);
+}
+
+uint32_t my_get_milliseconds() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+lv_display_t * display;
+void setup_lvgl(osd_thread_params *p) {
+
+	/* Initialize LVGL. */
+    lv_init();
+
+	// create the display
+    struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
+	display = lv_display_create(buf->width, buf->height);
+
+	// Get the first two buffers from the OSD buffers
+	struct modeset_buf *buf1 = &p->out->osd_bufs[0];
+	struct modeset_buf *buf2 = &p->out->osd_bufs[1];
+
+	// Set the buffers in LVGL
+	lv_display_set_buffers(display, buf1->map, buf2->map, buf1->size, LV_DISPLAY_RENDER_MODE_DIRECT);
+
+	lv_display_set_flush_cb(display, my_flush_cb);
+
+	lv_tick_set_cb(my_get_milliseconds);
+
+	lv_display_set_color_format(display, LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(lv_layer_bottom(), LV_OPA_TRANSP, LV_PART_MAIN);
+    
+}
 
 void *__OSD_THREAD__(void *param) {
-	osd_thread_params *p = (osd_thread_params *)param;
+	p = (osd_thread_params *)param;
 	Osd *osd = new Osd;
 	pthread_setname_np(pthread_self(), "__OSD");
 
@@ -1431,8 +1516,19 @@ void *__OSD_THREAD__(void *param) {
 	struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
 	ret = modeset_perform_modeset(p->fd, p->out, p->out->osd_request, &p->out->osd_plane,
 								  buf->fb, buf->width, buf->height, osd_zpos);
-	assert(ret >= 0);
+
+	if (gsmenu_enabled) {
+		setup_lvgl(p);
+		pp_menu_main();
+	}
+
 	while (!osd_thread_signal) {
+
+		if (gsmenu_enabled) {
+			handle_keyboard_input();
+			lv_task_handler();
+		}
+
 		std::unique_lock<std::mutex> lock(mtx);
 		std::vector<Fact> fact_buf;
 		auto since_last_display = std::chrono::steady_clock::now() - last_display_at;
@@ -1458,27 +1554,32 @@ void *__OSD_THREAD__(void *param) {
 		} else {
 			// thread woke up because of refresh timeout
 			lock.unlock();
-			SPDLOG_DEBUG("refresh OSD");
-			int buf_idx = p->out->osd_buf_switch ^ 1;
-			struct modeset_buf *buf = &p->out->osd_bufs[buf_idx];
-			modeset_paint_buffer(buf, osd);
 
-			int ret = pthread_mutex_lock(&osd_mutex);
-			assert(!ret);	
-			p->out->osd_buf_switch = buf_idx;
-			ret = pthread_mutex_unlock(&osd_mutex);
-			assert(!ret);
+			if (! menu_active ) {
+				SPDLOG_DEBUG("refresh OSD");
+				int buf_idx = p->out->osd_buf_switch ^ 1;
+				struct modeset_buf *buf = &p->out->osd_bufs[buf_idx];
+				modeset_paint_buffer(buf, osd);
 
-			// tell the display thread that we have a update
-			ret = pthread_mutex_lock(&video_mutex);
-			assert(!ret);
-			osd_update_ready = true;
-			ret = pthread_cond_signal(&video_cond);
-			assert(!ret);
-			ret = pthread_mutex_unlock(&video_mutex);
-			assert(!ret);
+				int ret = pthread_mutex_lock(&osd_mutex);
+				assert(!ret);	
+				p->out->osd_buf_switch = buf_idx;
+				ret = pthread_mutex_unlock(&osd_mutex);
+				assert(!ret);
 
-			last_display_at = std::chrono::steady_clock::now();
+				// tell the display thread that we have a update
+				ret = pthread_mutex_lock(&video_mutex);
+				assert(!ret);
+				osd_update_ready = true;
+				ret = pthread_cond_signal(&video_cond);
+				assert(!ret);
+				ret = pthread_mutex_unlock(&video_mutex);
+				assert(!ret);
+
+				last_display_at = std::chrono::steady_clock::now();
+			} else {
+				usleep(5000);
+			}
 		}
     }
 	spdlog::info("OSD thread done.");

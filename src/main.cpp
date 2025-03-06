@@ -41,6 +41,7 @@ extern "C" {
 
 #include "mavlink/common/mavlink.h"
 #include "mavlink.h"
+#include "input.h"
 }
 
 #include "osd.h"
@@ -80,6 +81,7 @@ int drm_fd = 0;
 pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
 extern bool osd_update_ready;
+extern bool gsmenu_enabled;
 int video_zpos = 1;
 
 bool mavlink_dvr_on_arm = false;
@@ -338,6 +340,7 @@ end:
 // signal
 
 int signal_flag = 0;
+int return_value = 0;
 
 void sig_handler(int signum)
 {
@@ -349,6 +352,7 @@ void sig_handler(int signum)
 	if (dvr != NULL) {
 		dvr->shutdown();
 	}
+	return_value = signum;
 }
 
 void sigusr1_handler(int signum) {
@@ -513,6 +517,8 @@ void printHelp() {
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
     "    --osd-custom-message   - Enables the display of /run/pixelpilot.msg (beta feature, may be removed)\n"
+    "\n"
+    "    --disable-gsmenu       - Disables the gsmenu and frees up gpios\n"
     "\n"
     "    --dvr-template <path>  - Save the video feed (no osd) to the provided filename template.\n"
     "                             DVR is toggled by SIGUSR1 signal\n"
@@ -681,6 +687,11 @@ int main(int argc, char **argv)
 		osd_custom_message = true;
 		continue;
 	}
+
+	__OnArgument("--disable-gsmenu") {
+		gsmenu_enabled = false;
+		continue;
+	}	
 
 	__OnArgument("--screen-mode") {
 		char* mode = const_cast<char*>(__ArgValue);
@@ -916,5 +927,6 @@ int main(int argc, char **argv)
 
     remove(pidFilePath.c_str());
 
-	return 0;
+	restore_stdin();
+	return return_value;
 }
