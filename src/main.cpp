@@ -79,7 +79,7 @@ int frm_eos = 0;
 int drm_fd = 0;
 pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
-
+extern bool osd_update_ready;
 int video_zpos = 1;
 
 bool mavlink_dvr_on_arm = false;
@@ -263,10 +263,11 @@ void *__DISPLAY_THREAD__(void *param)
 
 	while (!frm_eos) {
 		int fb_id;
+		bool osd_update;
 		
 		ret = pthread_mutex_lock(&video_mutex);
 		assert(!ret);
-		while (output_list->video_fb_id==0) {
+		while (output_list->video_fb_id==0 && !osd_update_ready) {
 			pthread_cond_wait(&video_cond, &video_mutex);
 			assert(!ret);
 			if (output_list->video_fb_id == 0 && frm_eos) {
@@ -278,16 +279,23 @@ void *__DISPLAY_THREAD__(void *param)
 		struct timespec ts, ats;
 		clock_gettime(CLOCK_MONOTONIC, &ats);
 		fb_id = output_list->video_fb_id;
+		osd_update = osd_update_ready;
 
         uint64_t decoding_pts=output_list->decoding_pts;
 		output_list->video_fb_id=0;
+		osd_update_ready = false;
 		ret = pthread_mutex_unlock(&video_mutex);
 		assert(!ret);
 
+		// create new video_request
+		drmModeAtomicFree(output_list->video_request);
+		output_list->video_request = drmModeAtomicAlloc();
+
 		// show DRM FB in plane
-		drmModeAtomicSetCursor(output_list->video_request, 0);
-		ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
-		assert(ret>0);
+		if (fb_id != 0) {
+			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
+			assert(ret>0);
+		}
 
 		if(enable_osd) {
 			ret = pthread_mutex_lock(&osd_mutex);
