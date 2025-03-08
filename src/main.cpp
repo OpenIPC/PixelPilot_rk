@@ -292,7 +292,9 @@ void *__DISPLAY_THREAD__(void *param)
 		output_list->video_request = drmModeAtomicAlloc();
 
 		// show DRM FB in plane
+		uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
 		if (fb_id != 0) {
+			flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
 			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
 			assert(ret>0);
 		}
@@ -303,7 +305,7 @@ void *__DISPLAY_THREAD__(void *param)
 			ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
 			assert(ret>0);
 		}
-		drmModeAtomicCommit(drm_fd, output_list->video_request, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
+		drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);
 		ret = pthread_mutex_unlock(&osd_mutex);
 		assert(!ret);
 
