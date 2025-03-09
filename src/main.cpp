@@ -281,7 +281,7 @@ void *__DISPLAY_THREAD__(void *param)
 		fb_id = output_list->video_fb_id;
 		osd_update = osd_update_ready;
 
-        uint64_t decoding_pts=output_list->decoding_pts;
+        uint64_t decoding_pts=fb_id != 0 ? output_list->decoding_pts : get_time_ms();
 		output_list->video_fb_id=0;
 		osd_update_ready = false;
 		ret = pthread_mutex_unlock(&video_mutex);
