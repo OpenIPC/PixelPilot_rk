@@ -191,6 +191,7 @@ int reconnect_to_server(int port) {
 		SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 	}
+	return -1;
 }
 
 void *__WFB_CLI_THREAD__(void *param) {

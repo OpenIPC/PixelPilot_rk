@@ -38,7 +38,6 @@
 extern "C" {
 #include "main.h"
 #include "drm.h"
-#include "rtp.h"
 
 #include "mavlink/common/mavlink.h"
 #include "mavlink.h"
@@ -86,6 +85,7 @@ int video_zpos = 1;
 bool mavlink_dvr_on_arm = false;
 bool osd_custom_message = false;
 bool disable_vsync = false;
+uint32_t refresh_frequency_ms = 1000;
 
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
@@ -106,8 +106,6 @@ void init_buffer(MppFrame frame) {
 	output_list->video_fb_width = output_list->mode.hdisplay;
 	output_list->video_fb_height =output_list->mode.vdisplay;	
 
-	osd_vars.video_width = output_list->video_frm_width;
-	osd_vars.video_height = output_list->video_frm_height;
 	osd_publish_uint_fact("video.width", NULL, 0, output_list->video_frm_width);
 	osd_publish_uint_fact("video.height", NULL, 0, output_list->video_frm_height);
 
@@ -172,7 +170,7 @@ void init_buffer(MppFrame frame) {
 	ret = mpi.mpi->control(mpi.ctx, MPP_DEC_SET_EXT_BUF_GROUP, mpi.frm_grp);
 	ret = mpi.mpi->control(mpi.ctx, MPP_DEC_SET_INFO_CHANGE_READY, NULL);
 
-	ret = modeset_perform_modeset(drm_fd, output_list, output_list->video_request, &output_list->video_plane, mpi.frame_to_drm[0].fb_id, osd_vars.video_width, osd_vars.video_height, video_zpos);
+	ret = modeset_perform_modeset(drm_fd, output_list, output_list->video_request, &output_list->video_plane, mpi.frame_to_drm[0].fb_id, output_list->video_frm_width, output_list->video_frm_height, video_zpos);
 	assert(ret >= 0);
 
 	// dvr setup
@@ -254,14 +252,7 @@ void *__FRAME_THREAD__(void *param)
 void *__DISPLAY_THREAD__(void *param)
 {
 	int ret;	
-	int frame_counter = 0;
-	float latency_avg[200];
-	float min_latency = 1844674407370955161; // almost MAX_uint64_t
-	float max_latency = 0;
-    struct timespec fps_start, fps_end;
-
 	pthread_setname_np(pthread_self(), "__DISPLAY");
-	clock_gettime(CLOCK_MONOTONIC, &fps_start);
 
 	while (!frm_eos) {
 		int fb_id;
@@ -278,8 +269,6 @@ void *__DISPLAY_THREAD__(void *param)
 				goto end;
 			}
 		}
-		struct timespec ts, ats;
-		clock_gettime(CLOCK_MONOTONIC, &ats);
 		fb_id = output_list->video_fb_id;
 		osd_update = osd_update_ready;
 
@@ -310,46 +299,9 @@ void *__DISPLAY_THREAD__(void *param)
 		drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);
 		ret = pthread_mutex_unlock(&osd_mutex);
 		assert(!ret);
-
-		frame_counter++;
 		osd_publish_uint_fact("video.displayed_frame", NULL, 0, 1);
-
 		uint64_t decode_and_handover_display_ms=get_time_ms()-decoding_pts;
-        //accumulate_and_print("D&Display",decode_and_handover_display_ms,&m_decode_and_handover_display_latency);
 		osd_publish_uint_fact("video.decode_and_handover_ms", NULL, 0, decode_and_handover_display_ms);
-        
-		clock_gettime(CLOCK_MONOTONIC, &fps_end);
-		uint64_t time_us=(fps_end.tv_sec - fps_start.tv_sec)*1000000ll + ((fps_end.tv_nsec - fps_start.tv_nsec)/1000ll) % 1000000ll;
-		if (time_us >= osd_vars.refresh_frequency_ms*1000) {
-			float sum = 0;
-			for (int i = 0; i < frame_counter; ++i) {
-				sum += latency_avg[i];
-				if (latency_avg[i] > max_latency) {
-					max_latency = latency_avg[i];
-				}
-				if (latency_avg[i] < min_latency) {
-					min_latency = latency_avg[i];
-				}
-			}
-			osd_vars.latency_avg = sum / (frame_counter);
-			osd_vars.latency_max = max_latency;
-			osd_vars.latency_min = min_latency;
-			osd_vars.current_framerate = frame_counter*(1000/osd_vars.refresh_frequency_ms);
-
-			SPDLOG_DEBUG("decoding decoding latency={:.2f} ms ({:.2f}, {:.2f}), framerate={} fps",
-						  osd_vars.latency_avg/1000.0, osd_vars.latency_max/1000.0,
-						  osd_vars.latency_min/1000.0, osd_vars.current_framerate);
-			
-			fps_start = fps_end;
-			frame_counter = 0;
-			max_latency = 0;
-			min_latency = 1844674407370955161;
-		}
-		
-		//struct timespec rtime = frame_stats[output_list->video_poc];
-		latency_avg[frame_counter] = decode_and_handover_display_ms;
-		//printf("decoding current_latency=%.2f ms\n",  latency_avg[frame_counter]/1000.0);
-		
 	}
 end:	
 	spdlog::info("Display thread done.");
@@ -437,12 +389,6 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
 		bytes_received += frame->size();
 		uint64_t now = get_time_ms();
 		osd_publish_uint_fact("gstreamer.received_bytes", NULL, 0, frame->size());
-		if ((now-period_start) >= 1000) {
-			period_start = now;
-			osd_vars.bw_curr = (osd_vars.bw_curr + 1) % 10;
-			osd_vars.bw_stats[osd_vars.bw_curr] = bytes_received ;
-			bytes_received = 0;
-		}
         feed_packet_to_decoder(packet,frame->data(),frame->size());
         if (dvr_enabled && dvr != NULL) {
 			dvr->frame(frame);
@@ -528,11 +474,7 @@ void printHelp() {
     "\n"
     "    --osd                  - Enable OSD\n"
     "\n"
-    "    --osd-elements <els>   - (deprecated) Customize osd elements   	(Default: video,wfbng,telem)\n"
-    "\n"
     "    --osd-config <file>    - Path to OSD configuration file\n"
-    "\n"
-    "    --osd-telem-lvl <lvl>  - (deprecated) Level of details for telemetry in the OSD (Default: 1 [1-2])\n"
     "\n"
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
@@ -584,8 +526,6 @@ int main(int argc, char **argv)
 	std::string osd_config_path;
 	auto log_level = spdlog::level::info;
 	
-	osd_vars.enable_recording = 0;
-
     std::string pidFilePath = "/run/pixelpilot.pid";
     std::ofstream pidFile(pidFilePath);
     pidFile << getpid();
@@ -672,14 +612,6 @@ int main(int argc, char **argv)
 
 	__OnArgument("--osd") {
 		enable_osd = 1;
-		osd_vars.plane_zpos = 2;
-		osd_vars.enable_latency = 1;
-		if (osd_vars.refresh_frequency_ms == 0 ){
-			osd_vars.refresh_frequency_ms = 1000;
-		} 
-		osd_vars.enable_video = 1;
-		osd_vars.enable_wfbng = 1;
-		osd_vars.enable_telemetry = 1;
 		mavlink_thread = 1;
 		continue;
 	}
@@ -688,35 +620,18 @@ int main(int argc, char **argv)
 		continue;
 	}
 	__OnArgument("--osd-refresh") {
-		osd_vars.refresh_frequency_ms = atoi(__ArgValue);
+		refresh_frequency_ms = atoi(__ArgValue);
 		continue;
 	}
 
 	__OnArgument("--osd-elements") {
-		osd_vars.enable_video = 0;
-		osd_vars.enable_wfbng = 0;
-		osd_vars.enable_telemetry = 0;
+		spdlog::warn("--osd-elements parameter is removed.");
 		char* elements = const_cast<char*> (__ArgValue);
-		char* element = strtok(elements, ",");
-		while( element != NULL ) {
-			if (!strcmp(element, "video")) {
-				osd_vars.enable_video = 1;
-			} else if (!strcmp(element, "wfbng")) {
-				osd_vars.enable_wfbng = 1;
-				mavlink_thread = 1;
-			} else if (!strcmp(element, "telem")) {
-				osd_vars.enable_telemetry = 1;
-				mavlink_thread = 1;
-			}
-			element = strtok(NULL, ",");
-		}
-		spdlog::warn("--osd-elements parameter is deprecated. Use --osd-config instead.");
 		continue;
 	}
 
 	__OnArgument("--osd-telem-lvl") {
-		osd_vars.telemetry_level = atoi(__ArgValue);
-		spdlog::warn("--osd-telem-lvl parameter is deprecated. Use --osd-config instead.");
+		spdlog::warn("--osd-telem-lvl parameter is removed.");
 		continue;
 	}
 
