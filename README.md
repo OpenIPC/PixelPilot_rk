@@ -107,6 +107,49 @@ Currently implemented fact categories are grouped by Mavlink message types:
 
 More can be easily added later. You can use `DebugWidget` to inspect the current raw value of the fact(s).
 
+Pixelpilot is also able to connect to WFB-ng statistics API and extract some of the facts from there.
+Receiving packets statistics (each fact has "id" tag - channel name, eg "video"/"mavlink"/"tunnel" etc):
+
+| Fact                          | Type | Description                          |
+|:------------------------------|:-----|:-------------------------------------|
+| `wfbcli.rx.packets.all`       | uint | Number of packets received           |
+| `wfbcli.rx.packets.all_bytes` | uint | Number of bytes received             |
+| `wfbcli.rx.packets.dec_err`   | uint | Number of packets lost               |
+| `wfbcli.rx.packets.dec_ok`    | uint | Number of good packets               |
+| `wfbcli.rx.packets.fec_rec`   | uint | Number of packets recovered with FEC |
+
+Receiving per-antenna statistics (each fact has "id" - channel name and "ant_id" - antenna number tags)
+| Fact                           | Type   | Description                                     |
+|:-------------------------------|:-------|:------------------------------------------------|
+| `wfbcli.rx.ant_stats.freq`     | uint   | Antenna frequency, MHz, eg 5800                 |
+| `wfbcli.rx.ant_stats.mcs`      | uint   | MCS value for this antenna                      |
+| `wfbcli.rx.ant_stats.bw`       | uint   | Bandwidth value for antenna (MHz)               |
+| `wfbcli.rx.ant_stats.pkt_recv` | uint   | Number of WiFi packets received by this antenna |
+| `wfbcli.rx.ant_stats.rssi_avg` | int    | Average RSSI for this antenna                   |
+| `wfbcli.rx.ant_stats.snr_avg`  | double | Average SNR for this antenna                    |
+
+Transmitting packets stats (same tags as receiving packets):
+
+| Fact                               | Type | Description                              |
+|:-----------------------------------|:-----|:-----------------------------------------|
+| `wfbcli.tx.packets.injected`       | uint | Number of successfully injected packets  |
+| `wfbcli.tx.packets.injected_bytes` | uint | Number of successfully injected bytes    |
+| `wfbcli.tx.packets.dropped`        | uint | Number of dropped packets                |
+| `wfbcli.tx.packets.truncated`      | uint | Number of truncated (?) packets          |
+| `wfbcli.tx.packets.fec_timeouts`   | uint | ?                                        |
+| `wfbcli.tx.packets.incoming`       | uint | Even TX interface may receive, n packets |
+| `wfbcli.tx.packets.incoming_bytes` | uint | Even TX interface may receive, n bytes   |
+
+Transmitting per-antenna stats (same tags as receiving antennas):
+
+| Fact                           | Type | Description                                |
+|:-------------------------------|:-----|:-------------------------------------------|
+| `wfbcli.tx.ant_stats.pkt_sent` | uint | Number packets sent through this antenna   |
+| `wfbcli.tx.ant_stats.pkt_drop` | uint | Number packets dropped by this antenna     |
+| `wfbcli.tx.ant_stats.lat_avg`  | uint | Average injection latency for this antenna |
+
+#### Widgets
+
 Currently we have generic widgets and more ad-hoc specific ones. Generic widgets normally can be used
 to display any fact (as long as datatype matches):
 
@@ -171,6 +214,9 @@ Pixelpilot starts several threads:
 * MAVLINK_THREAD (if OSD and mavlink configured):
   reads mavlink packets from UDP, decodes and updates `osd_vars` (without any mutex).
   The loop yields on UDP read.
+* WFBCLI_THREAD (if OSD is enabled):
+  connects to the local WFB instance stats API, reads JSON stats messages and publishes OSD facts.
+  The loop yields on TCP read.
 * OSD_THREAD (if OSD is enabled):
   takes `drm_fd`, `output_list` and JSON config as thread parameters,
   receives Facts through mutex-with-timeout-protected `std::queue`, feeds Facts to widgets and

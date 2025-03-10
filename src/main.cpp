@@ -46,6 +46,7 @@ extern "C" {
 
 #include "osd.h"
 #include "osd.hpp"
+#include "wfbcli.hpp"
 #include "dvr.h"
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"
@@ -353,6 +354,7 @@ void sig_handler(int signum)
 	spdlog::info("Received signal {}", signum);
 	signal_flag++;
 	mavlink_thread_signal++;
+	wfb_thread_signal++;
 	osd_thread_signal++;
 	if (dvr != NULL) {
 		dvr->shutdown();
@@ -544,6 +546,7 @@ int main(int argc, char **argv)
 	bool dvr_filenames_with_sequence = false;
 	uint16_t listen_port = 5600;
 	uint16_t mavlink_port = 14550;
+	uint16_t wfb_port = 8103;
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
@@ -704,6 +707,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--wfb-api-port") {
+		wfb_port = atoi(__ArgValue);
+		continue;
+	}
+
 	__OnArgument("--version") {
 		printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 		return 0;
@@ -785,7 +793,7 @@ int main(int argc, char **argv)
 	ret = pthread_cond_init(&video_cond, NULL);
 	assert(!ret);
 
-	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr;
+	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_wfbcli;
 	if (dvr_template != NULL) {
 		dvr_thread_params args;
 		args.filename_template = dvr_template;
@@ -817,6 +825,11 @@ int main(int argc, char **argv)
 			ret = pthread_create(&tid_mavlink, NULL, __MAVLINK_THREAD__, &signal_flag);
 			assert(!ret);
 		}
+		wfb_thread_params *wfb_args = (wfb_thread_params *)malloc(sizeof *wfb_args);
+		wfb_args->port = wfb_port;
+		ret = pthread_create(&tid_wfbcli, NULL, __WFB_CLI_THREAD__, wfb_args);
+		assert(!ret);
+
 		osd_thread_params *args = (osd_thread_params *)malloc(sizeof *args);
         args->fd = drm_fd;
         args->out = output_list;
@@ -853,6 +866,8 @@ int main(int argc, char **argv)
 		assert(!ret);
 	}
 	if (enable_osd) {
+		ret = pthread_join(tid_wfbcli, NULL);
+		assert(!ret);
 		ret = pthread_join(tid_osd, NULL);
 		assert(!ret);
 	}
