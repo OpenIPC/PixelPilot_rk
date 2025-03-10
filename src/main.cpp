@@ -84,6 +84,7 @@ int video_zpos = 1;
 
 bool mavlink_dvr_on_arm = false;
 bool osd_custom_message = false;
+bool disable_vsync = false;
 
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
@@ -294,7 +295,7 @@ void *__DISPLAY_THREAD__(void *param)
 		// show DRM FB in plane
 		uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
 		if (fb_id != 0) {
-			flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
+			flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : DRM_MODE_ATOMIC_ALLOW_MODESET;
 			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
 			assert(ret>0);
 		}
@@ -376,6 +377,24 @@ void sigusr1_handler(int signum) {
 	}
 }
 
+void sigusr2_handler(int signum) {
+    // Toggle the disable_vsync flag
+    disable_vsync = disable_vsync ^ 1;
+
+    // Open the file for writing
+    std::ofstream outFile("/run/pixelpilot.msg");
+    if (!outFile.is_open()) {
+        spdlog::error("Error opening file!");
+        return; // Exit the function if the file cannot be opened
+    }
+
+    // Write the formatted text to the file
+    outFile << "disable_vsync: " << std::boolalpha << disable_vsync << std::endl;
+    outFile.close();
+
+    // Log the new state of disable_vsync
+    spdlog::info("disable_vsync: {}", disable_vsync);
+}
 
 int decoder_stalled_count=0;
 bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
@@ -532,6 +551,8 @@ void printHelp() {
     "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
+	"    --disable-vsync         - Disable VSYNC commits\n"
+	"\n"
     "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
     "    --version              - Show program version\n"
@@ -709,6 +730,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--disable-vsync") {
+		disable_vsync = true;
+		continue;
+	}
+
 	__OnArgument("--screen-mode-list") {
 		print_modelist = 1;
 		continue;
@@ -729,6 +755,8 @@ int main(int argc, char **argv)
 	}
 
 	printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
+
+	spdlog::info("disable_vsync: {}", disable_vsync);
 
 	if (enable_osd == 0 ) {
 		video_zpos = 4;
@@ -788,6 +816,7 @@ int main(int argc, char **argv)
 	if (dvr_template) {
 		signal(SIGUSR1, sigusr1_handler);
 	}
+	signal(SIGUSR2, sigusr2_handler);
  	//////////////////// THREADS SETUP
 	
 	ret = pthread_mutex_init(&video_mutex, NULL);
