@@ -80,11 +80,12 @@ int frm_eos = 0;
 int drm_fd = 0;
 pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
-
+extern bool osd_update_ready;
 int video_zpos = 1;
 
 bool mavlink_dvr_on_arm = false;
 bool osd_custom_message = false;
+bool disable_vsync = false;
 
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
@@ -264,10 +265,11 @@ void *__DISPLAY_THREAD__(void *param)
 
 	while (!frm_eos) {
 		int fb_id;
+		bool osd_update;
 		
 		ret = pthread_mutex_lock(&video_mutex);
 		assert(!ret);
-		while (output_list->video_fb_id==0) {
+		while (output_list->video_fb_id==0 && !osd_update_ready) {
 			pthread_cond_wait(&video_cond, &video_mutex);
 			assert(!ret);
 			if (output_list->video_fb_id == 0 && frm_eos) {
@@ -279,16 +281,25 @@ void *__DISPLAY_THREAD__(void *param)
 		struct timespec ts, ats;
 		clock_gettime(CLOCK_MONOTONIC, &ats);
 		fb_id = output_list->video_fb_id;
+		osd_update = osd_update_ready;
 
-        uint64_t decoding_pts=output_list->decoding_pts;
+        uint64_t decoding_pts=fb_id != 0 ? output_list->decoding_pts : get_time_ms();
 		output_list->video_fb_id=0;
+		osd_update_ready = false;
 		ret = pthread_mutex_unlock(&video_mutex);
 		assert(!ret);
 
+		// create new video_request
+		drmModeAtomicFree(output_list->video_request);
+		output_list->video_request = drmModeAtomicAlloc();
+
 		// show DRM FB in plane
-		drmModeAtomicSetCursor(output_list->video_request, 0);
-		ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
-		assert(ret>0);
+		uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
+		if (fb_id != 0) {
+			flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : DRM_MODE_ATOMIC_ALLOW_MODESET;
+			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
+			assert(ret>0);
+		}
 
 		if(enable_osd) {
 			ret = pthread_mutex_lock(&osd_mutex);
@@ -296,7 +307,7 @@ void *__DISPLAY_THREAD__(void *param)
 			ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
 			assert(ret>0);
 		}
-		drmModeAtomicCommit(drm_fd, output_list->video_request, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
+		drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);
 		ret = pthread_mutex_unlock(&osd_mutex);
 		assert(!ret);
 
@@ -368,6 +379,24 @@ void sigusr1_handler(int signum) {
 	}
 }
 
+void sigusr2_handler(int signum) {
+    // Toggle the disable_vsync flag
+    disable_vsync = disable_vsync ^ 1;
+
+    // Open the file for writing
+    std::ofstream outFile("/run/pixelpilot.msg");
+    if (!outFile.is_open()) {
+        spdlog::error("Error opening file!");
+        return; // Exit the function if the file cannot be opened
+    }
+
+    // Write the formatted text to the file
+    outFile << "disable_vsync: " << std::boolalpha << disable_vsync << std::endl;
+    outFile.close();
+
+    // Log the new state of disable_vsync
+    spdlog::info("disable_vsync: {}", disable_vsync);
+}
 
 int decoder_stalled_count=0;
 bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
@@ -524,6 +553,8 @@ void printHelp() {
     "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
+	"    --disable-vsync         - Disable VSYNC commits\n"
+	"\n"
     "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
     "    --version              - Show program version\n"
@@ -702,6 +733,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--disable-vsync") {
+		disable_vsync = true;
+		continue;
+	}
+
 	__OnArgument("--screen-mode-list") {
 		print_modelist = 1;
 		continue;
@@ -727,6 +763,8 @@ int main(int argc, char **argv)
 	}
 
 	printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
+
+	spdlog::info("disable_vsync: {}", disable_vsync);
 
 	if (enable_osd == 0 ) {
 		video_zpos = 4;
@@ -786,6 +824,7 @@ int main(int argc, char **argv)
 	if (dvr_template) {
 		signal(SIGUSR1, sigusr1_handler);
 	}
+	signal(SIGUSR2, sigusr2_handler);
  	//////////////////// THREADS SETUP
 	
 	ret = pthread_mutex_init(&video_mutex, NULL);

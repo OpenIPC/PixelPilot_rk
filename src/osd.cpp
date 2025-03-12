@@ -43,6 +43,9 @@ float rx_rate = 0;
 int hours = 0, minutes = 0, seconds = 0, milliseconds = 0;
 char custom_msg[80];
 u_int custom_msg_refresh_count = 0;
+extern pthread_mutex_t video_mutex;
+extern pthread_cond_t video_cond;
+bool osd_update_ready = false;
 
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
@@ -1620,6 +1623,16 @@ void *__OSD_THREAD__(void *param) {
 			p->out->osd_buf_switch = buf_idx;
 			ret = pthread_mutex_unlock(&osd_mutex);
 			assert(!ret);
+
+			// tell the display thread that we have a update
+			ret = pthread_mutex_lock(&video_mutex);
+			assert(!ret);
+			osd_update_ready = true;
+			ret = pthread_cond_signal(&video_cond);
+			assert(!ret);
+			ret = pthread_mutex_unlock(&video_mutex);
+			assert(!ret);
+
 			last_display_at = std::chrono::steady_clock::now();
 		}
     }
