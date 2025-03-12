@@ -15,8 +15,6 @@ set(SOURCE_FILES
         src/osd.cpp
         src/dvr.h
         src/dvr.cpp
-        src/rtp.h
-        src/rtp.c
         src/mavlink.h
         src/mavlink.c
         src/main.cpp
