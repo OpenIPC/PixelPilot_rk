@@ -241,7 +241,6 @@ int Dvr::start() {
 		spdlog::error("unable to open DVR file {}", finalFilename);
 		return -1;
 	}
-	osd_vars.enable_recording = 1;
 	osd_publish_bool_fact("dvr.recording", NULL, 0, true);
 	dvr_enabled = 1;
 	mux = MP4E_open(0 /*sequential_mode*/, mp4_fragmentation_mode, dvr_file, write_callback);
@@ -266,7 +265,6 @@ void Dvr::stop() {
 	mp4_h26x_write_close(mp4wr);
 	fclose(dvr_file);
 	dvr_file = NULL;
-	osd_vars.enable_recording = 0;
 	osd_publish_bool_fact("dvr.recording", NULL, 0, false);
 	dvr_enabled = 0;
 	_ready_to_write = 0;
