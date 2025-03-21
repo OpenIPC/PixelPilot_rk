@@ -1,5 +1,5 @@
 /**
- * Client for WFB-ng stats API
+ * Client for WFB-ng stats API using MessagePack
  */
 
 #include <arpa/inet.h>
@@ -15,7 +15,8 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <cstdint>
-#include <nlohmann/json.hpp>
+#include <iostream>
+#include <msgpack.hpp>
 #include "spdlog/spdlog.h"
 
 #include "wfbcli.hpp"
@@ -23,145 +24,265 @@ extern "C" {
 #include "osd.h"
 }
 
-using json = nlohmann::json;
-
 #define SERVER_IP "127.0.0.1"
 #define BUFFER_SIZE 10 * 1024
 
 int wfb_thread_signal = 0;
 
-int process_rx(json packet) {
-	void *batch = osd_batch_init(2);
-	auto id = packet.at("id").template get<std::string>();
-	osd_tag tags[2];
-	strcpy(tags[0].key, "id");
-	strcpy(tags[0].val, id.c_str());
+int process_rx(const msgpack::object& packet) {
 
-	json packets = packet.at("packets");
-	for (auto &[key, val] : packets.items()) {
-		auto total = val.at(1).template get<uint32_t>();
-		osd_add_uint_fact(batch, (std::string("wfbcli.rx.packets.") + key).c_str(), tags, 1, total);
-	}
-	json rx_ant_stats = packet.at("rx_ant_stats");
-	for (auto &obj : rx_ant_stats) {
-		auto ant_id = obj.at("ant").template get<uint>();
+    void *batch = osd_batch_init(2);
+    osd_tag tags[2];
+
+    // Access the map and find the required keys
+    std::string id;
+    msgpack::object packets;
+    msgpack::object rx_ant_stats;
+
+    for (size_t i = 0; i < packet.via.map.size; ++i) {
+        std::string key = packet.via.map.ptr[i].key.as<std::string>();
+        if (key == "id") {
+            id = packet.via.map.ptr[i].val.as<std::string>();
+            strcpy(tags[0].key, "id");
+            strcpy(tags[0].val, id.c_str());
+        } else if (key == "packets") {
+            packets = packet.via.map.ptr[i].val;
+        } else if (key == "rx_ant_stats") {
+            rx_ant_stats = packet.via.map.ptr[i].val;
+        }
+    }
+
+    // Process packets
+    for (size_t i = 0; i < packets.via.map.size; ++i) {
+		std::string key = packets.via.map.ptr[i].key.as<std::string>();
+		msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+		uint32_t delta = array.ptr[0].as<uint32_t>();
+		uint64_t total = array.ptr[1].as<uint64_t>();
+		
+		// If you need to use these values elsewhere, you can pass them to other functions
+		osd_add_uint_fact(batch, (std::string("wfbcli.rx.packets.") + key + ".delta").c_str(), tags, 1, delta);
+		osd_add_uint_fact(batch, (std::string("wfbcli.rx.packets.") + key + ".total").c_str(), tags, 1, total);
+    }
+
+    // Process rx_ant_stats
+    for (size_t i = 0; i < rx_ant_stats.via.map.size; ++i) {
+        // Extract the key (which is an array: [[frequency, mcs, bandwidth], antenna_id])
+        msgpack::object_array key_array = rx_ant_stats.via.map.ptr[i].key.via.array;
+
+        // Extract the first element of the key (which is an array: [frequency, mcs, bandwidth])
+        msgpack::object_array freq_mcs_bw_array = key_array.ptr[0].via.array;
+
+        // Extract frequency, mcs, and bandwidth from the inner array
+        uint32_t frequency = freq_mcs_bw_array.ptr[0].as<uint32_t>();
+        uint32_t mcs = freq_mcs_bw_array.ptr[1].as<uint32_t>();
+        uint32_t bandwidth = freq_mcs_bw_array.ptr[2].as<uint32_t>();
+
+        // Extract the second element of the key (antenna_id)
+        uint32_t antenna_id = key_array.ptr[1].as<uint32_t>();
+
 		strcpy(tags[1].key, "ant_id");
-		strncpy(tags[1].val, std::to_string(ant_id).c_str(), sizeof(tags[1].val));
+		snprintf(tags[1].val, sizeof(tags[0].val), "%u", antenna_id);
 
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.freq", tags, 2,
-						  obj.at("freq").template get<uint>());
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.mcs", tags, 2,
-						  obj.at("mcs").template get<uint>());
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.bw", tags, 2,
-						  obj.at("bw").template get<uint>());
+        // Extract the value (which is an array: [packets_delta, rssi_min, rssi_avg, rssi_max, snr_min, snr_avg, snr_max])
+        msgpack::object_array value_array = rx_ant_stats.via.map.ptr[i].val.via.array;
+        // Extract packets_delta, rssi_min, rssi_avg, rssi_max, snr_min, snr_avg, snr_max from the value
+        int32_t packets_delta = value_array.ptr[0].as<int32_t>();
+        int32_t rssi_min = value_array.ptr[1].as<int32_t>();
+        int32_t rssi_avg = value_array.ptr[2].as<int32_t>();
+        int32_t rssi_max = value_array.ptr[3].as<int32_t>();
+        int32_t snr_min = value_array.ptr[4].as<int32_t>();
+        int32_t snr_avg = value_array.ptr[5].as<int32_t>();
+        int32_t snr_max = value_array.ptr[6].as<int32_t>();
+		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.freq", tags, 2, frequency);
+		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.mcs", tags, 2, mcs);
+		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.bw", tags, 2, bandwidth);
+		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.pkt_recv", tags, 2, packets_delta);
+		osd_add_int_fact(batch, "wfbcli.rx.ant_stats.rssi_avg", tags, 2, rssi_avg);
+		osd_add_int_fact(batch, "wfbcli.rx.ant_stats.snr_avg", tags, 2, snr_avg);		
 
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.pkt_recv", tags, 2,
-						  obj.at("pkt_recv").template get<uint>());
-		osd_add_int_fact(batch, "wfbcli.rx.ant_stats.rssi_avg", tags, 2,
-						 obj.at("rssi_avg").template get<int>());
-		osd_add_double_fact(batch, "wfbcli.rx.ant_stats.snr_avg", tags, 2,
-							obj.at("snr_avg").template get<double>());
-	}
-	//json session = packets.at("session");
-	osd_publish_batch(batch);
-	return 0;
+    }
+
+    osd_publish_batch(batch);
+    return 0;
 }
 
-int process_tx(json packet) {
-	void *batch = osd_batch_init(2);
-	auto id = packet.at("id").template get<std::string>();
-	osd_tag tags[2];
-	strcpy(tags[0].key, "id");
-	strcpy(tags[0].val, id.c_str());
+int process_tx(const msgpack::object& packet) {
 
-	json packets = packet.at("packets");
-	for (auto &[key, val] : packets.items()) {
-		auto total = val.at(1).template get<uint32_t>();
-		osd_add_uint_fact(batch, (std::string("wfbcli.tx.packets.") + key).c_str(), tags, 1, total);
-	}
-	json tx_ant_stats = packet.at("tx_ant_stats");
-	for (auto &obj : tx_ant_stats) {
-		auto ant_id = obj.at("ant").template get<uint>();
+    void *batch = osd_batch_init(2);
+    osd_tag tags[2];
+
+    // Access the map and find the required keys
+    std::string id;
+    msgpack::object packets;
+    msgpack::object latency;
+	msgpack::object rf_temperature;
+
+    //std::cout << "Unpacked MessagePack packet: " << packet << std::endl;
+
+    for (size_t i = 0; i < packet.via.map.size; ++i) {
+        std::string key = packet.via.map.ptr[i].key.as<std::string>();
+        if (key == "id") {
+            id = packet.via.map.ptr[i].val.as<std::string>();
+            strcpy(tags[0].key, "id");
+            strcpy(tags[0].val, id.c_str());
+        } else if (key == "packets") {
+            packets = packet.via.map.ptr[i].val;
+        } else if (key == "latency") {
+            latency = packet.via.map.ptr[i].val;
+        } else if (key == "rf_temperature") {
+            rf_temperature = packet.via.map.ptr[i].val;
+        }
+    }
+
+	for (size_t i = 0; i < packets.via.map.size; ++i) {
+        std::string key = packets.via.map.ptr[i].key.as<std::string>();
+        if (key == "fec_timeouts") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.fec_timeouts.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.fec_timeouts.total", tags, 1, total);			
+        } else if (key == "incoming") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.incoming.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.incoming.total", tags, 1, total);	
+        } else if (key == "incoming_bytes") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.incoming_bytes.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.incoming_bytes.total", tags, 1, total);
+        } else if (key == "injected") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.injected.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.injected.total", tags, 1, total);
+        } else if (key == "injected_bytes") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.injected_bytes.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.injected_bytes.total", tags, 1, total);
+        } else if (key == "dropped") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.dropped.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.dropped.total", tags, 1, total);
+        } else if (key == "truncated") {
+			msgpack::object_array& array = packets.via.map.ptr[i].val.via.array;
+			uint32_t delta = array.ptr[0].as<uint32_t>();
+			uint64_t total = array.ptr[1].as<uint64_t>();
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.truncated.delta", tags, 1, delta);			
+			osd_add_uint_fact(batch, "wfbcli.tx.packets.truncated.total", tags, 1, total);
+        }
+    }
+
+	for (size_t i = 0; i < rf_temperature.via.map.size; ++i) {
+        int antenna_id = rf_temperature.via.map.ptr[i].key.as<int>();
+		int temperature = rf_temperature.via.map.ptr[i].val.as<int>();
 		strcpy(tags[1].key, "ant_id");
-		strncpy(tags[1].val, std::to_string(ant_id).c_str(), sizeof(tags[1].val));
+		snprintf(tags[1].val, sizeof(tags[0].val), "%u", antenna_id);
+		osd_add_uint_fact(batch, "wfbcli.rf_temperature", tags, 2, temperature);
+    }	
 
-		osd_add_uint_fact(batch, "wfbcli.tx.ant_stats.pkt_sent", tags, 2,
-						  obj.at("pkt_sent").template get<uint>());
-		osd_add_uint_fact(batch, "wfbcli.tx.ant_stats.pkt_drop", tags, 2,
-						  obj.at("pkt_drop").template get<uint>());
-		osd_add_uint_fact(batch, "wfbcli.tx.ant_stats.lat_avg", tags, 2,
-						  obj.at("lat_avg").template get<uint>());
-	}
-	//json temp = packets.at("rf_temperature");
-	osd_publish_batch(batch);
-	return 0;
+    osd_publish_batch(batch);
+
+    return 0;
 }
 
-int process_title(json packet) {
-	auto profile = packet.at("profile").template get<std::string>();
-	auto is_cluster = packet.at("is_cluster").template get<bool>();
-	auto channel = packet.at("settings").at("common").at("wifi_channel").template get<ulong>();
-	auto version = packet.at("settings").at("common").at("version").template get<std::string>();
-	
-	void *batch = osd_batch_init(2);
-	osd_add_str_fact(batch, "wfbcli.profile", nullptr, 0, profile.c_str());
-	osd_add_str_fact(batch, "wfbcli.version", nullptr, 0, version.c_str());
-	osd_add_bool_fact(batch, "wfbcli.is_cluster", nullptr, 0, is_cluster);
-	osd_add_uint_fact(batch, "wfbcli.wifi_channel", nullptr, 0, channel);
-	osd_publish_batch(batch);
-	return 0;
+int process_title(const msgpack::object& packet) {
+    std::string cli_title;
+    bool is_cluster = false;
+    uint32_t temp_overheat_warning = 0;
+
+    // Access the map and find the required keys
+    for (size_t i = 0; i < packet.via.map.size; ++i) {
+        std::string key = packet.via.map.ptr[i].key.as<std::string>();
+        if (key == "cli_title") {
+            cli_title = packet.via.map.ptr[i].val.as<std::string>();
+        } else if (key == "is_cluster") {
+            is_cluster = packet.via.map.ptr[i].val.as<bool>();
+        } else if (key == "temp_overheat_warning") {
+            temp_overheat_warning = packet.via.map.ptr[i].val.as<int>();
+        }
+    }
+
+    void *batch = osd_batch_init(2);
+    osd_add_str_fact(batch, "wfbcli.cli_title", nullptr, 0, cli_title.c_str());
+    osd_add_bool_fact(batch, "wfbcli.is_cluster", nullptr, 0, is_cluster);
+    osd_add_uint_fact(batch, "wfbcli.temp_overheat_warning", nullptr, 0, temp_overheat_warning);
+    osd_publish_batch(batch);
+    return 0;
 }
 
-int process_packet(json packet) {
-	auto type = packet.at("type").template get<std::string>();
-	if (type == "rx") {
-		process_rx(packet);
-	} else if (type == "tx") {
-		process_tx(packet);
-	} else if (type == "settings") {
-		process_title(packet);
-	} else {
-		SPDLOG_ERROR("Unknown wfbcli packet type {}", type);
-		return -1;
-	}
-	return 0;
-}
+int process_packet(const msgpack::object& packet) {
+    std::string type;
 
-// Code below is partially generated by chatgpt
+    // Find the "type" key in the map
+    for (size_t i = 0; i < packet.via.map.size; ++i) {
+        std::string key = packet.via.map.ptr[i].key.as<std::string>();
+        if (key == "type") {
+            type = packet.via.map.ptr[i].val.as<std::string>();
+            break;
+        }
+    }
+
+    if (type == "rx") {
+        process_rx(packet);
+    } else if (type == "tx") {
+        process_tx(packet);
+    } else if (type == "cli_title") {
+        process_title(packet);
+    } else {
+        SPDLOG_ERROR("Unknown wfbcli packet type {}", type);
+        return -1;
+    }
+    return 0;
+}
 
 void handle_server_connection(int sock) {
-	std::string partial_data; // To accumulate incomplete data across reads
-	char buffer[BUFFER_SIZE] = {0};
-
+	std::vector<char> buffer(BUFFER_SIZE);
 	while (!wfb_thread_signal) {
-		ssize_t bytes_read = recv(sock, buffer, BUFFER_SIZE - 1, 0);
+		// Read the length prefix (4 bytes)
+		uint32_t msg_length;
+		ssize_t bytes_read = recv(sock, &msg_length, sizeof(msg_length), 0);
 		if (bytes_read <= 0) {
 			SPDLOG_ERROR("Server disconnected or error occurred");
 			close(sock);
 			return;
 		}
 
-		buffer[bytes_read] = '\0'; // Null-terminate the received data
-		partial_data += buffer;	  // Append to the accumulated data
+		msg_length = ntohl(msg_length); // Convert from network byte order
 
-		// Process each complete line
-		size_t newline_pos;
-		while ((newline_pos = partial_data.find('\n')) != std::string::npos) {
-			std::string line = partial_data.substr(0, newline_pos);
-			partial_data.erase(0, newline_pos + 1); // Remove the processed line
-
-			try {
-				// Parse the line as JSON
-				nlohmann::json parsed_json = nlohmann::json::parse(line);
-				process_packet(parsed_json);
-			} catch (const nlohmann::json::parse_error &e) {
-				SPDLOG_ERROR("Failed to parse JSON: {}", e.what());
+		// Read the actual MessagePack data
+		std::vector<char> data(msg_length);
+		size_t total_read = 0;
+		while (total_read < msg_length) {
+			bytes_read = recv(sock, data.data() + total_read, msg_length - total_read, 0);
+			if (bytes_read <= 0) {
+				SPDLOG_ERROR("Incomplete data, connection closed.");
+				close(sock);
+				return;
 			}
+			total_read += bytes_read;
+		}
+
+		// Unpack the MessagePack data
+		try {
+			msgpack::object_handle oh = msgpack::unpack(data.data(), data.size());
+			msgpack::object obj = oh.get();
+		    // std::cout << "Unpacked MessagePack data: " << obj << std::endl;
+			process_packet(obj);
+		} catch (const msgpack::unpack_error& e) {
+			SPDLOG_ERROR("Failed to unpack data: {}", e.what());
 		}
 	}
 }
 
-// Function to reconnect to the server in a loop with retries
 int reconnect_to_server(int port) {
 	while (!wfb_thread_signal) {
 		SPDLOG_DEBUG("Attempting to connect to WFB API server...");

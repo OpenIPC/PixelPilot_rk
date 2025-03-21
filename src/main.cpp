@@ -499,6 +499,9 @@ void printHelp() {
 	"\n"
     "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
+    "    --wfb-api-port         - Port of wfb-server for cli statistics. (Default: 8003)\n"
+	"                             Use \"0\" to disable this stats\n"
+    "\n"
     "    --version              - Show program version\n"
     "\n", APP_VERSION_MAJOR, APP_VERSION_MINOR
   );
@@ -519,7 +522,7 @@ int main(int argc, char **argv)
 	bool dvr_filenames_with_sequence = false;
 	uint16_t listen_port = 5600;
 	uint16_t mavlink_port = 14550;
-	uint16_t wfb_port = 8103;
+	uint16_t wfb_port = 8003;
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
@@ -779,10 +782,12 @@ int main(int argc, char **argv)
 			ret = pthread_create(&tid_mavlink, NULL, __MAVLINK_THREAD__, &signal_flag);
 			assert(!ret);
 		}
-		wfb_thread_params *wfb_args = (wfb_thread_params *)malloc(sizeof *wfb_args);
-		wfb_args->port = wfb_port;
-		ret = pthread_create(&tid_wfbcli, NULL, __WFB_CLI_THREAD__, wfb_args);
-		assert(!ret);
+		if (wfb_port) {
+			wfb_thread_params *wfb_args = (wfb_thread_params *)malloc(sizeof *wfb_args);
+			wfb_args->port = wfb_port;
+			ret = pthread_create(&tid_wfbcli, NULL, __WFB_CLI_THREAD__, wfb_args);
+			assert(!ret);
+		}
 
 		osd_thread_params *args = (osd_thread_params *)malloc(sizeof *args);
         args->fd = drm_fd;
