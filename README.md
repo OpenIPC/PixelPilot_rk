@@ -163,6 +163,7 @@ to display any fact (as long as datatype matches):
  eg the average video bitrate or RSSI or FPS.
 * `PopupWidget` - displays a stacked pop-ups with text facts which fade-away after timeout.
 * `DebugWidget` - displays debug information (name, type, tags, value) about fact(s)
+* `IconSelectorWidget` - display a icon based on a fact's value
 
 Specific widgets expect quite concrete facts as input:
 

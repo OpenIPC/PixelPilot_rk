@@ -1030,6 +1030,75 @@ protected:
 	std::string shm_name;
 };
 
+class IconSelectorWidget : public Widget {
+public:
+    IconSelectorWidget(int pos_x, int pos_y, const std::vector<std::pair<std::pair<int, int>, std::filesystem::path>>& ranges_and_icons, const std::filesystem::path& assets_dir)
+        : Widget(pos_x, pos_y), assets_dir(assets_dir) {
+        args.push_back(Fact()); // Expect one fact as input
+
+        // Load and cache all icons during initialization
+        for (const auto& [range, icon_path] : ranges_and_icons) {
+            cairo_surface_t* icon = openIcon(icon_path);
+            if (icon) {
+                icon_cache[range] = icon;
+            }
+        }
+    }
+
+    virtual ~IconSelectorWidget() {
+        // Clean up cached icons
+        for (auto& [range, icon] : icon_cache) {
+            if (icon) {
+                cairo_surface_destroy(icon);
+            }
+        }
+    }
+
+    virtual void setFact(uint idx, Fact fact) override {
+        assert(idx == 0);
+        args[idx] = fact;
+        current_icon = selectIcon(fact);
+    }
+
+    virtual void draw(cairo_t *cr) override {
+        if (!current_icon) return;
+
+        auto [x, y] = xy(cr);
+        cairo_set_source_surface(cr, current_icon, x, y);
+        cairo_paint(cr);
+    }
+
+private:
+    cairo_surface_t* selectIcon(Fact& fact) {
+        if (!fact.isDefined()) return nullptr;
+
+        long value = fact.getIntValue(); // Assuming the fact is of type T_INT
+
+        // Iterate through the configured ranges and select the appropriate icon
+        for (const auto& [range, icon] : icon_cache) {
+            if (value >= range.first && value <= range.second) {
+                return icon;
+            }
+        }
+
+        return nullptr; // No icon selected
+    }
+
+    cairo_surface_t* openIcon(const std::filesystem::path& icon_path) {
+        std::filesystem::path full_path = assets_dir / icon_path;
+        cairo_surface_t* icon = cairo_image_surface_create_from_png(full_path.c_str());
+        if (cairo_surface_status(icon) != CAIRO_STATUS_SUCCESS) {
+            spdlog::error("Failed to open icon: {}", full_path.string());
+            return nullptr;
+        }
+        return icon;
+    }
+
+    std::map<std::pair<int, int>, cairo_surface_t*> icon_cache; // Cache of loaded icons
+    std::filesystem::path assets_dir;
+    cairo_surface_t* current_icon = nullptr; // Currently selected icon
+};
+
 class Osd {
 public:
 	void loadConfig(json cfg) {
@@ -1075,6 +1144,15 @@ public:
 			}
 			else if (type == "ExternalSurfaceWidget") {
 				addWidget(new ExternalSurfaceWidget(x, y, name), matchers);
+			} else if (type == "IconSelectorWidget") {
+				std::vector<std::pair<std::pair<int, int>, std::filesystem::path>> ranges_and_icons;
+				for (const auto& range_icon : widget_j.at("ranges_and_icons")) {
+					int range_start = range_icon.at("range")[0];
+					int range_end = range_icon.at("range")[1];
+					std::filesystem::path icon_path = range_icon.at("icon_path");
+					ranges_and_icons.push_back({{range_start, range_end}, icon_path});
+				}
+				addWidget(new IconSelectorWidget(x, y, ranges_and_icons, assets_dir), matchers);
 			} else if (type == "TplTextWidget") {
 				auto tpl = widget_j.at("template").template get<std::string>();
 				addWidget(new TplTextWidget(x, y, tpl, (uint)matchers.size()), matchers);
