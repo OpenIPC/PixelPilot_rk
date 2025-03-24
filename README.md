@@ -19,10 +19,10 @@ Build on the Rockchip linux system directly.
 
 ## Install dependencies
 
-- drm, cairo, mpp, logging, json
+- drm, cairo, mpp, logging, json, msgpack
 
 ```
-sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev
+sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev
 ```
 
 - gstreamer
