@@ -80,8 +80,8 @@ int process_rx(const msgpack::object& packet) {
         // Extract the second element of the key (antenna_id)
         uint32_t antenna_id = key_array.ptr[1].as<uint32_t>();
 
-		strcpy(tags[1].key, "ant_id");
-		snprintf(tags[1].val, sizeof(tags[0].val), "%u", antenna_id);
+        strcpy(tags[1].key, "ant_id");
+        snprintf(tags[1].val, sizeof(tags[0].val), "%u", antenna_id);
 
         // Extract the value (which is an array: [packets_delta, rssi_min, rssi_avg, rssi_max, snr_min, snr_avg, snr_max])
         msgpack::object_array value_array = rx_ant_stats.via.map.ptr[i].val.via.array;
@@ -93,13 +93,16 @@ int process_rx(const msgpack::object& packet) {
         int32_t snr_min = value_array.ptr[4].as<int32_t>();
         int32_t snr_avg = value_array.ptr[5].as<int32_t>();
         int32_t snr_max = value_array.ptr[6].as<int32_t>();
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.freq", tags, 2, frequency);
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.mcs", tags, 2, mcs);
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.bw", tags, 2, bandwidth);
-		osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.pkt_recv", tags, 2, packets_delta);
-		osd_add_int_fact(batch, "wfbcli.rx.ant_stats.rssi_avg", tags, 2, rssi_avg);
-		osd_add_int_fact(batch, "wfbcli.rx.ant_stats.snr_avg", tags, 2, snr_avg);		
-
+        osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.freq", tags, 2, frequency);
+        osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.mcs", tags, 2, mcs);
+        osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.bw", tags, 2, bandwidth);
+        osd_add_uint_fact(batch, "wfbcli.rx.ant_stats.pkt_recv", tags, 2, packets_delta);
+        osd_add_int_fact(batch, "wfbcli.rx.ant_stats.rssi_min", tags, 2, rssi_min);
+        osd_add_int_fact(batch, "wfbcli.rx.ant_stats.rssi_avg", tags, 2, rssi_avg);
+        osd_add_int_fact(batch, "wfbcli.rx.ant_stats.rssi_max", tags, 2, rssi_max);
+        osd_add_int_fact(batch, "wfbcli.rx.ant_stats.snr_min", tags, 2, snr_min);
+        osd_add_int_fact(batch, "wfbcli.rx.ant_stats.snr_avg", tags, 2, snr_avg);
+        osd_add_int_fact(batch, "wfbcli.rx.ant_stats.snr_max", tags, 2, snr_max);
     }
 
     osd_publish_batch(batch);
