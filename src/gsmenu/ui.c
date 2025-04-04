@@ -234,7 +234,7 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_obj_t * sidebar_menu_back_button = lv_menu_get_sidebar_header_back_button(menu);
     lv_obj_add_style(sidebar_menu_back_button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
 
-    lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
+    // lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
 
     return menu;
 }
