@@ -265,7 +265,13 @@ case "$@" in
         $SSH 'sed -i "s/^baud=.*/baud='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
         ;;
     "set air telemetry router"*)
-        $SSH 'sed -i "s/^router=.*/router='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
+        case "$5" in
+            "mavfwd") router=0;;
+            "mavlink-routerd") router=1;;
+            "msposd") router=2;;
+            *) echo "Unknown router value: $router" >&2; exit 1 ;;
+        esac
+        $SSH 'sed -i "s/^router=.*/router='$router'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
         ;;
     "set air telemetry tel_mcs_index"*)
         $SSH 'sed -i "s/^mcs_index=.*/mcs_index='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
