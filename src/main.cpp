@@ -521,7 +521,6 @@ int main(int argc, char **argv)
 	int mp4_fragmentation_mode = 0;
 	bool dvr_filenames_with_sequence = false;
 	uint16_t listen_port = 5600;
-	uint16_t mavlink_port = 14550;
 	uint16_t wfb_port = 8003;
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
