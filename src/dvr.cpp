@@ -74,6 +74,11 @@ void Dvr::stop_recording() {
 	enqueue_dvr_command(rpc);
 }
 
+void Dvr::set_video_framerate(int rate) {
+	video_framerate = rate;
+	spdlog::info("Changeing video framerate to {}",video_framerate);
+}
+
 void Dvr::toggle_recording() {
 	dvr_rpc rpc = {
 		.command = dvr_rpc::RPC_TOGGLE
@@ -282,6 +287,12 @@ extern "C" {
 	void dvr_stop_recording(Dvr* dvr) {
 		if (dvr) {
 			dvr->stop_recording();
+		}
+	}
+
+	void dvr_set_video_framerate(Dvr* dvr, int f) {
+		if (dvr) {
+			dvr->set_video_framerate(f);
 		}
 	}
 }

@@ -22,7 +22,7 @@ Build on the Rockchip linux system directly.
 - drm, cairo, mpp, logging, json, msgpack
 
 ```
-sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev
+sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev
 ```
 
 - gstreamer
@@ -177,6 +177,19 @@ Specific widgets expect quite concrete facts as input:
   Uses `video.decode_and_handover_ms` fact
 * `GPSWidget` - displays GPS fix type (no fix / 2D fix / 3D fix etc) and GPS coordinates.
   Uses `mavlink.gps_raw.fix_type`, `mavlink.gps_raw.lat` and `mavlink.gps_raw.lon` facts
+
+## Menu
+
+The menu provides options to modify air and ground settings.
+Navigation is controlled via a GPIO button, adhering to Ruby wiring conventions.
+PixelPilot_rk will take ownership of the needed gpios.
+
+### Navigation
+Up/Down – Cycles through menu items (wraps around at the top and bottom of the page/sections).
+Left/Right/Ok (Back/Menu/QA1 in Ruby terms) – Adjusts selected values.
+Ok becomes Rec/QA1 when menu is not shown.
+
+When not in menu any navigation key will open the menu.
 
 ## Known issues
 

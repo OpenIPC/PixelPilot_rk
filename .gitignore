@@ -60,3 +60,4 @@ pixelpilot_config.h
 
 .vscode/
 build/
+build_sim/
