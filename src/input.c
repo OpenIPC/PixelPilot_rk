@@ -39,11 +39,11 @@ typedef struct {
 
 // Define all GPIO buttons
 gpio_button_t gpio_buttons[] = {
-    {"/dev/gpiochip3", 9,  NULL, NULL, -1, 0},  // Up
-    {"/dev/gpiochip3", 10,  NULL, NULL, -1, 0}, // Down
-    {"/dev/gpiochip3", 2,  NULL, NULL, -1, 0},  // Left
-    {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // Right
-    {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK
+    {"/dev/gpiochip3", 9,  NULL, NULL, -1, 0},  // Up   PIN_16
+    {"/dev/gpiochip3", 10,  NULL, NULL, -1, 0}, // Down PIN_18
+    {"/dev/gpiochip3", 2,  NULL, NULL, -1, 0},  // Left PIN_13
+    {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // Right PIN_11
+    {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK   PIN_32
 };
 #endif
 
@@ -113,7 +113,7 @@ void handle_gpio_input(void) {
                                     next_key = LV_KEY_LEFT;
                                     break;
                                 case 1:  // Right
-                                    next_key = LV_KEY_ENTER;
+                                    next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
                                     break;
                                 case 18: // OK
                                     next_key = LV_KEY_ENTER;
@@ -265,7 +265,7 @@ void handle_keyboard_input(void) {
                 switch (control_mode)
                 {
                 case GSMENU_CONTROL_MODE_NAV:
-                    next_key = LV_KEY_ENTER;
+                    next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
                     break;
                 case GSMENU_CONTROL_MODE_SLIDER:
                 case GSMENU_CONTROL_MODE_EDIT:
