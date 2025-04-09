@@ -27,14 +27,19 @@ extern bool menu_active;
 #define MAX_GPIO_CHIPS 5     // Max number of GPIO chips to scan
 #define GPIO_PATH "/dev/"    // Base path for GPIO chips
 #define DEBOUNCE_DELAY_MS 50 // Debounce delay in milliseconds
+#define INITIAL_REPEAT_DELAY_MS 500  // Time before repeat starts
+#define REPEAT_RATE_MS 100           // Time between repeated events
 
+// Add this to the gpio_button_t struct
 typedef struct {
-    const char *chip_name;  // GPIO chip device (e.g., "/dev/gpiochip0")
-    int line_num;           // GPIO pin number
+    const char *chip_name;
+    int line_num;
     struct gpiod_chip *chip;
     struct gpiod_line *line;
-    int last_state;         // Last state of the GPIO (pressed or released)
-    long last_time;         // Last time the state was updated (for debouncing)
+    int last_state;
+    long last_time;
+    long repeat_time;       // Time when next repeat should occur
+    bool is_holding;        // Whether button is being held down
 } gpio_button_t;
 
 // Define all GPIO buttons
@@ -80,91 +85,107 @@ void setup_gpio(void) {
     }
 }
 
-// Function to debounce and read GPIO inputs
+void send_button_event(size_t button_index) {
+    // Adjust for control_mode
+    switch (control_mode) {
+        case GSMENU_CONTROL_MODE_NAV:
+            switch (gpio_buttons[button_index].line_num) {
+                case 9:  // Up
+                    next_key = LV_KEY_PREV;
+                    break;
+                case 10: // Down
+                    next_key = LV_KEY_NEXT;
+                    break;
+                case 2:  // Left
+                    next_key = LV_KEY_LEFT;
+                    break;
+                case 1:  // Right
+                    next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
+                    break;
+                case 18: // OK
+                    next_key = LV_KEY_ENTER;
+                    break;
+            }
+            break;
+        case GSMENU_CONTROL_MODE_EDIT:
+            switch (gpio_buttons[button_index].line_num) {
+                case 9:  // Up
+                    next_key = LV_KEY_UP;
+                    break;
+                case 10: // Down
+                    next_key = LV_KEY_DOWN;
+                    break;
+                case 2:  // Left
+                    next_key = LV_KEY_LEFT;
+                    break;
+                case 1:  // Right
+                    next_key = LV_KEY_RIGHT;
+                    break;
+                case 18: // OK
+                    next_key = LV_KEY_ENTER;
+                    break;
+            }
+            break;
+        case GSMENU_CONTROL_MODE_SLIDER:
+            switch (gpio_buttons[button_index].line_num) {
+                case 9:  // Up
+                    next_key = LV_KEY_PREV;
+                    break;
+                case 10: // Down
+                    next_key = LV_KEY_NEXT;
+                    break;
+                case 2:  // Left
+                    next_key = LV_KEY_LEFT;
+                    break;
+                case 1:  // Right
+                    next_key = LV_KEY_RIGHT;
+                    break;
+                case 18: // OK
+                    next_key = LV_KEY_ENTER;
+                    break;
+            }
+            break; 
+        default:
+            break;
+    }
+    next_key_pressed = true;
+    printf("GPIO %s: %d (Chip: %s)\n", 
+           gpio_buttons[button_index].is_holding ? "Holding" : "Pressed", 
+           gpio_buttons[button_index].line_num, 
+           gpio_buttons[button_index].chip_name);
+}
+
 void handle_gpio_input(void) {
     struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    long current_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    
     for (size_t i = 0; i < sizeof(gpio_buttons) / sizeof(gpio_buttons[0]); i++) {
         if (gpio_buttons[i].chip && gpio_buttons[i].line) {
             int current_state = gpiod_line_get_value(gpio_buttons[i].line);
             
-            // Get current time in milliseconds
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            long current_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-
-            // Check if the state has changed and is stable for the debounce period
+            // Check for state change (with debounce)
             if (current_state != gpio_buttons[i].last_state &&
                 (current_time - gpio_buttons[i].last_time) > DEBOUNCE_DELAY_MS) {
+                
                 gpio_buttons[i].last_state = current_state;
                 gpio_buttons[i].last_time = current_time;
-
-                if (current_state == 1) { // Active high: pressed when the value is 1
-                    // Adjust for control_mode
-                    switch (control_mode)
-                    {
-                        case GSMENU_CONTROL_MODE_NAV:
-                            switch (gpio_buttons[i].line_num) {
-                                case 9:  // Up
-                                    next_key = LV_KEY_PREV;
-                                    break;
-                                case 10: // Down
-                                    next_key = LV_KEY_NEXT;
-                                    break;
-                                case 2:  // Left
-                                    next_key = LV_KEY_LEFT;
-                                    break;
-                                case 1:  // Right
-                                    next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
-                                    break;
-                                case 18: // OK
-                                    next_key = LV_KEY_ENTER;
-                                    break;
-                            }
-                            break;
-                        case GSMENU_CONTROL_MODE_EDIT:
-                            switch (gpio_buttons[i].line_num) {
-                                case 9:  // Up
-                                    next_key = LV_KEY_UP;
-                                    break;
-                                case 10: // Down
-                                    next_key = LV_KEY_DOWN;
-                                    break;
-                                case 2:  // Left
-                                    next_key = LV_KEY_LEFT;
-                                    break;
-                                case 1:  // Right
-                                    next_key = LV_KEY_RIGHT;
-                                    break;
-                                case 18: // OK
-                                    next_key = LV_KEY_ENTER;
-                                    break;
-                            }
-                            break;
-                        case GSMENU_CONTROL_MODE_SLIDER:
-                            switch (gpio_buttons[i].line_num) {
-                                case 9:  // Up
-                                    next_key = LV_KEY_PREV;
-                                    break;
-                                case 10: // Down
-                                    next_key = LV_KEY_NEXT;
-                                    break;
-                                case 2:  // Left
-                                    next_key = LV_KEY_LEFT;
-                                    break;
-                                case 1:  // Right
-                                    next_key = LV_KEY_RIGHT;
-                                    break;
-                                case 18: // OK
-                                    next_key = LV_KEY_ENTER;
-                                    break;
-                            }
-                            break; 
-                        default:
-                            break;
-                    }
-                    next_key_pressed = true;
-                    printf("GPIO Pressed: %d (Chip: %s)\n", gpio_buttons[i].line_num, gpio_buttons[i].chip_name);
-                    break;
+                
+                if (current_state == 1) { // Button pressed
+                    gpio_buttons[i].is_holding = true;
+                    gpio_buttons[i].repeat_time = current_time + INITIAL_REPEAT_DELAY_MS;
+                    send_button_event(i); // Send initial press event
+                } else { // Button released
+                    gpio_buttons[i].is_holding = false;
+                    next_key_pressed = false; // Send release event
                 }
+            }
+            
+            // Handle repeat for held buttons
+            if (gpio_buttons[i].is_holding && current_state == 1 && 
+                current_time >= gpio_buttons[i].repeat_time) {
+                send_button_event(i);
+                gpio_buttons[i].repeat_time = current_time + REPEAT_RATE_MS;
             }
         }
     }
