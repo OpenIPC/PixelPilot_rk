@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -o pipefail
 SSH='sshpass -p 12345 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=~/.ssh/control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=30 -o ServerAliveCountMax=3 root@10.5.0.10 '
 
 case "$@" in
@@ -125,7 +125,7 @@ case "$@" in
         $SSH cli -g .video0.rcMode | tr -d '\n'
         ;;
     "get air camera rec_enable")
-        $SSH cli -g .records.enable | tr -d '\n'
+         [ "true" = $($SSH cli -g .records.enabled | tr -d '\n') ] && echo 1 || echo 0
         ;;
     "get air camera rec_split")
         $SSH cli -g .records.split | tr -d '\n'
@@ -141,12 +141,14 @@ case "$@" in
         ;;
     "get air camera sensor_file")
         $SSH cli -g .isp.sensorConfig | tr -d '\n'
+        [ $? = 1 ] && exit 0
         ;;
     "get air camera fpv_enable")
         $SSH cli -g .fpv.enabled | grep -q true && echo 1 || echo 0
         ;;
     "get air camera noiselevel")
         $SSH cli -g .fpv.noiseLevel | tr -d '\n'
+        [ $? = 1 ] && exit 0
         ;;
 
     "set air camera mirror"*)
@@ -394,7 +396,7 @@ case "$@" in
         [ "$(grep ground /config/scripts/osd | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
         ;;
     "get gs system resolution")
-        grep ^mode /config/scripts/screen-mode | cut -d ' ' -f 3 | tr -d '\n'
+        drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".crtcs[0].mode| .name + "@" + (.vrefresh|tostring)' | tr -d '\n'
         ;;
     "get gs system rec_fps")
         grep fps /config/scripts/rec-fps | cut -d ' ' -f 3  | tr -d '\n'
@@ -403,7 +405,7 @@ case "$@" in
         if [ "$5" = "off" ]
         then
             sed -i 's/^render =.*/render = air/' /config/scripts/osd
-            killall msposd_rockchip
+            killall -q msposd_rockchip
         else
             sed -i 's/^render =.*/render = ground/' /config/scripts/osd
             msposd_rockchip --osd --ahi 0 --matrix 11 -v -r 5 --master 0.0.0.0:14551 &
@@ -440,7 +442,7 @@ case "$@" in
             else
                 echo "Creating new "$6" connection..."
                 nmcli device wifi connect "$6" password "$7"
-                echo "Starting Hotspot..."
+                echo "Starting Wlan..."
                 nmcli con up "$6"
             fi
         else

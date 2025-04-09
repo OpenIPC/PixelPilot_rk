@@ -2,80 +2,164 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <unistd.h>
 #include <lvgl.h>
 #include "executor.h"
+#include "helper.h"
 #include "styles.h"
 
-#define MAX_OUTPUT_SIZE 1024
+#define MAX_OUTPUT_SIZE 4096
+#define BUFFER_SIZE MAX_OUTPUT_SIZE * 3
 
-lv_group_t * default_group;
-lv_group_t * error_group;
+typedef struct {
+    char* command;
+    char *stdout_output;
+    char *stderr_output;
+    int exit_status;
+} CommandResult;
+
+
+lv_group_t * default_group = NULL;
+lv_group_t * error_group = NULL;
 extern lv_indev_t * indev_drv;
+lv_obj_t * msgbox = NULL;
+lv_obj_t * msgbox_label = NULL;
+char buffer[BUFFER_SIZE];
+
 
 void error_button_callback(lv_event_t * e) {
 
-    lv_obj_t* msgbox = (lv_obj_t*)lv_event_get_user_data(e);
-
-    printf("Button klicked\n");
-    lv_indev_set_group(indev_drv,default_group);
     lv_group_set_default(default_group);
-    lv_msgbox_close(msgbox);
+    lv_indev_set_group(indev_drv,default_group);
+    lv_obj_del(msgbox_label);
+    lv_group_del(error_group);
+    error_group = NULL;
+    msgbox_label = NULL;
+    msgbox = NULL;
+    buffer[0] = '\0';
 }
 
-void show_error(char* result) {
 
-    default_group = lv_group_get_default();
-    error_group = lv_group_create();
+void build_output_string(char *buffer, const char *msgbox_text, CommandResult result ) {
+    buffer[0] = '\0';
+    snprintf(buffer + strlen(buffer), BUFFER_SIZE - strlen(buffer), "%s########\n", msgbox_text);
+    snprintf(buffer + strlen(buffer), BUFFER_SIZE - strlen(buffer), "command: %s\n", result.command);
+    snprintf(buffer + strlen(buffer), BUFFER_SIZE - strlen(buffer), "exit_status: %d\n", result.exit_status);
+    snprintf(buffer + strlen(buffer), BUFFER_SIZE - strlen(buffer), "stdout: %s\n", result.stdout_output);
+    snprintf(buffer + strlen(buffer), BUFFER_SIZE - strlen(buffer), "stderr: %s\n", result.stderr_output);
+}
+
+void show_error(CommandResult result) {
+
+    if (!default_group) {
+        default_group = lv_group_get_default();
+    }
+    if (!error_group) {
+        error_group = lv_group_create();
+    }
     lv_group_set_default(error_group);
     lv_indev_set_group(indev_drv,error_group);
 
-    lv_obj_t * msgbox = lv_msgbox_create(NULL);
-    lv_msgbox_add_text(msgbox,result);
-    lv_msgbox_add_title(msgbox, "Error");
-    
-    lv_obj_t * button = lv_msgbox_add_footer_button(msgbox, "Ok");
-    lv_obj_add_event_cb(button, error_button_callback, LV_EVENT_CLICKED,msgbox);
-    lv_obj_add_style(button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_add_style(button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);    
+    if ( ! lv_obj_is_valid(msgbox)) {
+        lv_obj_t * top = lv_layer_top();
+        msgbox = lv_msgbox_create(top);
+        lv_obj_t *progress_bar = lv_obj_get_child(top,0);
+        lv_obj_swap(progress_bar, msgbox);
+        lv_obj_set_style_max_height(msgbox,lv_pct(80),LV_PART_MAIN);
+        lv_msgbox_add_title(msgbox, "Error");
+        lv_obj_t * button = lv_msgbox_add_close_button(msgbox);
+        lv_obj_add_event_cb(button, error_button_callback, LV_EVENT_DELETE,NULL);
+        lv_obj_add_style(button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_add_style(button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+        msgbox_label = lv_msgbox_add_text(msgbox,"");
+        lv_label_set_long_mode(msgbox_label, LV_LABEL_LONG_MODE_SCROLL);
+    };
+
+    build_output_string(
+        buffer,
+        lv_label_get_text(msgbox_label),  // LVGL label text
+        result
+    );
+
+    lv_label_set_text(msgbox_label,buffer);
+    lv_obj_set_width(msgbox, lv_pct(80));
+
 }
 
 char* run_command(const char* command) {
-    char buffer[MAX_OUTPUT_SIZE];
-    char* result = (char*)malloc(MAX_OUTPUT_SIZE);
-    if (result == NULL) {
-        perror("Failed to allocate memory");
-        return NULL;
-    }
-    result[0] = '\0'; // Initialize the result string
+    CommandResult result = { NULL, NULL, NULL, -1 };
 
-    printf("Running command: %s\n",command);
-    FILE* fp = popen(command, "r");
-    if (fp == NULL) {
-        perror("Failed to run command");
-        free(result);
-        return NULL;
-    }
+    result.command = strdup(command);
 
-    // Read the output of the command
-    while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-        strcat(result, buffer);
+    // Create temporary files for stdout and stderr
+    char stdout_file[] = "/tmp/stdout_XXXXXX";
+    char stderr_file[] = "/tmp/stderr_XXXXXX";
+
+    int stdout_fd = mkstemp(stdout_file);
+    int stderr_fd = mkstemp(stderr_file);
+
+    if (stdout_fd == -1 || stderr_fd == -1) {
+        perror("Failed to create temporary files");
+        free(result.command);
+        return "";
     }
 
-    int status = pclose(fp);
-    if (status == -1) {
-        perror("pclose failed");
-    } else {
-        printf("Command exited with status: %d\n", WEXITSTATUS(status));
-        if (WEXITSTATUS(status) > 0)
-            show_error(result);
+    // Construct the full command with redirections
+    char full_command[MAX_OUTPUT_SIZE * 2];
+    snprintf(full_command, sizeof(full_command),
+        "%s > %s 2> %s",
+        command, stdout_file, stderr_file);
+
+    printf("Running command: %s\n", command);
+
+    // Execute the command
+    int status = system(full_command);
+    result.exit_status = WEXITSTATUS(status);
+
+    // Read stdout
+    FILE *stdout_fp = fdopen(stdout_fd, "r");
+    if (stdout_fp) {
+        char buffer[MAX_OUTPUT_SIZE];
+        result.stdout_output = malloc(MAX_OUTPUT_SIZE);
+        result.stdout_output[0] = '\0';
+
+        while (fgets(buffer, sizeof(buffer), stdout_fp)) {
+            strcat(result.stdout_output, buffer);
+        }
+        fclose(stdout_fp);
     }
-    return result;
+
+    // Read stderr
+    FILE *stderr_fp = fdopen(stderr_fd, "r");
+    if (stderr_fp) {
+        char buffer[MAX_OUTPUT_SIZE];
+        result.stderr_output = malloc(MAX_OUTPUT_SIZE);
+        result.stderr_output[0] = '\0';
+
+        while (fgets(buffer, sizeof(buffer), stderr_fp)) {
+            strcat(result.stderr_output, buffer);
+        }
+        fclose(stderr_fp);
+    }
+
+    // Clean up temp files
+    unlink(stdout_file);
+    unlink(stderr_file);
+
+    if (result.exit_status > 0) {
+        show_error(result);
+    }
+
+    free(result.command);
+    free(result.stderr_output);
+    return result.stdout_output;
 }
 
 void* worker_thread(void* arg) {
     thread_data_t* data = (thread_data_t*)arg;
 
-    run_command(data->command);
+    char * dummy = run_command(data->command);
+    free(dummy);
     
     data->work_complete = true;
     return NULL;
@@ -170,7 +254,6 @@ void generic_dropdown_event_cb(lv_event_t * e)
         run_command(final_command);
     else
         run_command_and_block(e,final_command);
-
 }
 
 void generic_slider_event_cb(lv_event_t * e)
@@ -196,5 +279,4 @@ void generic_slider_event_cb(lv_event_t * e)
         run_command(final_command);
     else
         run_command_and_block(e,final_command);
-
 }
