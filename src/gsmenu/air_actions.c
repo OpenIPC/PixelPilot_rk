@@ -11,7 +11,7 @@ lv_obj_t * air_reboot;
 
 void air_actions_reboot_callback(lv_event_t * event)
 {
-    run_command("sshpass -p '12345' ssh -o StrictHostKeyChecking=no root@10.5.0.10 reboot &");
+    run_command("sshpass -p 12345 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=~/.ssh/control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=30 -o ServerAliveCountMax=3 root@10.5.0.10 reboot &");
 }
 
 void create_air_actions_menu(lv_obj_t * parent) {
