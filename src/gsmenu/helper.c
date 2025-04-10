@@ -46,7 +46,6 @@ lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt,
     return obj;
 }
 
-
 static void slider_event_cb(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -55,15 +54,48 @@ static void slider_event_cb(lv_event_t * e)
 
     switch (code)
     {
-    case LV_EVENT_FOCUSED:
+    case LV_EVENT_CLICKED:
         {
-            printf("forcus\n");
-            control_mode = GSMENU_CONTROL_MODE_SLIDER;
+            if (control_mode == GSMENU_CONTROL_MODE_NAV) {
+                printf("GSMENU_CONTROL_MODE_SLIDER\n");
+                lv_obj_add_style(slider, &style_openipc_outline, LV_PART_KNOB | LV_STATE_DEFAULT);
+                lv_obj_remove_style(slider, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+
+                // Free previous user data if it exists
+                int32_t *old_value = lv_obj_get_user_data(slider_label);
+                if (old_value) free(old_value);
+                lv_obj_set_user_data(slider_label,NULL);
+
+                int32_t *start_value = malloc(sizeof(int32_t));
+                *start_value = lv_slider_get_value(slider);
+                lv_obj_set_user_data(slider_label, start_value);
+
+                control_mode = GSMENU_CONTROL_MODE_SLIDER;
+            } else {
+                lv_obj_remove_style(slider, &style_openipc_outline, LV_PART_KNOB | LV_STATE_DEFAULT);
+                lv_obj_add_style(slider, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+                
+                control_mode = GSMENU_CONTROL_MODE_NAV;
+            }
             break;
         }
-    case LV_EVENT_DEFOCUSED:
+    case LV_EVENT_CANCEL:
         {
-            printf("de-forcus\n");
+            lv_obj_remove_style(slider, &style_openipc_outline, LV_PART_KNOB | LV_STATE_DEFAULT);
+            lv_obj_add_style(slider, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+
+            int32_t *start_value = lv_obj_get_user_data(slider_label);
+            if (start_value) {
+                if (*start_value != lv_slider_get_value(slider)) {
+                    char buf[8];
+                    lv_snprintf(buf, sizeof(buf), "%d", (int)*start_value);
+                    lv_label_set_text(slider_label, buf);
+                    lv_slider_set_value(slider, *start_value, LV_ANIM_OFF);
+                }
+                free(start_value);
+                lv_obj_set_user_data(slider_label, NULL);
+            }
+
             control_mode = GSMENU_CONTROL_MODE_NAV;
             break;  
         }
@@ -72,8 +104,7 @@ static void slider_event_cb(lv_event_t * e)
             char buf[8];
             lv_snprintf(buf, sizeof(buf), "%d", (int)lv_slider_get_value(slider));
             lv_label_set_text(slider_label, buf);
-            //lv_obj_align_to(slider_label, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
-            break;  
+            break;
         }
     default:
         break;
@@ -123,7 +154,7 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
 
     lv_obj_set_user_data(slider,data);
 
-    lv_obj_add_event_cb(slider, generic_slider_event_cb, LV_EVENT_VALUE_CHANGED,data);    
+    lv_obj_add_event_cb(slider, generic_slider_event_cb, LV_EVENT_CLICKED,data);
 
     get_slider_value(obj);
 

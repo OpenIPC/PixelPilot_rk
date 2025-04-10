@@ -97,7 +97,7 @@ void send_button_event(size_t button_index) {
                     next_key = LV_KEY_NEXT;
                     break;
                 case 2:  // Left
-                    next_key = LV_KEY_LEFT;
+                    next_key = LV_KEY_ESC;
                     break;
                 case 1:  // Right
                     next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
@@ -116,7 +116,7 @@ void send_button_event(size_t button_index) {
                     next_key = LV_KEY_DOWN;
                     break;
                 case 2:  // Left
-                    next_key = LV_KEY_LEFT;
+                    next_key = LV_KEY_ESC;
                     break;
                 case 1:  // Right
                     next_key = LV_KEY_RIGHT;
@@ -129,10 +129,29 @@ void send_button_event(size_t button_index) {
         case GSMENU_CONTROL_MODE_SLIDER:
             switch (gpio_buttons[button_index].line_num) {
                 case 9:  // Up
-                    next_key = LV_KEY_PREV;
+                    next_key = LV_KEY_RIGHT;
                     break;
                 case 10: // Down
-                    next_key = LV_KEY_NEXT;
+                    next_key = LV_KEY_LEFT;
+                    break;
+                case 2:  // Left
+                    next_key = LV_KEY_ESC;
+                    break;
+                case 1:  // Right
+                    next_key = LV_KEY_ENTER;
+                    break;
+                case 18: // OK
+                    next_key = LV_KEY_ENTER;
+                    break;
+            }
+            break;
+        case GSMENU_CONTROL_MODE_KEYBOARD:
+            switch (gpio_buttons[button_index].line_num) {
+                case 9:  // Up
+                    next_key = LV_KEY_UP;
+                    break;
+                case 10: // Down
+                    next_key = LV_KEY_DOWN;
                     break;
                 case 2:  // Left
                     next_key = LV_KEY_LEFT;
@@ -144,7 +163,7 @@ void send_button_event(size_t button_index) {
                     next_key = LV_KEY_ENTER;
                     break;
             }
-            break; 
+            break;
         default:
             break;
     }
@@ -243,17 +262,21 @@ void handle_keyboard_input(void) {
             case 'W':
                 switch (control_mode)
                 {
-                case GSMENU_CONTROL_MODE_NAV:                    
-                case GSMENU_CONTROL_MODE_SLIDER:
+                case GSMENU_CONTROL_MODE_NAV:
                     next_key = LV_KEY_PREV;
+                    break;
+                case GSMENU_CONTROL_MODE_SLIDER:
+                    next_key = LV_KEY_RIGHT;
                     break;
                 case GSMENU_CONTROL_MODE_EDIT:
                     next_key = LV_KEY_UP;
                     break;
-                
+                case GSMENU_CONTROL_MODE_KEYBOARD:
+                    next_key = LV_KEY_UP;
+                    break;
                 default:
                     break;
-                }                
+                }
                 next_key_pressed = true;
                 printf("Up\n");
                 break;
@@ -262,13 +285,17 @@ void handle_keyboard_input(void) {
                 switch (control_mode)
                 {
                 case GSMENU_CONTROL_MODE_SLIDER:
+                    next_key = LV_KEY_LEFT;
+                    break;
                 case GSMENU_CONTROL_MODE_NAV:
                     next_key = LV_KEY_NEXT;
                     break;
                 case GSMENU_CONTROL_MODE_EDIT:
                     next_key = LV_KEY_DOWN;
                     break;
-                
+                case GSMENU_CONTROL_MODE_KEYBOARD:
+                    next_key = LV_KEY_DOWN;
+                    break;
                 default:
                     break;
                 } 
@@ -277,7 +304,19 @@ void handle_keyboard_input(void) {
                 break;
             case 'a':
             case 'A':
-                next_key = LV_KEY_LEFT;
+                switch (control_mode)
+                {
+                case GSMENU_CONTROL_MODE_SLIDER:
+                case GSMENU_CONTROL_MODE_NAV:
+                case GSMENU_CONTROL_MODE_EDIT:
+                    next_key = LV_KEY_ESC;
+                    break;
+                case GSMENU_CONTROL_MODE_KEYBOARD:
+                    next_key = LV_KEY_LEFT;
+                    break;
+                default:
+                    break;
+                }
                 next_key_pressed = true;
                 printf("Left\n");
                 break;
@@ -289,10 +328,14 @@ void handle_keyboard_input(void) {
                     next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
                     break;
                 case GSMENU_CONTROL_MODE_SLIDER:
+                    next_key = LV_KEY_ENTER;
+                    break;
                 case GSMENU_CONTROL_MODE_EDIT:
+                    next_key = LV_KEY_ENTER;
+                    break;
+                case GSMENU_CONTROL_MODE_KEYBOARD:
                     next_key = LV_KEY_RIGHT;
                     break;
-                
                 default:
                     break;
                 }        
