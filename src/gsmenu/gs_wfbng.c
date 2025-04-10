@@ -9,6 +9,7 @@
 #include "styles.h"
 
 lv_obj_t * gs_channel;
+lv_obj_t * gs_search;
 lv_obj_t * bandwidth;
 lv_obj_t * adaptivelink;
 
@@ -19,6 +20,12 @@ void gs_wfbng_page_load_callback(lv_obj_t * page)
     reload_dropdown_value(page,bandwidth);
     reload_switch_value(page,adaptivelink);
 }
+
+void gs_wfbng_search_callback(lv_event_t * event)
+{
+    run_command_and_block(event,"gsmenu.sh search channel");
+}
+
 
 void create_gs_wfbng_menu(lv_obj_t * parent) {
 
@@ -39,6 +46,8 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
 
     gs_channel = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Channel", "","gs_channel",menu_page_data,false);
+    gs_search = create_button(cont, "Search");
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_search,0,&lv_button_class),gs_wfbng_search_callback,LV_EVENT_CLICKED,NULL);
     bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","bandwidth",menu_page_data,false);
 
     create_text(parent, NULL, "Adaptive Link", LV_MENU_ITEM_BUILDER_VARIANT_1);
