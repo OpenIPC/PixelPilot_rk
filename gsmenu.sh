@@ -513,7 +513,11 @@ case "$@" in
         sed -i "s/^bandwidth = .*/bandwidth = $5/" /etc/wifibroadcast.cfg
         systemctl restart wifibroadcast.service
         ;;
-
+    "search channel")
+        echo "Not implmented"
+        echo "Not implmented" >&2
+        exit 1
+        ;;
     *)
         echo "Unknown $@"
         exit 1
