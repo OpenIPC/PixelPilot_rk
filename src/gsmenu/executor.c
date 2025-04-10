@@ -63,8 +63,9 @@ void show_error(CommandResult result) {
     if ( ! lv_obj_is_valid(msgbox)) {
         lv_obj_t * top = lv_layer_top();
         msgbox = lv_msgbox_create(top);
-        lv_obj_t *progress_bar = lv_obj_get_child(top,0);
-        lv_obj_swap(progress_bar, msgbox);
+        lv_obj_t * backdrop = lv_obj_get_child_by_type(top,0,&lv_msgbox_backdrop_class);
+        if (backdrop)
+            lv_obj_swap(backdrop, msgbox);
         lv_obj_set_style_max_height(msgbox,lv_pct(80),LV_PART_MAIN);
         lv_msgbox_add_title(msgbox, "Error");
         lv_obj_t * button = lv_msgbox_add_close_button(msgbox);
