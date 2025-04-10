@@ -423,16 +423,25 @@ case "$@" in
         ;;
     "get gs wifi wlan")
         connection=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f1)
-        [ -z "${VAR}" ] && echo 0 | echo 1
+        [ -z "${connection}" ] && echo 0 || echo 1
         ;;
     "get gs wifi ssid")
-        nmcli -t connection show --active | grep wlan0 | cut -d : -f1 | tr -d '\n'
+        if [ -d /sys/class/net/wlan0 ]; then
+            nmcli -t connection show --active | grep wlan0 | cut -d : -f1 | tr -d '\n'
+        else
+            echo -n ""
+        fi
         ;;
     "get gs wifi password")
-        connection=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f1)
-        nmcli -t connection show $connection --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2 | tr -d '\n'
+        if [ -d /sys/class/net/wlan0 ]; then
+            connection=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f1)
+            nmcli -t connection show $connection --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2 | tr -d '\n'
+        else
+            echo -n ""
+        fi
         ;;
     "set gs wifi wlan"*)
+        [ ! -d /sys/class/net/wlan0 ] && exit 0 # we have no wifi
         if [ "$5" = "on" ]
         then
             # Check if connection already exists
@@ -450,6 +459,7 @@ case "$@" in
         fi
         ;;
     "set gs wifi hotspot"*)
+        [ ! -d /sys/class/net/wlan0 ] && exit 0 # we have no wifi
         if [ "$5" = "on" ]
         then
             # Check if connection already exists
