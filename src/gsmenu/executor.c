@@ -259,6 +259,14 @@ void generic_dropdown_event_cb(lv_event_t * e)
 void generic_slider_event_cb(lv_event_t * e)
 {
     lv_obj_t * target = lv_event_get_target(e);
+    lv_obj_t * slider_label = lv_obj_get_child_by_type(lv_obj_get_parent(target),1,&lv_label_class);
+
+    int32_t *start_value = lv_obj_get_user_data(slider_label);
+    if (start_value) {
+        if (*start_value == lv_slider_get_value(target)) {
+            return;
+        }
+    }
     thread_data_t * user_data = lv_event_get_user_data(e);
     char final_command[200] = "gsmenu.sh set ";
     strcat(final_command,user_data->menu_page_data->type);
@@ -279,4 +287,9 @@ void generic_slider_event_cb(lv_event_t * e)
         run_command(final_command);
     else
         run_command_and_block(e,final_command);
+
+    // Free previous user data if it exists
+    int32_t *old_value = lv_obj_get_user_data(slider_label);
+    if (old_value) free(old_value);
+    lv_obj_set_user_data(slider_label,NULL);
 }

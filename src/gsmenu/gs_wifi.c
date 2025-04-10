@@ -55,12 +55,10 @@ static void kb_event_cb(lv_event_t * e)
     lv_obj_t * kb = lv_event_get_user_data(e);
 
     if (code == LV_EVENT_FOCUSED) {
-        printf("forcus\n");
-        control_mode = GSMENU_CONTROL_MODE_EDIT;
+        control_mode = GSMENU_CONTROL_MODE_KEYBOARD;
     }
     else if (code == LV_EVENT_DEFOCUSED)
     {
-        printf("de-forcus\n");
         control_mode = GSMENU_CONTROL_MODE_NAV;
     }
     else if(code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
