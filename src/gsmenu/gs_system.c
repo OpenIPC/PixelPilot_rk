@@ -78,7 +78,7 @@ void create_gs_system_menu(lv_obj_t * parent) {
     lv_obj_t * section;
     lv_obj_t * obj;
 
-    create_text(parent, NULL, "General", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "General", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -88,7 +88,7 @@ void create_gs_system_menu(lv_obj_t * parent) {
     resolution = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Resolution","","resolution",menu_page_data,false);
 
 
-    create_text(parent, NULL, "Recording", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);

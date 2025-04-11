@@ -77,7 +77,7 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
     fec_k = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_K", 0 , 12, 12,"fec_k",menu_page_data,false);
     fec_n = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_N", 0 , 12, 8,"fec_n",menu_page_data,false);
 
-    create_text(parent, NULL, "Adaptive Link", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Adaptive Link", NULL, NULL, false,  LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);

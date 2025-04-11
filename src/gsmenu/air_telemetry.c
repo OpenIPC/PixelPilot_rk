@@ -67,7 +67,7 @@ void create_air_telemetry_menu(lv_obj_t * parent) {
     tel_mcs_index = create_slider(cont,LV_SYMBOL_SETTINGS, "MCS Index", 0 , 9, 1,"tel_mcs_index",menu_page_data,false);
     aggregate = create_slider(cont,LV_SYMBOL_SETTINGS, "Aggregate", 0 , 15, 1,"aggregate",menu_page_data,false);
 
-    create_text(parent, NULL, "MSPOSD Settings", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "MSPOSD Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);

@@ -11,8 +11,7 @@ extern lv_obj_t * menu;
 extern lv_group_t *current_group;
 extern lv_indev_t * indev_drv;
 
-lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt,
-                              lv_menu_builder_variant_t builder_variant)
+lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking,lv_menu_builder_variant_t builder_variant)
 {
     lv_obj_t * obj = lv_menu_cont_create(parent);
     //lv_obj_set_style_bg_opa(obj, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -42,6 +41,18 @@ lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt,
     lv_obj_add_style(obj, &style_openipc, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_add_style(obj, &style_openipc_textcolor, LV_PART_MAIN | LV_STATE_CHECKED);
     lv_obj_add_style(obj, &style_openipc_disabled, LV_PART_MAIN | LV_STATE_DISABLED );
+
+    if (menu_page_data) {
+        thread_data_t* data = malloc(sizeof(thread_data_t));
+        if (data) {
+            memset(data, 0, sizeof(thread_data_t));
+        }
+        data->menu_page_data = menu_page_data;
+        data->blocking = blocking;
+        strcpy(data->parameter, parameter);
+
+        lv_obj_set_user_data(label,data);
+    }
 
     return obj;
 }
@@ -460,6 +471,21 @@ char* get_paramater(lv_obj_t * page, char * param) {
     return run_command(final_command);
 }
 
+
+void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
+    lv_obj_t *obj = lv_obj_get_child_by_type(parameter, 0, &lv_label_class);
+    thread_data_t *param_user_data = (thread_data_t*)lv_obj_get_user_data(obj);
+    
+    // Get the parameter value
+    const char *param_value = get_paramater(page, param_user_data->parameter);
+    
+    // Create the combined string
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "%s: %s", param_user_data->parameter, param_value);
+    
+    // Set the label text
+    lv_label_set_text(obj, buffer);
+}
 
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_switch_class);
