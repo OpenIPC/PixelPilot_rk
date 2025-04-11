@@ -95,7 +95,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     lv_obj_t * cont;
     lv_obj_t * section;
 
-    create_text(parent, NULL, "Video", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Video", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -107,7 +107,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     gopsize = create_slider(cont,LV_SYMBOL_SETTINGS,"Gopsize",0,20,1,"gopsize",menu_page_data,false);
     rc_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "RC Mode","","rc_mode",menu_page_data,false);
 
-    create_text(parent, NULL, "Image", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Image", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -120,7 +120,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     saturation = create_slider(cont,LV_SYMBOL_SETTINGS,"Saturation",0,100,11,"saturation",menu_page_data,false);
     luminace = create_slider(cont,LV_SYMBOL_SETTINGS,"Luminance",0,100,11,"luminace",menu_page_data,false);
 
-    create_text(parent, NULL, "Recording", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -129,7 +129,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     rec_split = create_slider(cont,LV_SYMBOL_SETTINGS,"Split",0,50,25,"rec_split",menu_page_data,false);
     rec_maxusage = create_slider(cont,LV_SYMBOL_SETTINGS,"Maxusage",0,99,90,"rec_maxusage",menu_page_data,false);
 
-    create_text(parent, NULL, "ISP", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "ISP", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -138,7 +138,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     antiflicker = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Antiflicker","","antiflicker",menu_page_data,false);
     sensor_file = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Sensor File","","sensor_file",menu_page_data,false);
 
-    create_text(parent, NULL, "FPV", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "FPV", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);

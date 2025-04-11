@@ -513,6 +513,22 @@ case "$@" in
         sed -i "s/^bandwidth = .*/bandwidth = $5/" /etc/wifibroadcast.cfg
         systemctl restart wifibroadcast.service
         ;;
+    "get gs main Channel")
+        gsmenu.sh get gs wfbng gs_channel
+        ;;
+    "get gs main HDMI-OUT")
+        gsmenu.sh get gs system resolution
+        ;;
+    "get gs main Version")
+        grep PRETTY_NAME= /etc/os-release | cut -d \" -f2 | tr -d '\n'
+        ;;
+    "get gs main Disk")
+        read -r size avail pcent <<< $(df -h / | awk 'NR==2 {print $2, $4, $5}')
+        echo -e "\n   Size: $size\n   Available: $avail\n   Pct: $pcent\c"
+        ;;
+    "get gs main WFB_NICS")
+        grep ^WFB_NICS /etc/default/wifibroadcast | cut -d \" -f 2| tr -d '\n'
+        ;;
     "search channel")
         echo "Not implmented"
         echo "Not implmented" >&2

@@ -13,8 +13,7 @@ typedef enum {
 } lv_menu_builder_variant_t;
 
 
-lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt,
-                              lv_menu_builder_variant_t builder_variant);
+lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking,lv_menu_builder_variant_t builder_variant);
 
 lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt, int32_t min, int32_t max, int32_t val,const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
 lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
@@ -36,6 +35,7 @@ void add_items_to_group(lv_obj_t *page, lv_group_t *group);
 lv_obj_t * find_first_focusable_obj(lv_obj_t * parent);
 void handle_sub_page_load(lv_event_t *e);
 char* get_paramater(lv_obj_t * page, char * param);
+void reload_label_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter);

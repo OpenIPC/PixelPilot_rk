@@ -39,7 +39,7 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
     lv_obj_t * cont;
     lv_obj_t * section;
 
-    create_text(parent, NULL, "WFB-NG", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -50,7 +50,7 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_search,0,&lv_button_class),gs_wfbng_search_callback,LV_EVENT_CLICKED,NULL);
     bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","bandwidth",menu_page_data,false);
 
-    create_text(parent, NULL, "Adaptive Link", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Adaptive Link", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
