@@ -8,6 +8,8 @@
 #include "executor.h"
 #include "styles.h"
 
+extern lv_group_t * default_group;
+
 lv_obj_t * driver_txpower_override;
 lv_obj_t * air_channel;
 lv_obj_t * air_bandwidth;
@@ -60,6 +62,8 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "wfbng");
     menu_page_data->page_load_callback = air_wfbng_page_load_callback;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);    
 
     lv_obj_t * section = lv_menu_section_create(parent);
@@ -84,5 +88,6 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
 
     air_adaptivelink = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","adaptivelink", menu_page_data,false);
-    
+
+    lv_group_set_default(default_group);
 }

@@ -9,6 +9,7 @@
 
 lv_obj_t * menu;
 lv_indev_t * indev_drv;
+lv_group_t * default_group;
 lv_obj_t * pp_menu_screen; 
 lv_obj_t * pp_osd_screen;
 
@@ -24,7 +25,9 @@ void pp_menu_main(void)
     indev_drv = create_virtual_keyboard();
 
     // Create an input group
-    lv_group_set_default(lv_group_create());
+    default_group = lv_group_create();
+    lv_group_set_default(default_group);
+    lv_indev_set_group(indev_drv, default_group);
 
     pp_menu_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_opa(pp_menu_screen, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -48,7 +51,4 @@ void pp_menu_main(void)
     pp_osd_main();
 
     lv_screen_load(pp_osd_screen);
-
-    lv_indev_set_group(indev_drv, lv_group_get_default());
-
 }

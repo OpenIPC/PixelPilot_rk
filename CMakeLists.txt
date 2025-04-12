@@ -36,6 +36,8 @@ set(SIMULATOR_SOURCES
         src/gsmenu/ui.h
         src/gsmenu/helper.h
         src/gsmenu/helper.c
+        src/gsmenu/gs_main.c
+        src/gsmenu/gs_main.h
         src/gsmenu/gs_wfbng.h
         src/gsmenu/gs_wfbng.c
         src/gsmenu/gs_system.h
@@ -75,6 +77,8 @@ set(SOURCE_FILES
         src/gsmenu/ui.h
         src/gsmenu/helper.h
         src/gsmenu/helper.c
+        src/gsmenu/gs_main.c
+        src/gsmenu/gs_main.h
         src/gsmenu/gs_wfbng.h
         src/gsmenu/gs_wfbng.c
         src/gsmenu/gs_system.h

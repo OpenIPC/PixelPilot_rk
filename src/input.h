@@ -11,6 +11,7 @@ typedef enum {
     GSMENU_CONTROL_MODE_EDIT,
     GSMENU_CONTROL_MODE_SLIDER,
     GSMENU_CONTROL_MODE_KEYBOARD,
+    GSMENU_CONTROL_MODE_LVGL_ISSUE_8093
 } gsmenu_control_mode_t;
 
 void simulate_key_press(uint32_t key_code);
