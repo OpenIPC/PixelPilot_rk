@@ -15,6 +15,8 @@ void sig_handler(int exit_code)
 }
 #endif
 
+extern lv_group_t * default_group;
+
 lv_obj_t * restart_pp;
 lv_obj_t * exit_pp;
 lv_obj_t * gs_reboot;
@@ -39,6 +41,8 @@ void create_gs_actions_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "actions");
     menu_page_data->page_load_callback = NULL;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);    
 
     lv_obj_t * section = lv_menu_section_create(parent);
@@ -52,5 +56,6 @@ void create_gs_actions_menu(lv_obj_t * parent) {
 
     gs_reboot = create_button(section, "Reboot");
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_reboot,0,&lv_button_class),gs_actions_reboot_callback,LV_EVENT_CLICKED,NULL);
-    
+
+    lv_group_set_default(default_group);
 }

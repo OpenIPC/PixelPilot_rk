@@ -31,7 +31,6 @@ lv_obj_t * create_textarea(lv_obj_t * parent, char * text, const char * label_tx
 lv_obj_t * create_spinbox(lv_obj_t * parent, const char * icon, const char * txt, int32_t min, int32_t max,
                                 int32_t val);
 
-void add_items_to_group(lv_obj_t *page, lv_group_t *group);
 lv_obj_t * find_first_focusable_obj(lv_obj_t * parent);
 void handle_sub_page_load(lv_event_t *e);
 char* get_paramater(lv_obj_t * page, char * param);

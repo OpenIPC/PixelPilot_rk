@@ -12,6 +12,8 @@
 
 extern lv_obj_t * menu;
 extern gsmenu_control_mode_t control_mode;
+extern lv_group_t *main_group;
+extern lv_group_t *default_group;
 
 lv_obj_t * version ;
 lv_obj_t * disk ;
@@ -34,6 +36,8 @@ void create_main_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "main");
     menu_page_data->page_load_callback = gs_main_page_load_callback;
+    menu_page_data->indev_group = main_group;
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
     lv_obj_t * cont;
@@ -41,7 +45,7 @@ void create_main_menu(lv_obj_t * parent) {
     lv_obj_t * section;
     lv_obj_t * obj;
 
-    create_text(parent, NULL, "Main", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -52,4 +56,7 @@ void create_main_menu(lv_obj_t * parent) {
     wfb_nics = create_text(cont, LV_SYMBOL_SETTINGS, "WFB_NICS", "WFB_NICS", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     disk = create_text(cont, LV_SYMBOL_SETTINGS, "Version", "Disk", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     version = create_text(cont, LV_SYMBOL_SETTINGS, "Version", "Version", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+
+    lv_group_set_default(default_group);
+
 }

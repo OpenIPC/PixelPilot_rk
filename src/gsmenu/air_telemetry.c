@@ -7,6 +7,8 @@
 #include "lvgl/lvgl.h"
 #include "helper.h"
 
+extern lv_group_t * default_group;
+
 lv_obj_t * tty;
 lv_obj_t * speed;
 lv_obj_t * router;
@@ -52,6 +54,8 @@ void create_air_telemetry_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "telemetry");
     menu_page_data->page_load_callback = air_telemetry_page_load_callback;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
     lv_obj_t * cont;
@@ -75,4 +79,5 @@ void create_air_telemetry_menu(lv_obj_t * parent) {
     rc_channel = create_slider(cont,LV_SYMBOL_SETTINGS, "RC Channel", 0 , 15, 1,"rc_channel",menu_page_data,false);
     air_gs_rendering = create_switch(cont,LV_SYMBOL_SETTINGS,"GS Rendering","gs_rendering", menu_page_data,false);
 
+    lv_group_set_default(default_group);
 }

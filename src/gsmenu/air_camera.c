@@ -6,6 +6,8 @@
 #include "lvgl/lvgl.h"
 #include "helper.h"
 
+extern lv_group_t * default_group;
+
 lv_obj_t * mirror;
 lv_obj_t * flip;
 lv_obj_t * contrast;
@@ -90,6 +92,8 @@ void create_air_camera_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "camera");
     menu_page_data->page_load_callback = air_camera_page_load_callback;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
     lv_obj_t * cont;
@@ -146,4 +150,5 @@ void create_air_camera_menu(lv_obj_t * parent) {
     fpv_enable = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","fpv_enable", menu_page_data,false);
     noiselevel = create_slider(cont,LV_SYMBOL_SETTINGS,"Noiselevel",0,1,0,"noiselevel",menu_page_data,false);
 
+    lv_group_set_default(default_group);
 }

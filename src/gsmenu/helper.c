@@ -8,8 +8,16 @@
 
 extern gsmenu_control_mode_t control_mode;
 extern lv_obj_t * menu;
-extern lv_group_t *current_group;
 extern lv_indev_t * indev_drv;
+extern lv_obj_t * sub_gs_main_page;
+
+void back_event_handler(lv_event_t * e) {
+    lv_key_t key = lv_event_get_key(e);
+    if (key == LV_KEY_HOME) {
+        lv_menu_set_page(menu,NULL);
+        lv_menu_set_page(menu,sub_gs_main_page);
+    }
+}
 
 lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking,lv_menu_builder_variant_t builder_variant)
 {
@@ -166,6 +174,7 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     lv_obj_set_user_data(slider,data);
 
     lv_obj_add_event_cb(slider, generic_slider_event_cb, LV_EVENT_CLICKED,data);
+    lv_obj_add_event_cb(slider, back_event_handler, LV_EVENT_KEY,NULL);
 
     get_slider_value(obj);
 
@@ -187,6 +196,7 @@ lv_obj_t * create_button(lv_obj_t * parent, const char * txt)
     }    
 
     lv_obj_add_style(btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_add_event_cb(btn, back_event_handler, LV_EVENT_KEY,NULL);
 
     return obj;
 }
@@ -240,6 +250,25 @@ lv_obj_t * create_spinbox(lv_obj_t * parent, const char * icon, const char * txt
     return obj;
 }
 
+void lv_issue_8093_workaround_cd(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    switch (code)
+    {
+    case LV_EVENT_FOCUSED:
+        printf("GSMENU_CONTROL_MODE_LVGL_ISSUE_8093\n");
+        control_mode = GSMENU_CONTROL_MODE_LVGL_ISSUE_8093;
+        break;
+    case LV_EVENT_DEFOCUSED:
+        printf("GSMENU_CONTROL_MODE_NAV\n");
+        control_mode = GSMENU_CONTROL_MODE_NAV;
+        break;
+
+    default:
+        break;
+    }
+}
+
 lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,const char * parameter, menu_page_data_t* menu_page_data,bool blocking)
 {
     lv_obj_t * obj = lv_menu_cont_create(parent);
@@ -276,6 +305,9 @@ lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,
         lv_obj_add_event_cb(sw, generic_switch_event_cb, LV_EVENT_VALUE_CHANGED,data);
     }
 
+    // lv_obj_add_event_cb(sw, back_event_handler, LV_EVENT_KEY,NULL); // disabled for now, see: https://github.com/lvgl/lvgl/issues/8093
+    lv_obj_add_event_cb(sw, lv_issue_8093_workaround_cd, LV_EVENT_ALL,NULL);
+
     return obj;
 }
 
@@ -288,14 +320,11 @@ void dropdown_event_handler(lv_event_t * e)
     {
     case LV_EVENT_CANCEL:
     case LV_EVENT_VALUE_CHANGED: {
-        char buf[32];
-        lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
         control_mode = GSMENU_CONTROL_MODE_NAV;
         break;
     }
     case LV_EVENT_READY:
-        printf("Switching control mode\n");
-        control_mode = GSMENU_CONTROL_MODE_EDIT;    
+        control_mode = GSMENU_CONTROL_MODE_EDIT;
     default:
         break;
     }
@@ -340,16 +369,11 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
     lv_obj_set_user_data(dd,data);
 
     lv_obj_add_event_cb(dd, generic_dropdown_event_cb, LV_EVENT_VALUE_CHANGED,data);
+    lv_obj_add_event_cb(dd, back_event_handler, LV_EVENT_KEY,NULL);
 
     get_dropdown_value(obj);
 
     return obj;
-}
-
-void backbutton_event_handler(lv_event_t * e) {
-    // lv_menu_set_page(menu, lv_menu_get_cur_main_page(menu));
-    // lv_menu_clear_history(menu);
-    // handle_sub_page_load(NULL);
 }
 
 lv_obj_t * create_backbutton(lv_obj_t * parent, const char * icon, const char * label_txt)
@@ -365,7 +389,7 @@ lv_obj_t * create_backbutton(lv_obj_t * parent, const char * icon, const char * 
     }    
 
     lv_obj_t *back_button = lv_btn_create(obj);
-    lv_obj_add_event_cb(back_button, backbutton_event_handler, LV_EVENT_CLICKED,NULL);    
+    lv_obj_add_event_cb(back_button, back_event_handler, LV_EVENT_CLICKED,NULL);    
     lv_obj_t * label = lv_label_create(back_button);
     lv_label_set_text(label, label_txt);
     return obj;
@@ -401,6 +425,7 @@ lv_obj_t * create_textarea(lv_obj_t * parent, char * text, const char * label_tx
     lv_obj_set_user_data(button, ta); // Associate button with text area
     lv_obj_add_style(button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_add_event_cb(button, back_event_handler, LV_EVENT_KEY,NULL);
 
     lv_obj_t * button_label = lv_label_create(button);
     lv_label_set_text(button_label,LV_SYMBOL_KEYBOARD);
@@ -444,20 +469,15 @@ void handle_sub_page_load(lv_event_t *e) {
         return;
 
     menu_page_data_t * menu_page_data = (menu_page_data_t *) lv_obj_get_user_data(page);
+    // set the indev to the pages group
+    lv_indev_set_group(indev_drv,menu_page_data->indev_group);
+
     if(menu_page_data != NULL && menu_page_data->page_load_callback != NULL) 
         menu_page_data->page_load_callback(page);
 
     // Find the first focusable object recursively
     lv_obj_t * first_obj = find_first_focusable_obj(page);
-
-    // Focus the first focusable object
-    if (first_obj) {
-        lv_group_t * group = lv_group_get_default();
-        if (group) {
-            lv_group_focus_obj(first_obj);
-        }
-    }
-
+    lv_group_focus_obj(first_obj);
 }
 
 char* get_paramater(lv_obj_t * page, char * param) {

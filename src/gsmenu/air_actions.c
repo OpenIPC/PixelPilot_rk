@@ -7,6 +7,7 @@
 #include "executor.h"
 #include "styles.h"
 
+extern lv_group_t * default_group;
 lv_obj_t * air_reboot;
 
 void air_actions_reboot_callback(lv_event_t * event)
@@ -20,6 +21,8 @@ void create_air_actions_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "actions");
     menu_page_data->page_load_callback = NULL;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);    
 
     lv_obj_t * section = lv_menu_section_create(parent);
@@ -28,5 +31,6 @@ void create_air_actions_menu(lv_obj_t * parent) {
 
     air_reboot = create_button(section, "Reboot");
     lv_obj_add_event_cb(lv_obj_get_child_by_type(air_reboot,0,&lv_button_class),air_actions_reboot_callback,LV_EVENT_CLICKED,NULL);
-    
+
+    lv_group_set_default(default_group);
 }

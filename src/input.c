@@ -88,6 +88,24 @@ void setup_gpio(void) {
 void send_button_event(size_t button_index) {
     // Adjust for control_mode
     switch (control_mode) {
+        case GSMENU_CONTROL_MODE_LVGL_ISSUE_8093:
+            switch (gpio_buttons[button_index].line_num) {
+                case 9:  // Up
+                    next_key = LV_KEY_PREV;
+                    break;
+                case 10: // Down
+                    next_key = LV_KEY_NEXT;
+                    break;
+                case 2:  // Left
+                    break;
+                case 1:  // Right
+                    next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
+                    break;
+                case 18: // OK
+                    next_key = LV_KEY_ENTER;
+                    break;
+            }
+            break;
         case GSMENU_CONTROL_MODE_NAV:
             switch (gpio_buttons[button_index].line_num) {
                 case 9:  // Up
@@ -97,7 +115,7 @@ void send_button_event(size_t button_index) {
                     next_key = LV_KEY_NEXT;
                     break;
                 case 2:  // Left
-                    next_key = LV_KEY_ESC;
+                    next_key = LV_KEY_HOME;
                     break;
                 case 1:  // Right
                     next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
@@ -262,6 +280,7 @@ void handle_keyboard_input(void) {
             case 'W':
                 switch (control_mode)
                 {
+                case GSMENU_CONTROL_MODE_LVGL_ISSUE_8093:
                 case GSMENU_CONTROL_MODE_NAV:
                     next_key = LV_KEY_PREV;
                     break;
@@ -287,6 +306,7 @@ void handle_keyboard_input(void) {
                 case GSMENU_CONTROL_MODE_SLIDER:
                     next_key = LV_KEY_LEFT;
                     break;
+                case GSMENU_CONTROL_MODE_LVGL_ISSUE_8093:
                 case GSMENU_CONTROL_MODE_NAV:
                     next_key = LV_KEY_NEXT;
                     break;
@@ -307,9 +327,13 @@ void handle_keyboard_input(void) {
                 switch (control_mode)
                 {
                 case GSMENU_CONTROL_MODE_SLIDER:
-                case GSMENU_CONTROL_MODE_NAV:
                 case GSMENU_CONTROL_MODE_EDIT:
                     next_key = LV_KEY_ESC;
+                    break;
+                case GSMENU_CONTROL_MODE_LVGL_ISSUE_8093:
+                    break;
+                case GSMENU_CONTROL_MODE_NAV:
+                    next_key = LV_KEY_HOME;
                     break;
                 case GSMENU_CONTROL_MODE_KEYBOARD:
                     next_key = LV_KEY_LEFT;
@@ -324,6 +348,7 @@ void handle_keyboard_input(void) {
             case 'D':
                 switch (control_mode)
                 {
+                case GSMENU_CONTROL_MODE_LVGL_ISSUE_8093:
                 case GSMENU_CONTROL_MODE_NAV:
                     next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
                     break;

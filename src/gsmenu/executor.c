@@ -19,7 +19,7 @@ typedef struct {
 } CommandResult;
 
 
-lv_group_t * default_group = NULL;
+lv_group_t * current_group;
 lv_group_t * error_group = NULL;
 extern lv_indev_t * indev_drv;
 lv_obj_t * msgbox = NULL;
@@ -28,9 +28,8 @@ char buffer[BUFFER_SIZE];
 
 
 void error_button_callback(lv_event_t * e) {
-
-    lv_group_set_default(default_group);
-    lv_indev_set_group(indev_drv,default_group);
+    lv_group_set_default(current_group);
+    lv_indev_set_group(indev_drv,current_group);
     lv_obj_del(msgbox_label);
     lv_group_del(error_group);
     error_group = NULL;
@@ -51,14 +50,14 @@ void build_output_string(char *buffer, const char *msgbox_text, CommandResult re
 
 void show_error(CommandResult result) {
 
-    if (!default_group) {
-        default_group = lv_group_get_default();
+    if (error_group != lv_indev_get_group(indev_drv)) {
+        current_group = lv_indev_get_group(indev_drv);
     }
     if (!error_group) {
         error_group = lv_group_create();
+        lv_group_set_default(error_group);
+        lv_indev_set_group(indev_drv,error_group);
     }
-    lv_group_set_default(error_group);
-    lv_indev_set_group(indev_drv,error_group);
 
     if ( ! lv_obj_is_valid(msgbox)) {
         lv_obj_t * top = lv_layer_top();

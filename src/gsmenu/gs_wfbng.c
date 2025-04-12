@@ -8,6 +8,8 @@
 #include "executor.h"
 #include "styles.h"
 
+extern lv_group_t * default_group;
+
 lv_obj_t * gs_channel;
 lv_obj_t * gs_search;
 lv_obj_t * bandwidth;
@@ -33,6 +35,8 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "wfbng");
     menu_page_data->page_load_callback = gs_wfbng_page_load_callback;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
 
@@ -58,4 +62,5 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
 
     adaptivelink = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","adaptivelink", menu_page_data,false);
 
+    lv_group_set_default(default_group);
 }

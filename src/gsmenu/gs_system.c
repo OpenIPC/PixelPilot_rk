@@ -7,6 +7,8 @@
 #include "executor.h"
 #include "styles.h"
 
+extern lv_group_t * default_group;
+
 lv_obj_t * gs_rendering;
 lv_obj_t * resolution;
 lv_obj_t * rec_enabled;
@@ -71,6 +73,8 @@ void create_gs_system_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "system");
     menu_page_data->page_load_callback = gs_system_page_load_callback;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
     lv_obj_t * cont;
@@ -100,4 +104,5 @@ void create_gs_system_menu(lv_obj_t * parent) {
     rec_fps = create_dropdown(section,LV_SYMBOL_SETTINGS, "Recording FPS", "","rec_fps",menu_page_data,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(rec_fps,0,&lv_dropdown_class), rec_fps_cb, LV_EVENT_VALUE_CHANGED,NULL);
 
+    lv_group_set_default(default_group);
 }

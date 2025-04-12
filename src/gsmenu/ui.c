@@ -19,7 +19,7 @@ extern lv_obj_t * menu;
 extern lv_indev_t * indev_drv;
 lv_obj_t * root_page;
 lv_group_t *main_group;
-lv_group_t *current_group;
+extern lv_group_t *default_group;
 extern lv_obj_t * pp_osd_screen;
 
 lv_obj_t * sub_gs_main_page;
@@ -75,10 +75,10 @@ void check_connection_timer(lv_timer_t * timer)
             sub_air_camera_page == lv_menu_get_cur_main_page(menu) ||
             sub_air_telemetry_page == lv_menu_get_cur_main_page(menu) ||
             sub_air_actions_page == lv_menu_get_cur_main_page(menu) ||
-            air_wfbng_cont == lv_group_get_focused(lv_group_get_default()) ||
-            air_camera_cont == lv_group_get_focused(lv_group_get_default()) ||
-            air_telemetry_cont == lv_group_get_focused(lv_group_get_default()) ||
-            air_actions_cont == lv_group_get_focused(lv_group_get_default())
+            air_wfbng_cont == lv_group_get_focused(main_group) ||
+            air_camera_cont == lv_group_get_focused(main_group) ||
+            air_telemetry_cont == lv_group_get_focused(main_group) ||
+            air_actions_cont == lv_group_get_focused(main_group)
             ) {
 
             lv_menu_set_page(menu,sub_gs_main_page);
@@ -125,14 +125,15 @@ lv_obj_t * pp_header_create(lv_obj_t * screen) {
 
 lv_obj_t * pp_menu_create(lv_obj_t * screen)
 {
+    main_group = lv_group_create();
+    lv_group_set_default(main_group);
+    lv_indev_set_group(indev_drv,main_group);
+
     menu = lv_menu_create(screen);
     lv_obj_set_pos(menu, 0, LV_PCT(20));
     lv_obj_set_size(menu, LV_PCT(100), LV_PCT(80));
     lv_menu_set_mode_root_back_button(menu, LV_MENU_ROOT_BACK_BUTTON_ENABLED);
     lv_obj_add_style(menu, &style_rootmenu, LV_PART_MAIN);
-
-    lv_obj_t * main_menu_back_button = lv_menu_get_main_header_back_button(menu);
-    lv_obj_add_style(main_menu_back_button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
 
     lv_obj_add_event_cb(menu, back_event_handler, LV_EVENT_CLICKED, menu);
     lv_obj_add_event_cb(menu, handle_sub_page_load, LV_EVENT_VALUE_CHANGED, menu);
@@ -194,19 +195,19 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_obj_add_style(section, &style_openipc_section, 0);
 
     air_wfbng_cont = create_text(section, LV_SYMBOL_WIFI, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),air_wfbng_cont);
+    lv_group_add_obj(main_group,air_wfbng_cont);
     lv_menu_set_load_page_event(menu, air_wfbng_cont, sub_air_wfbng_page);
 
     air_camera_cont = create_text(section, LV_SYMBOL_IMAGE, "Camera", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),air_camera_cont);
+    lv_group_add_obj(main_group,air_camera_cont);
     lv_menu_set_load_page_event(menu, air_camera_cont, sub_air_camera_page);
 
     air_telemetry_cont = create_text(section, LV_SYMBOL_DOWNLOAD, "Telemetry", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),air_telemetry_cont);
+    lv_group_add_obj(main_group,air_telemetry_cont);
     lv_menu_set_load_page_event(menu, air_telemetry_cont, sub_air_telemetry_page);
 
     air_actions_cont = create_text(section, LV_SYMBOL_PLAY, "Actions", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),air_actions_cont);
+    lv_group_add_obj(main_group,air_actions_cont);
     lv_menu_set_load_page_event(menu, air_actions_cont, sub_air_actions_page);
 
     create_text(root_page, NULL, "GS Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
@@ -214,19 +215,19 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_obj_add_style(section, &style_openipc_section, 0);
 
     gs_wfbng_cont = create_text(section, LV_SYMBOL_WIFI, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),gs_wfbng_cont);
+    lv_group_add_obj(main_group,gs_wfbng_cont);
     lv_menu_set_load_page_event(menu, gs_wfbng_cont, sub_gs_wfbng_page);
 
     gs_system_cont = create_text(section, LV_SYMBOL_SETTINGS, "System Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),gs_system_cont);
+    lv_group_add_obj(main_group,gs_system_cont);
     lv_menu_set_load_page_event(menu, gs_system_cont, sub_gs_system_page);
 
     gs_wlan_cont = create_text(section, LV_SYMBOL_WIFI, "WLAN", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),gs_wlan_cont);
+    lv_group_add_obj(main_group,gs_wlan_cont);
     lv_menu_set_load_page_event(menu, gs_wlan_cont, sub_wlan_page);
 
     gs_actions_cont = create_text(section, LV_SYMBOL_PLAY, "Actions", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_group_add_obj(lv_group_get_default(),gs_actions_cont);
+    lv_group_add_obj(main_group,gs_actions_cont);
     lv_menu_set_load_page_event(menu, gs_actions_cont, sub_gs_actions_page);    
 
     lv_menu_set_sidebar_page(menu, root_page);
@@ -235,9 +236,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
 
     lv_obj_t * sidebar_menu_back_button = lv_menu_get_sidebar_header_back_button(menu);
     lv_obj_add_style(sidebar_menu_back_button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_group_add_obj(main_group,sidebar_menu_back_button);
 
     // lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
 
+    lv_group_set_default(default_group);
     return menu;
 }
 

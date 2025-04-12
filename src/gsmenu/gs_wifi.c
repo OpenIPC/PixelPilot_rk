@@ -16,6 +16,7 @@ static void ta_event_cb(lv_event_t * e);
 
 extern lv_obj_t * menu;
 extern gsmenu_control_mode_t control_mode;
+extern lv_group_t * default_group;
 
 lv_obj_t * ssid;
 lv_obj_t * password;
@@ -97,6 +98,8 @@ void create_wifi_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "wifi");
     menu_page_data->page_load_callback = wifi_page_load_callback;
+    menu_page_data->indev_group = lv_group_create();
+    lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
     lv_obj_t * section = lv_menu_section_create(parent);
@@ -129,4 +132,6 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(password,0,&lv_button_class), btn_event_cb, LV_EVENT_ALL, kb);
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_ALL,kb);
     lv_keyboard_set_textarea(kb, NULL);    
+
+    lv_group_set_default(default_group);
 }
