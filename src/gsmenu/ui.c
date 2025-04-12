@@ -132,7 +132,7 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     menu = lv_menu_create(screen);
     lv_obj_set_pos(menu, 0, LV_PCT(20));
     lv_obj_set_size(menu, LV_PCT(100), LV_PCT(80));
-    lv_menu_set_mode_root_back_button(menu, LV_MENU_ROOT_BACK_BUTTON_ENABLED);
+    lv_menu_set_mode_root_back_button(menu, LV_MENU_ROOT_BACK_BUTTON_DISABLED);
     lv_obj_add_style(menu, &style_rootmenu, LV_PART_MAIN);
 
     lv_obj_add_event_cb(menu, back_event_handler, LV_EVENT_CLICKED, menu);
@@ -197,18 +197,22 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     air_wfbng_cont = create_text(section, LV_SYMBOL_WIFI, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,air_wfbng_cont);
     lv_menu_set_load_page_event(menu, air_wfbng_cont, sub_air_wfbng_page);
+    lv_obj_add_event_cb(air_wfbng_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     air_camera_cont = create_text(section, LV_SYMBOL_IMAGE, "Camera", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,air_camera_cont);
     lv_menu_set_load_page_event(menu, air_camera_cont, sub_air_camera_page);
+    lv_obj_add_event_cb(air_camera_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     air_telemetry_cont = create_text(section, LV_SYMBOL_DOWNLOAD, "Telemetry", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,air_telemetry_cont);
     lv_menu_set_load_page_event(menu, air_telemetry_cont, sub_air_telemetry_page);
+    lv_obj_add_event_cb(air_telemetry_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     air_actions_cont = create_text(section, LV_SYMBOL_PLAY, "Actions", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,air_actions_cont);
     lv_menu_set_load_page_event(menu, air_actions_cont, sub_air_actions_page);
+    lv_obj_add_event_cb(air_actions_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     create_text(root_page, NULL, "GS Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(root_page);
@@ -217,26 +221,26 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     gs_wfbng_cont = create_text(section, LV_SYMBOL_WIFI, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_wfbng_cont);
     lv_menu_set_load_page_event(menu, gs_wfbng_cont, sub_gs_wfbng_page);
+    lv_obj_add_event_cb(gs_wfbng_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     gs_system_cont = create_text(section, LV_SYMBOL_SETTINGS, "System Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_system_cont);
     lv_menu_set_load_page_event(menu, gs_system_cont, sub_gs_system_page);
+    lv_obj_add_event_cb(gs_system_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     gs_wlan_cont = create_text(section, LV_SYMBOL_WIFI, "WLAN", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_wlan_cont);
     lv_menu_set_load_page_event(menu, gs_wlan_cont, sub_wlan_page);
+    lv_obj_add_event_cb(gs_wlan_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     gs_actions_cont = create_text(section, LV_SYMBOL_PLAY, "Actions", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_actions_cont);
-    lv_menu_set_load_page_event(menu, gs_actions_cont, sub_gs_actions_page);    
+    lv_menu_set_load_page_event(menu, gs_actions_cont, sub_gs_actions_page); 
+    lv_obj_add_event_cb(gs_actions_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     lv_menu_set_sidebar_page(menu, root_page);
     lv_menu_set_page(menu,sub_gs_main_page);
     lv_menu_clear_history(menu);
-
-    lv_obj_t * sidebar_menu_back_button = lv_menu_get_sidebar_header_back_button(menu);
-    lv_obj_add_style(sidebar_menu_back_button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
-    lv_group_add_obj(main_group,sidebar_menu_back_button);
 
     // lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
 
@@ -246,16 +250,20 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
 
 static void back_event_handler(lv_event_t * e)
 {
-    lv_menu_set_page(menu,NULL);
-    lv_menu_set_page(menu,sub_gs_main_page);
-    lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
-    lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
-    lv_screen_load(pp_osd_screen);
-    menu_active = false;
+    lv_key_t key = lv_event_get_key(e);
+    if (key == LV_KEY_HOME) {
+        printf("Go Back\n");
+        lv_menu_set_page(menu,NULL);
+        lv_menu_set_page(menu,sub_gs_main_page);
+        lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
+        lv_screen_load(pp_osd_screen);
+        menu_active = false;
+    }
 }
