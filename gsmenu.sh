@@ -140,7 +140,7 @@ case "$@" in
         $SSH cli -g .isp.antiFlicker | tr -d '\n'
         ;;
     "get air camera sensor_file")
-        $SSH cli -g .isp.sensorConfig | tr -d '\n' || [ $? -qe 1 ] && exit 0
+        $SSH cli -g .isp.sensorConfig | tr -d '\n' || [ $? -eq 1 ] && exit 0
         ;;
     "get air camera fpv_enable")
         $SSH cli -g .fpv.enabled | grep -q true && echo 1 || echo 0
