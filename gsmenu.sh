@@ -1,6 +1,6 @@
 #!/bin/bash
 set -o pipefail
-SSH='sshpass -p 12345 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/run/ssh_control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=30 -o ServerAliveCountMax=3 root@10.5.0.10 '
+SSH='sshpass -p 12345 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/run/ssh_control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=3 -o ServerAliveCountMax=2 root@10.5.0.10 '
 
 case "$@" in
     "values air wfbng mcs_index")
@@ -140,15 +140,13 @@ case "$@" in
         $SSH cli -g .isp.antiFlicker | tr -d '\n'
         ;;
     "get air camera sensor_file")
-        $SSH cli -g .isp.sensorConfig | tr -d '\n'
-        [ $? = 1 ] && exit 0
+        $SSH cli -g .isp.sensorConfig | tr -d '\n' || [ $? -qe 1 ] && exit 0
         ;;
     "get air camera fpv_enable")
         $SSH cli -g .fpv.enabled | grep -q true && echo 1 || echo 0
         ;;
     "get air camera noiselevel")
-        $SSH cli -g .fpv.noiseLevel | tr -d '\n'
-        [ $? = 1 ] && exit 0
+        $SSH cli -g .fpv.noiseLevel | tr -d '\n' || [ $? -qe 1 ] && exit 0
         ;;
 
     "set air camera mirror"*)
