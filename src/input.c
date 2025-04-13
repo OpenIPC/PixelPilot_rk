@@ -137,7 +137,7 @@ void send_button_event(size_t button_index) {
                     next_key = LV_KEY_ESC;
                     break;
                 case 1:  // Right
-                    next_key = LV_KEY_RIGHT;
+                    next_key = LV_KEY_ENTER;
                     break;
                 case 18: // OK
                     next_key = LV_KEY_ENTER;
