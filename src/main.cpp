@@ -109,6 +109,33 @@ void init_buffer(MppFrame frame) {
 	osd_publish_uint_fact("video.width", NULL, 0, output_list->video_frm_width);
 	osd_publish_uint_fact("video.height", NULL, 0, output_list->video_frm_height);
 
+	if (mpi.frm_grp) {
+		spdlog::debug("Freeing current mpp_buffer_group");
+		
+		// First clean up all DRM resources for existing frames
+		for (int i = 0; i < MAX_FRAMES; i++) {
+			if (mpi.frame_to_drm[i].fb_id) {
+				drmModeRmFB(drm_fd, mpi.frame_to_drm[i].fb_id);
+				mpi.frame_to_drm[i].fb_id = 0;
+			}
+			if (mpi.frame_to_drm[i].prime_fd >= 0) {
+				close(mpi.frame_to_drm[i].prime_fd);
+				mpi.frame_to_drm[i].prime_fd = -1;
+			}
+			if (mpi.frame_to_drm[i].handle) {
+				struct drm_mode_destroy_dumb dmd = {
+					.handle = mpi.frame_to_drm[i].handle,
+				};
+				ioctl(drm_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dmd);
+				mpi.frame_to_drm[i].handle = 0;
+			}
+		}
+		
+		mpp_buffer_group_clear(mpi.frm_grp);
+		mpp_buffer_group_put(mpi.frm_grp);  // This is important to release the group
+		mpi.frm_grp = NULL;
+	}
+
 	// create new external frame group and allocate (commit flow) new DRM buffers and DRM FB
 	int ret = mpp_buffer_group_get_external(&mpi.frm_grp, MPP_BUFFER_TYPE_DRM);
 	assert(!ret);			
