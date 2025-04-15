@@ -146,7 +146,7 @@ case "$@" in
         $SSH cli -g .fpv.enabled | grep -q true && echo 1 || echo 0
         ;;
     "get air camera noiselevel")
-        $SSH cli -g .fpv.noiseLevel | tr -d '\n' || [ $? -qe 1 ] && exit 0
+        $SSH cli -g .fpv.noiseLevel | tr -d '\n' || [ $? -eq 1 ] && exit 0
         ;;
 
     "set air camera mirror"*)
