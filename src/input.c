@@ -11,6 +11,7 @@
 #include "../../lvgl/lvgl.h"
 #include "../../lvgl/src/core/lv_global.h"
 #include "input.h"
+#include "gsmenu/gs_system.h"
 
 typedef struct Dvr* Dvr; // Forward declaration
 void dvr_start_recording(Dvr* dvr);
@@ -404,16 +405,10 @@ static void virtual_keyboard_read(lv_indev_t * indev, lv_indev_data_t * data) {
             toggle_screen();
         if ( next_key == LV_KEY_ENTER && ! menu_active ) {
             data->key = LV_KEY_END;
-            if (dvr_enabled)
-#ifndef USE_SIMULATOR
-                dvr_stop_recording(dvr);
-            else
-                dvr_start_recording(dvr);
-#else
-                printf("dvr_stop_recording(dvr);\n");
-            else
-                printf("dvr_start_recording(dvr);\n");
-#endif                
+#ifdef USE_SIMULATOR
+                dvr_enabled ^= 1;
+#endif
+            toggle_rec_enabled();
         }
 
         if (!next_key_pressed) {  
