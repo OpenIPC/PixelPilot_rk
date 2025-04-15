@@ -8,6 +8,7 @@
 
 
 int dvr_enabled = 0;
+uint64_t gtotal_tunnel_bytes = 0;
 
 void my_log_cb(lv_log_level_t level, const char * buf)
 {

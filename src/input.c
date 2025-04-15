@@ -21,6 +21,7 @@ extern int dvr_enabled;
 
 #ifdef USE_SIMULATOR
 bool menu_active;
+lv_timer_t * timer = NULL;
 #endif
 #ifndef USE_SIMULATOR
 extern bool menu_active;
@@ -59,6 +60,12 @@ extern lv_obj_t * pp_menu_screen;
 static lv_key_t next_key = LV_KEY_END;  // Default to no key
 static bool next_key_pressed = false;    // Indicates if the next key should be pressed or released
 gsmenu_control_mode_t control_mode = GSMENU_CONTROL_MODE_NAV;
+
+extern uint64_t gtotal_tunnel_bytes;
+void simulate_traffic(lv_timer_t *t)
+{
+    gtotal_tunnel_bytes++;
+}
 
 #ifndef USE_SIMULATOR
 // Function to initialize GPIO buttons
@@ -373,6 +380,17 @@ void handle_keyboard_input(void) {
                 next_key_pressed = true;
                 printf("Enter\n");
                 break;
+#ifdef USE_SIMULATOR
+            case 't':
+            case 'T':
+                if (timer) {
+                    lv_timer_delete(timer);
+                    timer = NULL;
+                }
+                else
+                    timer = lv_timer_create(simulate_traffic, 50, NULL);
+                break;
+#endif
             case 'q':
             case 'Q':
                 printf("Exiting...\n");

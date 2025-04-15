@@ -44,29 +44,32 @@ lv_obj_t * gs_actions_cont;
 extern bool menu_active;
 extern uint64_t gtotal_tunnel_bytes; // global variable for easyer access in gsmenu
 uint64_t last_count = 0;
-int consecutive_increases = 0;
+
+static int last_value = 0;
+static uint32_t last_increase_time = 0;
+static bool objects_active = true;
 
 void check_connection_timer(lv_timer_t * timer)
 {
 
-#ifndef USE_SIMULATOR
-    if (last_count < gtotal_tunnel_bytes) {
-        consecutive_increases++;
-        last_count = gtotal_tunnel_bytes;
-    } else {
-        consecutive_increases=0;
+    int current_value = gtotal_tunnel_bytes; // Replace with your variable access
+    
+    // Check if value has increased since last check
+    if (current_value > last_value) {
+        last_increase_time = lv_tick_get();
+        last_value = current_value;
+        
+        // Enable objects if they're not already active
+        if (!objects_active) {
+            lv_obj_remove_state(air_wfbng_cont, LV_STATE_DISABLED);
+            lv_obj_remove_state(air_camera_cont, LV_STATE_DISABLED);
+            lv_obj_remove_state(air_telemetry_cont, LV_STATE_DISABLED);
+            lv_obj_remove_state(air_actions_cont, LV_STATE_DISABLED);
+            objects_active = true;
+        }
     }
-#else
-    consecutive_increases ++;
-#endif
-
-    if (consecutive_increases == 5) {
-        lv_obj_remove_state(air_wfbng_cont, LV_STATE_DISABLED);
-        lv_obj_remove_state(air_camera_cont, LV_STATE_DISABLED);
-        lv_obj_remove_state(air_telemetry_cont, LV_STATE_DISABLED);
-        lv_obj_remove_state(air_actions_cont, LV_STATE_DISABLED);
-    } else if (consecutive_increases == 0) {
-        last_count = 0;
+    // If value hasn't increased for more than X ms, disable objects
+    else if (objects_active && (lv_tick_elaps(last_increase_time) > 2000)) { // 2000ms threshold
         lv_obj_add_state(air_wfbng_cont, LV_STATE_DISABLED);
         lv_obj_add_state(air_camera_cont, LV_STATE_DISABLED);
         lv_obj_add_state(air_telemetry_cont, LV_STATE_DISABLED);
@@ -80,27 +83,25 @@ void check_connection_timer(lv_timer_t * timer)
             air_telemetry_cont == lv_group_get_focused(main_group) ||
             air_actions_cont == lv_group_get_focused(main_group)
             ) {
+                lv_menu_set_page(menu,NULL);
+                lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
+                lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
+                lv_indev_set_group(indev_drv,main_group);
 
-            lv_menu_set_page(menu,sub_gs_main_page);
-            lv_menu_clear_history(menu);
-            lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
-            lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
-            lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
-            lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
-
-            // Find the first focusable object recursively
-            lv_obj_t * first_obj = find_first_focusable_obj(root_page);
-
-            // Focus the first focusable object
-            if (first_obj) {
-                lv_group_t * group = lv_group_get_default();
-                if (group) {
-                    lv_group_focus_obj(first_obj);
-                }
+                // Find the first focusable object recursively
+                lv_obj_t * first_obj = find_first_focusable_obj(root_page);
+                lv_group_focus_obj(first_obj);
             }
 
-        }
+        objects_active = false;
     }
+
 }
 
 lv_obj_t * pp_header_create(lv_obj_t * screen) {
@@ -242,7 +243,8 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_set_page(menu,sub_gs_main_page);
     lv_menu_clear_history(menu);
 
-    // lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
+    lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
+    last_value = gtotal_tunnel_bytes;
 
     lv_group_set_default(default_group);
     return menu;
