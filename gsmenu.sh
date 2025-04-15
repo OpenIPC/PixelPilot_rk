@@ -415,7 +415,14 @@ case "$@" in
     "set gs system rec_fps"*)
         sed -i "s/^fps =.*/fps = $5/" /config/scripts/rec-fps
         ;;
-
+    "set gs system rec_enabled"*)
+        if [ "$5" = "off" ]
+        then
+            : #noop
+        else
+            : #noop
+        fi
+        ;;
     "get gs wifi hotspot")
         nmcli connection show --active | grep -q "Hotspot" && echo 1 || echo 0
         ;;
