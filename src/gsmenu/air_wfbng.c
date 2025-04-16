@@ -74,7 +74,7 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
 
     driver_txpower_override = create_dropdown(cont,LV_SYMBOL_SETTINGS,"Power", "","power",menu_page_data,false);
     air_channel = create_dropdown(cont,LV_SYMBOL_SETTINGS,"Frequency", "","air_channel",menu_page_data,false);
-    air_bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","bandwidth",menu_page_data,false);
+    air_bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","width",menu_page_data,false);
     mcs_index = create_slider(cont,LV_SYMBOL_SETTINGS, "MCS Index", 0 , 11, 1,"mcs_index",menu_page_data,false);
     stbc = create_switch(cont,LV_SYMBOL_SETTINGS,"STBC","stbc", menu_page_data,false);
     ldpc = create_switch(cont,LV_SYMBOL_SETTINGS,"LDPC","ldpc", menu_page_data,false);
