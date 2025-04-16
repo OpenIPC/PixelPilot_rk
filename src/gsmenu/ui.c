@@ -42,66 +42,125 @@ lv_obj_t * gs_wlan_cont;
 lv_obj_t * gs_actions_cont;
 
 extern bool menu_active;
-extern uint64_t gtotal_tunnel_bytes; // global variable for easyer access in gsmenu
+extern uint64_t gtotal_tunnel_data; // global variable for easyer access in gsmenu
 uint64_t last_count = 0;
 
 static int last_value = 0;
 static uint32_t last_increase_time = 0;
 static bool objects_active = true;
 
+void recursive_state_set(lv_obj_t *obj, bool enable) {
+    if (!obj) return;
+
+    // Set state for the current object
+    if (enable) {
+        lv_obj_remove_state(obj, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(obj, LV_STATE_DISABLED);
+    }
+
+    // Recursively process all children
+    uint32_t child_count = lv_obj_get_child_count(obj);
+    for (uint32_t i = 0; i < child_count; i++) {
+        lv_obj_t *child = lv_obj_get_child(obj, i);
+        recursive_state_set(child, enable);
+    }
+}
+
 void check_connection_timer(lv_timer_t * timer)
 {
+    static uint32_t last_value = 0;
+    static uint32_t last_increase_time = 0;
 
-    int current_value = gtotal_tunnel_bytes; // Replace with your variable access
+    uint32_t current_value = (uint32_t)gtotal_tunnel_data;
     
-    // Check if value has increased since last check
+    // Reset detection (either manual reset or wraparound)
+    bool is_reset = false;
+    
+    // Case 1: Simple decrease (manual reset)
+    if (current_value < last_value) {
+        is_reset = true;
+    }
+    // Case 2: Wraparound detection (for unsigned counters)
+    else if ((last_value > UINT32_MAX - 1000) && (current_value < 1000)) {
+        is_reset = true;
+    }
+    
+    if (is_reset) {
+        if (objects_active) {
+            recursive_state_set(air_wfbng_cont, false);
+            recursive_state_set(air_camera_cont, false);
+            recursive_state_set(air_telemetry_cont, false);
+            recursive_state_set(air_actions_cont, false);
+            recursive_state_set(sub_air_wfbng_page, false);
+            recursive_state_set(sub_air_camera_page, false);
+            recursive_state_set(sub_air_telemetry_page, false);
+            recursive_state_set(sub_air_actions_page, false);
+
+            lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
+            if (sub_air_wfbng_page == current_page ||
+                sub_air_camera_page == current_page ||
+                sub_air_telemetry_page == current_page ||
+                sub_air_actions_page == current_page
+                ) {
+                    lv_indev_set_group(indev_drv,main_group);
+                }
+
+            objects_active = false;
+        }
+        last_value = current_value;
+        return;
+    }
+    
+    // Normal increase detection
     if (current_value > last_value) {
         last_increase_time = lv_tick_get();
         last_value = current_value;
         
-        // Enable objects if they're not already active
         if (!objects_active) {
-            lv_obj_remove_state(air_wfbng_cont, LV_STATE_DISABLED);
-            lv_obj_remove_state(air_camera_cont, LV_STATE_DISABLED);
-            lv_obj_remove_state(air_telemetry_cont, LV_STATE_DISABLED);
-            lv_obj_remove_state(air_actions_cont, LV_STATE_DISABLED);
+            recursive_state_set(air_wfbng_cont, true);
+            recursive_state_set(air_camera_cont, true);
+            recursive_state_set(air_telemetry_cont, true);
+            recursive_state_set(air_actions_cont, true);
+            recursive_state_set(sub_air_wfbng_page, true);
+            recursive_state_set(sub_air_camera_page, true);
+            recursive_state_set(sub_air_telemetry_page, true);
+            recursive_state_set(sub_air_actions_page, true);
+
+            lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
+            if (sub_air_wfbng_page == current_page ||
+                sub_air_camera_page == current_page ||
+                sub_air_telemetry_page == current_page ||
+                sub_air_actions_page == current_page
+                ) {
+                    menu_page_data_t* menu_page_data = (menu_page_data_t*) lv_obj_get_user_data(current_page);
+                    lv_indev_set_group(indev_drv,menu_page_data->indev_group);
+                }
             objects_active = true;
         }
     }
-    // If value hasn't increased for more than X ms, disable objects
-    else if (objects_active && (lv_tick_elaps(last_increase_time) > 2000)) { // 2000ms threshold
-        lv_obj_add_state(air_wfbng_cont, LV_STATE_DISABLED);
-        lv_obj_add_state(air_camera_cont, LV_STATE_DISABLED);
-        lv_obj_add_state(air_telemetry_cont, LV_STATE_DISABLED);
-        lv_obj_add_state(air_actions_cont, LV_STATE_DISABLED);
-        if (sub_air_wfbng_page == lv_menu_get_cur_main_page(menu) ||
-            sub_air_camera_page == lv_menu_get_cur_main_page(menu) ||
-            sub_air_telemetry_page == lv_menu_get_cur_main_page(menu) ||
-            sub_air_actions_page == lv_menu_get_cur_main_page(menu) ||
-            air_wfbng_cont == lv_group_get_focused(main_group) ||
-            air_camera_cont == lv_group_get_focused(main_group) ||
-            air_telemetry_cont == lv_group_get_focused(main_group) ||
-            air_actions_cont == lv_group_get_focused(main_group)
-            ) {
-                lv_menu_set_page(menu,NULL);
-                lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
-                lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
-                lv_indev_set_group(indev_drv,main_group);
+    // Timeout detection
+    else if (objects_active && (lv_tick_elaps(last_increase_time) > 2000)) {
+        recursive_state_set(air_wfbng_cont, false);
+        recursive_state_set(air_camera_cont, false);
+        recursive_state_set(air_telemetry_cont, false);
+        recursive_state_set(air_actions_cont, false);
+        recursive_state_set(sub_air_wfbng_page, false);
+        recursive_state_set(sub_air_camera_page, false);
+        recursive_state_set(sub_air_telemetry_page, false);
+        recursive_state_set(sub_air_actions_page, false);
 
-                // Find the first focusable object recursively
-                lv_obj_t * first_obj = find_first_focusable_obj(root_page);
-                lv_group_focus_obj(first_obj);
+        lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
+        if (sub_air_wfbng_page == current_page ||
+            sub_air_camera_page == current_page ||
+            sub_air_telemetry_page == current_page ||
+            sub_air_actions_page == current_page
+            ) {
+                lv_indev_set_group(indev_drv,main_group);
             }
 
         objects_active = false;
     }
-
 }
 
 lv_obj_t * pp_header_create(lv_obj_t * screen) {
@@ -244,7 +303,7 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_clear_history(menu);
 
     lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
-    last_value = gtotal_tunnel_bytes;
+    last_value = gtotal_tunnel_data;
 
     lv_group_set_default(default_group);
     return menu;
