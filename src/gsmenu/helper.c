@@ -506,8 +506,13 @@ char* get_paramater(lv_obj_t * page, char * param) {
     strcat(final_command," ");
     strcat(final_command,menu_page_data->page);
     strcat(final_command," "); 
-    strcat(final_command,param); 
-    return run_command(final_command);
+    strcat(final_command,param);
+    char * result = run_command(final_command);
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n') {
+        result[len - 1] = '\0';
+    }
+    return result;
 }
 
 

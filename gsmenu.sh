@@ -39,14 +39,8 @@ case "$@" in
     "values air camera noiselevel")
         echo -n 0 1
         ;;
-    "values air telemetry tel_mcs_index")
-        echo -n 0 15
-        ;;
-    "values air telemetry aggregate")
-        echo -n 0 50
-        ;;
-    "values air telemetry rc_channel")
-        echo -n 0 16
+    "values air telemetry osd_fps")
+        echo -n 0 60
         ;;
     "values air wfbng power")
         echo -e "1\n20\n25\n30\n35\n40\n45\n50\n55\n58"
@@ -54,7 +48,7 @@ case "$@" in
     "values air wfbng air_channel")
         iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n |  uniq
         ;;
-    "values air wfbng bandwidth")
+    "values air wfbng width")
         echo -e "20\n40"
         ;;
     "values air camera size")
@@ -78,14 +72,11 @@ case "$@" in
     "values air camera sensor_file")
         echo -e "/etc/sensors/imx307.bin\n/etc/sensors/imx335.bin\n/etc/sensors/imx335_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_milos10.bin\n/etc/sensors/imx415_milos15.bin\n/etc/sensors/imx335_milos12tweak.bin\n/etc/sensors/imx335_greg15.bin\n/etc/sensors/imx335_spike5.bin\n/etc/sensors/gregspike05.bin"
         ;;
-    "values air telemetry tty")
-        echo -e "/dev/ttyS0\n/dev/ttyS1\n/dev/ttyS2"
-        ;;
-    "values air telemetry speed")
-        echo -e "4800\n9600\n19200\n38400\n57600\n115200\n230400\n460800\n921600"
+    "values air telemetry serial")
+        echo -e "ttyS0\nttyS1\nttyS2"
         ;;
     "values air telemetry router")
-        echo -e "mavfwd\nmavlink-routerd\nmsposd"
+        echo -e "mavfwd\nmsposd"
         ;;
 
     "get air camera mirror")
@@ -95,58 +86,58 @@ case "$@" in
         [ "true" = $($SSH cli -g .image.flip) ] && echo 1 || echo 0
         ;;
     "get air camera contrast")
-        $SSH cli -g .image.contrast | tr -d '\n'
+        $SSH cli -g .image.contrast
         ;;
     "get air camera hue")
-        $SSH cli -g .image.hue | tr -d '\n'
+        $SSH cli -g .image.hue
         ;;
     "get air camera saturation")
-        $SSH cli -g .image.saturation | tr -d '\n'
+        $SSH cli -g .image.saturation
         ;;
     "get air camera luminace")
-        $SSH cli -g .image.luminance | tr -d '\n'
+        $SSH cli -g .image.luminance
         ;;
     "get air camera size")
-        $SSH cli -g .video0.size | tr -d '\n'
+        $SSH cli -g .video0.size
         ;;
     "get air camera fps")
-        $SSH cli -g .video0.fps | tr -d '\n'
+        $SSH cli -g .video0.fps
         ;;
     "get air camera bitrate")
-        $SSH cli -g .video0.bitrate | tr -d '\n'
+        $SSH cli -g .video0.bitrate
         ;;
     "get air camera codec")
-        $SSH cli -g .video0.codec | tr -d '\n'
+        $SSH cli -g .video0.codec
         ;;
     "get air camera gopsize")
-        $SSH cli -g .video0.gopSize | tr -d '\n'
+        $SSH cli -g .video0.gopSize
         ;;
     "get air camera rc_mode")
-        $SSH cli -g .video0.rcMode | tr -d '\n'
+        $SSH cli -g .video0.rcMode
         ;;
     "get air camera rec_enable")
-         [ "true" = $($SSH cli -g .records.enabled | tr -d '\n') ] && echo 1 || echo 0
+         [ "true" = $($SSH cli -g .records.enabled) ] && echo 1 || echo 0
         ;;
     "get air camera rec_split")
-        $SSH cli -g .records.split | tr -d '\n'
+        $SSH cli -g .records.split
         ;;
     "get air camera rec_maxusage")
-        $SSH cli -g .records.maxUsage | tr -d '\n'
+        $SSH cli -g .records.maxUsage
         ;;
     "get air camera exposure")
-        $SSH cli -g .isp.exposure | tr -d '\n'
+        $SSH cli -g .isp.exposure
         ;;
     "get air camera antiflicker")
-        $SSH cli -g .isp.antiFlicker | tr -d '\n'
+        $SSH cli -g .isp.antiFlicker
         ;;
     "get air camera sensor_file")
-        $SSH cli -g .isp.sensorConfig | tr -d '\n' || [ $? -eq 1 ] && exit 0
+        $SSH cli -g .isp.sensorConfig
         ;;
     "get air camera fpv_enable")
         $SSH cli -g .fpv.enabled | grep -q true && echo 1 || echo 0
         ;;
     "get air camera noiselevel")
-        $SSH cli -g .fpv.noiseLevel | tr -d '\n' || [ $? -eq 1 ] && exit 0
+        $SSH cli -g .fpv.noiseLevel
         ;;
 
     "set air camera mirror"*)
@@ -230,148 +221,121 @@ case "$@" in
         $SSH "cli -s .fpv.noiseLevel $5 && killall -1 majestic"
         ;;
 
-    "get air telemetry tty")
-        $SSH grep ^serial /etc/telemetry.conf | cut -d = -f 2| tr -d '\n'
-        ;;
-    "get air telemetry speed")
-        $SSH grep ^baud /etc/telemetry.conf | cut -d = -f 2| tr -d '\n'
+    "get air telemetry serial")
+        $SSH wifibroadcast cli -g .telemetry.serial
         ;;
     "get air telemetry router")
-        router=$($SSH grep ^router /etc/telemetry.conf | cut -d = -f 2| tr -d '\n')
-        case "$router" in
-            0) echo -n "mavfwd" ;;
-            1) echo -n "mavlink-routerd" ;;
-            2) echo -n "msposd" ;;
-            *) echo "Unknown router value: $router" >&2; exit 1 ;;
-        esac
+        $SSH wifibroadcast cli -g .telemetry.router
         ;;
-    "get air telemetry tel_mcs_index")
-        $SSH grep ^mcs_index /etc/telemetry.conf | cut -d = -f 2| tr -d '\n'
-        ;;
-    "get air telemetry aggregate")
-        $SSH grep ^aggregate /etc/telemetry.conf | cut -d = -f 2| tr -d '\n'
-        ;;
-    "get air telemetry rc_channel")
-        $SSH grep ^channels /etc/telemetry.conf | cut -d = -f 2| tr -d '\n'
+    "get air telemetry osd_fps")
+        $SSH wifibroadcast cli -g .telemetry.osd_fps
         ;;
     "get air telemetry gs_rendering")
-        $SSH grep "\\\-osd" /usr/bin/telemetry | grep -q osd && echo 0 || echo 1
+        $SSH 'grep "\-z \"\$size\"" /usr/bin/wifibroadcast' | grep -q size && echo 0 || echo 1
         ;;
 
-    "set air telemetry tty"*)
-        $SSH 'sed -i "s#^serial=.*#serial='$5'#" /etc/telemetry.conf && telemetry stop ; telemetry start'
-        ;;
-    "set air telemetry speed"*)
-        $SSH 'sed -i "s/^baud=.*/baud='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
+    "set air telemetry serial"*)
+        $SSH wifibroadcast cli -s .telemetry.serial $5
+        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air telemetry router"*)
-        case "$5" in
-            "mavfwd") router=0;;
-            "mavlink-routerd") router=1;;
-            "msposd") router=2;;
-            *) echo "Unknown router value: $router" >&2; exit 1 ;;
-        esac
-        $SSH 'sed -i "s/^router=.*/router='$router'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
+        $SSH wifibroadcast cli -s .telemetry.router $5
+        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
-    "set air telemetry tel_mcs_index"*)
-        $SSH 'sed -i "s/^mcs_index=.*/mcs_index='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
-        ;;
-    "set air telemetry aggregate"*)
-        $SSH 'sed -i "s/^aggregate=.*/aggregate='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
-        ;;
-    "set air telemetry rc_channel"*)
-        $SSH 'sed -i "s/^channels=.*/channels='$5'/" /etc/telemetry.conf && telemetry stop ; telemetry start'
+    "set air telemetry osd_fps"*)
+        $SSH wifibroadcast cli -s .telemetry.osd_fps $5
+        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air telemetry gs_rendering"*)
         if [ "$5" = "on" ]
-        then 
-            $SSH "sed -i 's/--out 127.0.0.1/--out 10.5.0.1/' /usr/bin/telemetry && sed -i 's/ -osd//' /usr/bin/telemetry"
-            $SSH "telemetry stop ; telemetry start"
+        then -o 127.0.0.1:"$port_tx" -z "$size"
+            $SSH 'sed -i "s/-o 127\.0\.0\.1:\"\$port_tx\" -z \"\$size\"/-o 10\.5\.0\.1:\"\$port_tx\"/" /usr/bin/wifibroadcast'
+            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         else
-            $SSH "sed -i 's/--out 10.5.0.1/--out 127.0.0.1/' /usr/bin/telemetry && sed -i 's/ -r/ -osd -r/' /usr/bin/telemetry"
-            $SSH "telemetry stop ; telemetry start"
-        fi        
+            $SSH 'sed -i "s/-o 10\.5\.0\.1:\"\$port_tx\"/-o 127\.0\.0\.1:\"\$port_tx\" -z \"\$size\"/" /usr/bin/wifibroadcast'
+            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        fi
         ;;
 
     "get air wfbng power")
-        $SSH grep ^driver_txpower_override /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+        $SSH wifibroadcast cli -g .wireless.txpower
         ;;
     "get air wfbng air_channel")
-        channel=$($SSH grep ^channel /etc/wfb.conf | cut -d = -f 2| tr -d '\n')
+        channel=$($SSH wifibroadcast cli -g .wireless.channel | tr -d '\n')
         iw list | grep "\[$channel\]" | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | sort -n | uniq | tr -d '\n'        
         ;;
-    "get air wfbng bandwidth")
-        $SSH grep ^bandwidth /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+    "get air wfbng width")
+        $SSH wifibroadcast cli -g .wireless.width
         ;;
     "get air wfbng mcs_index")
-        $SSH grep ^mcs_index /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+        $SSH wifibroadcast cli -g .broadcast.mcs_index
         ;;
     "get air wfbng stbc")
-        $SSH grep ^stbc /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+        $SSH wifibroadcast cli -g .broadcast.stbc
         ;;
     "get air wfbng ldpc")
-        $SSH grep ^ldpc /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+        $SSH wifibroadcast cli -g .broadcast.ldpc
         ;;
     "get air wfbng fec_k")
-        $SSH grep ^fec_k /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+        $SSH wifibroadcast cli -g .broadcast.fec_k
         ;;
     "get air wfbng fec_n")
-        $SSH grep ^fec_n /etc/wfb.conf | cut -d = -f 2| tr -d '\n'
+        $SSH wifibroadcast cli -g .broadcast.fec_n
         ;;
     "get air wfbng adaptivelink")
         $SSH grep ^alink_drone /etc/rc.local | grep -q 'alink_drone' && echo 1 || echo 0
         ;;
 
     "set air wfbng power"*)
-        $SSH 'sed -i "s/^driver_txpower_override=.*/driver_txpower_override='$5'/" /etc/wfb.conf'
+        $SSH wifibroadcast cli -s .wireless.txpower $5
         $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng air_channel"*)
         channel=$(echo $5 | awk '{print $1}')
-        $SSH 'sed -i "s/^channel=.*/channel='$channel'/" /etc/wfb.conf'
+        $SSH wifibroadcast cli -s .wireless.channel $channel
         $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         sed -i "s/^wifi_channel =.*/wifi_channel = $channel/" /etc/wifibroadcast.cfg
         systemctl restart wifibroadcast.service
         ;;
-    "set air wfbng bandwidth"*)
-        $SSH 'sed -i "s/^bandwidth=.*/bandwidth='$5'/" /etc/wfb.conf'
+    "set air wfbng width"*)
+        $SSH wifibroadcast cli -s .wireless.width $5
         $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng mcs_index"*)
-        $SSH 'sed -i "s/^mcs_index=.*/mcs_index='$5'/" /etc/wfb.conf'
+        $SSH wifibroadcast cli -s .broadcast.mcs_index $5
         $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng stbc"*)
         if [ "$5" = "on" ]
         then 
-            $SSH 'sed -i "s/^stbc=.*/stbc=1/" /etc/wfb.conf'
-            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+            $SSH wifibroadcast cli -s .broadcast.stbc 1
         else
-            $SSH 'sed -i "s/^stbc=.*/stbc=0/" /etc/wfb.conf'
-            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+            $SSH wifibroadcast cli -s .broadcast.stbc 0
         fi
+        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng ldpc"*)
         if [ "$5" = "on" ]
         then 
-            $SSH 'sed -i "s/^ldpc=.*/ldpc=1/" /etc/wfb.conf'
-            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+            $SSH wifibroadcast cli -s .broadcast.ldpc 1
         else
-            $SSH 'sed -i "s/^ldpc=.*/ldpc=0/" /etc/wfb.conf'
-            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
-        fi        ;;
+            $SSH wifibroadcast cli -s .broadcast.ldpc 0
+            
+        fi
+        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        ;;
     "set air wfbng fec_k"*)
-        $SSH 'sed -i "s/^fec_k=.*/fec_k='$5'/" /etc/wfb.conf'
+        $SSH wifibroadcast cli -s .broadcast.fec_k $5
         $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng fec_n"*)
-        $SSH 'sed -i "s/^fec_n=.*/fec_n='$5'/" /etc/wfb.conf'
+        $SSH wifibroadcast cli -s .broadcast.fec_n $5
         $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng adaptivelink"*)
         if [ "$5" = "on" ]
         then
-            $SSH 'sed -i "/alink_drone &/d" /etc/rc.local && sed -i -e "\$i alink_drone &" /etc/rc.local && cli -s .video0.qpDelta -12 && killall -1 majestic && alink_drone &'
+            $SSH 'sed -i "/alink_drone &/d" /etc/rc.local && sed -i -e "\$i alink_drone &" /etc/rc.local && cli -s .video0.qpDelta -12 && killall -1 majestic && (nohup alink_drone >/dev/null 2>&1 &)'
         else
             $SSH 'killall -q -9 alink_drone;  sed -i "/alink_drone &/d" /etc/rc.local  ; cli -d .video0.qpDelta && killall -1 majestic'
         fi
@@ -394,10 +358,10 @@ case "$@" in
         [ "$(grep ground /config/scripts/osd | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
         ;;
     "get gs system resolution")
-        drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".crtcs[0].mode| .name + "@" + (.vrefresh|tostring)' | tr -d '\n'
+        drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".crtcs[0].mode| .name + "@" + (.vrefresh|tostring)'
         ;;
     "get gs system rec_fps")
-        grep fps /config/scripts/rec-fps | cut -d ' ' -f 3  | tr -d '\n'
+        grep fps /config/scripts/rec-fps | cut -d ' ' -f 3 
         ;;
     "set gs system gs_rendering"*)
         if [ "$5" = "off" ]
@@ -432,7 +396,7 @@ case "$@" in
         ;;
     "get gs wifi ssid")
         if [ -d /sys/class/net/wlan0 ]; then
-            nmcli -t connection show --active | grep wlan0 | cut -d : -f1 | tr -d '\n'
+            nmcli -t connection show --active | grep wlan0 | cut -d : -f1
         else
             echo -n ""
         fi
@@ -440,7 +404,7 @@ case "$@" in
     "get gs wifi password")
         if [ -d /sys/class/net/wlan0 ]; then
             connection=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f1)
-            nmcli -t connection show $connection --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2 | tr -d '\n'
+            nmcli -t connection show $connection --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2
         else
             echo -n ""
         fi
@@ -491,10 +455,10 @@ case "$@" in
         ;;
     "get gs wfbng gs_channel")
         channel=$(grep wifi_channel /etc/wifibroadcast.cfg | cut -d ' ' -f 3)
-        iw list | grep "\[$channel\]" | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | sort -n | uniq | tr -d '\n'
+        iw list | grep "\[$channel\]" | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | sort -n | uniq
         ;;
     "get gs wfbng bandwidth")
-        grep ^bandwidth /etc/wifibroadcast.cfg | cut -d ' ' -f 3| tr -d '\n'
+        grep ^bandwidth /etc/wifibroadcast.cfg | cut -d ' ' -f 3
         ;;
 
     "set gs wfbng adaptivelink"*)
@@ -525,14 +489,14 @@ case "$@" in
         gsmenu.sh get gs system resolution
         ;;
     "get gs main Version")
-        grep PRETTY_NAME= /etc/os-release | cut -d \" -f2 | tr -d '\n'
+        grep PRETTY_NAME= /etc/os-release | cut -d \" -f2
         ;;
     "get gs main Disk")
         read -r size avail pcent <<< $(df -h / | awk 'NR==2 {print $2, $4, $5}')
         echo -e "\n   Size: $size\n   Available: $avail\n   Pct: $pcent\c"
         ;;
     "get gs main WFB_NICS")
-        grep ^WFB_NICS /etc/default/wifibroadcast | cut -d \" -f 2| tr -d '\n'
+        grep ^WFB_NICS /etc/default/wifibroadcast | cut -d \" -f 2
         ;;
     "search channel")
         echo "Not implmented"
@@ -543,4 +507,10 @@ case "$@" in
         echo "Unknown $@"
         exit 1
         ;;
+esac
+
+case $? in
+    0) ;;
+    1) exit 0 ;;
+    *) exit $? ;;
 esac
