@@ -61,10 +61,10 @@ static lv_key_t next_key = LV_KEY_END;  // Default to no key
 static bool next_key_pressed = false;    // Indicates if the next key should be pressed or released
 gsmenu_control_mode_t control_mode = GSMENU_CONTROL_MODE_NAV;
 
-extern uint64_t gtotal_tunnel_bytes;
+extern uint64_t gtotal_tunnel_data;
 void simulate_traffic(lv_timer_t *t)
 {
-    gtotal_tunnel_bytes++;
+    gtotal_tunnel_data++;
 }
 
 #ifndef USE_SIMULATOR
