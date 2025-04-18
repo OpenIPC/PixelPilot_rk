@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <sys/un.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 namespace pipeline {
     static std::string gst_create_rtp_caps(const VideoCodec& videoCodec){
@@ -235,6 +236,7 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb)
 
     m_loop = g_main_loop_new(nullptr, FALSE);
     m_main_loop_thread = std::make_unique<std::thread>([this]() {
+        pthread_setname_np(pthread_self(), "gst-main-loop");
         g_main_loop_run(this->m_loop);
     });
 
