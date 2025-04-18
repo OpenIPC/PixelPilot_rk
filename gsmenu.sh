@@ -236,24 +236,24 @@ case "$@" in
 
     "set air telemetry serial"*)
         $SSH wifibroadcast cli -s .telemetry.serial $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air telemetry router"*)
         $SSH wifibroadcast cli -s .telemetry.router $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air telemetry osd_fps"*)
         $SSH wifibroadcast cli -s .telemetry.osd_fps $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air telemetry gs_rendering"*)
         if [ "$5" = "on" ]
         then -o 127.0.0.1:"$port_tx" -z "$size"
             $SSH 'sed -i "s/-o 127\.0\.0\.1:\"\$port_tx\" -z \"\$size\"/-o 10\.5\.0\.1:\"\$port_tx\"/" /usr/bin/wifibroadcast'
-            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+            $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         else
             $SSH 'sed -i "s/-o 10\.5\.0\.1:\"\$port_tx\"/-o 127\.0\.0\.1:\"\$port_tx\" -z \"\$size\"/" /usr/bin/wifibroadcast'
-            $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+            $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         fi
         ;;
 
@@ -288,22 +288,22 @@ case "$@" in
 
     "set air wfbng power"*)
         $SSH wifibroadcast cli -s .wireless.txpower $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng air_channel"*)
         channel=$(echo $5 | awk '{print $1}')
         $SSH wifibroadcast cli -s .wireless.channel $channel
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         sed -i "s/^wifi_channel =.*/wifi_channel = $channel/" /etc/wifibroadcast.cfg
         systemctl restart wifibroadcast.service
         ;;
     "set air wfbng width"*)
         $SSH wifibroadcast cli -s .wireless.width $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng mcs_index"*)
         $SSH wifibroadcast cli -s .broadcast.mcs_index $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng stbc"*)
         if [ "$5" = "on" ]
@@ -312,7 +312,7 @@ case "$@" in
         else
             $SSH wifibroadcast cli -s .broadcast.stbc 0
         fi
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng ldpc"*)
         if [ "$5" = "on" ]
@@ -322,15 +322,15 @@ case "$@" in
             $SSH wifibroadcast cli -s .broadcast.ldpc 0
             
         fi
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng fec_k"*)
         $SSH wifibroadcast cli -s .broadcast.fec_k $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng fec_n"*)
         $SSH wifibroadcast cli -s .broadcast.fec_n $5
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng adaptivelink"*)
         if [ "$5" = "on" ]
@@ -474,7 +474,7 @@ case "$@" in
     "set gs wfbng gs_channel"*)
         channel=$(echo $5 | awk '{print $1}')
         $SSH 'sed -i "s/^channel=.*/channel='$channel'/" /etc/wfb.conf'
-        $SSH "(wifibroadcast stop ;  wifibroadcast start) >/dev/null 2>&1 &"
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         sed -i "s/^wifi_channel =.*/wifi_channel = $channel/" /etc/wifibroadcast.cfg
         systemctl restart wifibroadcast.service
         ;;
