@@ -56,6 +56,7 @@ public:
                           VideoCodec codec);
     void start_recording();
     void stop_recording();
+    void set_video_framerate(int rate);
     void toggle_recording();
     void shutdown();
 

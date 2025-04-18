@@ -1,5 +1,8 @@
 #pragma once
 
+
+void sig_handler(int signum);
+
 /* --- Console arguments parser --- */
 #define __BeginParseConsoleArguments__(printHelpFunction) \
   if (argc < 1 || (argc == 2 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "/?") \
