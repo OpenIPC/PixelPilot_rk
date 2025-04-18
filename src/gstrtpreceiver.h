@@ -12,7 +12,6 @@
 #include <vector>
 #include <functional>
 
-#define SOCKET_PATH "/tmp/rtp_local"
 #define MAX_PACKET_SIZE 4096
 #define RTP_HEADER_LEN 12
 
@@ -42,6 +41,7 @@ public:
      * The constructor is delayed, remember to use start_receiving()
      */
     explicit GstRtpReceiver(int udp_port, const VideoCodec& codec);
+    explicit GstRtpReceiver(const char *s, const VideoCodec& codec);
     virtual ~GstRtpReceiver();
     // Depending on the codec, these are h264,h265 or mjpeg "frames" / frame buffers
     // The big advantage of gstreamer is that it seems to handle all those parsing quirks the best,
@@ -64,6 +64,7 @@ private:
     bool m_pull_samples_run;
     std::unique_ptr<std::thread> m_pull_samples_thread=nullptr;
     // appsrc
+    const char* unix_socket = nullptr;
     int sock;
     GMainLoop* m_loop = nullptr;
     std::unique_ptr<std::thread> m_main_loop_thread;

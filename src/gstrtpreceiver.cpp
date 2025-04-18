@@ -79,15 +79,23 @@ GstRtpReceiver::GstRtpReceiver(int udp_port, const VideoCodec& codec)
     m_video_codec=codec;
     initGstreamerOrThrow();
 
+}
+
+GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec)
+{
+    unix_socket = strdup(s);
+    m_video_codec=codec;
+    initGstreamerOrThrow();
+
     spdlog::debug("Creating receiver socket");
-    unlink(SOCKET_PATH);
+    unlink(unix_socket);
     sock=socket(AF_UNIX,SOCK_DGRAM,0);
     if(sock<0){
         perror("socket");
     }
     struct sockaddr_un addr={0};
     addr.sun_family=AF_UNIX;
-    strncpy(addr.sun_path,SOCKET_PATH,sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path,unix_socket,sizeof(addr.sun_path) - 1);
     if (bind(sock,(struct sockaddr*)&addr,sizeof(addr))<0)
     {
         perror("bind");
@@ -95,10 +103,9 @@ GstRtpReceiver::GstRtpReceiver(int udp_port, const VideoCodec& codec)
 
 }
 
-
 GstRtpReceiver::~GstRtpReceiver(){
     close(sock);
-    unlink(SOCKET_PATH);
+    unlink(unix_socket);
 }
 
 static std::shared_ptr<std::vector<uint8_t>> gst_copy_buffer(GstBuffer* buffer){
@@ -137,8 +144,10 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
 std::string GstRtpReceiver::construct_gstreamer_pipeline()
 {
     std::stringstream ss;
-    // ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
-    ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
+    if (! unix_socket)
+        ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
+    else
+        ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
     ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec);
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
@@ -205,40 +214,44 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb)
         return;
     }
 
-    // Then get the appsrc element by name
-    GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
-    if (!appsrc) {
-        g_printerr("Failed to get appsrc element from pipeline\n");
-        // Handle error
-    }
-    g_object_set(appsrc,
-        "stream-type", 0,
-        "is-live", TRUE,
-        "format", GST_FORMAT_TIME,
-        "block", FALSE,
-        "max-bytes", 2000000,  // 2MB buffer
-        "min-percent", 20,     // Start pushing when 20% empty
-        "do-timestamp", TRUE,  // Auto-timestamp buffers
-        NULL);
+    if (unix_socket) {
+        // Then get the appsrc element by name
+        GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
+        if (!appsrc) {
+            g_printerr("Failed to get appsrc element from pipeline\n");
+            // Handle error
+        }
+        g_object_set(appsrc,
+            "stream-type", 0,
+            "is-live", TRUE,
+            "format", GST_FORMAT_TIME,
+            "block", FALSE,
+            "max-bytes", 2000000,  // 2MB buffer
+            "min-percent", 20,     // Start pushing when 20% empty
+            "do-timestamp", TRUE,  // Auto-timestamp buffers
+            NULL);
 
-    // Replace g_io_add_watch with this more robust version
-    GIOChannel* chan = g_io_channel_unix_new(sock);
-    g_io_channel_set_flags(chan, G_IO_FLAG_NONBLOCK, NULL);
-    guint watch_id = g_io_add_watch_full(
-        chan, 
-        G_PRIORITY_HIGH,  // Higher priority
-        static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL),
-        on_socket,
-        appsrc,
-        NULL);
+        // Replace g_io_add_watch with this more robust version
+        GIOChannel* chan = g_io_channel_unix_new(sock);
+        g_io_channel_set_flags(chan, G_IO_FLAG_NONBLOCK, NULL);
+        guint watch_id = g_io_add_watch_full(
+            chan, 
+            G_PRIORITY_HIGH,  // Higher priority
+            static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL),
+            on_socket,
+            appsrc,
+            NULL);
+    }
 
     gst_element_set_state (m_gst_pipeline, GST_STATE_PLAYING);
 
-    m_loop = g_main_loop_new(nullptr, FALSE);
-    m_main_loop_thread = std::make_unique<std::thread>([this]() {
-        pthread_setname_np(pthread_self(), "gst-main-loop");
-        g_main_loop_run(this->m_loop);
-    });
+    if (unix_socket) {
+        m_loop = g_main_loop_new(nullptr, FALSE);
+        m_main_loop_thread = std::make_unique<std::thread>([this]() {
+            pthread_setname_np(pthread_self(), "gst-main-loop");
+            g_main_loop_run(this->m_loop);
+        });
+    }
 
     //
     // we pull data out of the gst pipeline as cpu memory buffer(s) using the gstreamer "appsink" element
