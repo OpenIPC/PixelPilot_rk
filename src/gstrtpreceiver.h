@@ -12,6 +12,10 @@
 #include <vector>
 #include <functional>
 
+#define SOCKET_PATH "/tmp/rtp_local"
+#define MAX_PACKET_SIZE 4096
+#define RTP_HEADER_LEN 12
+
 enum class VideoCodec {
     UNKNOWN=0,
     H264,
@@ -59,6 +63,10 @@ private:
     GstElement *m_app_sink_element = nullptr;
     bool m_pull_samples_run;
     std::unique_ptr<std::thread> m_pull_samples_thread=nullptr;
+    // appsrc
+    int sock;
+    GMainLoop* m_loop = nullptr;
+    std::unique_ptr<std::thread> m_main_loop_thread;
 };
 
 
