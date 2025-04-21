@@ -54,7 +54,7 @@ lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, c
     if(txt) {
         label = lv_label_create(obj);
         lv_label_set_text(label, txt);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+        // lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
         lv_obj_set_flex_grow(label, 1);
     }
 
@@ -541,7 +541,7 @@ void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_dropdown_class);
     thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
     char * value = get_paramater(page, param_user_data->parameter);
-    lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value),LV_ANIM_OFF);
+    lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
 }
 
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter) {
