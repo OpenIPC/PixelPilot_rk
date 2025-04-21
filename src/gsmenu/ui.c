@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include "../../lvgl/lvgl.h"
 
 #include "images.h"
@@ -96,7 +98,7 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(sub_air_camera_page, false);
             recursive_state_set(sub_air_telemetry_page, false);
             recursive_state_set(sub_air_actions_page, false);
-
+            setenv("GSMENU_VTX_DETECTED" , "0", 1);
             lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
             if (sub_air_wfbng_page == current_page ||
                 sub_air_camera_page == current_page ||
@@ -126,6 +128,7 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(sub_air_camera_page, true);
             recursive_state_set(sub_air_telemetry_page, true);
             recursive_state_set(sub_air_actions_page, true);
+            setenv("GSMENU_VTX_DETECTED" , "1", 1);
 
             lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
             if (sub_air_wfbng_page == current_page ||
@@ -149,6 +152,7 @@ void check_connection_timer(lv_timer_t * timer)
         recursive_state_set(sub_air_camera_page, false);
         recursive_state_set(sub_air_telemetry_page, false);
         recursive_state_set(sub_air_actions_page, false);
+        setenv("GSMENU_VTX_DETECTED" , "0", 1);
 
         lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
         if (sub_air_wfbng_page == current_page ||
@@ -304,6 +308,7 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
 
     lv_timer_t * timer = lv_timer_create(check_connection_timer, 500, NULL);
     last_value = gtotal_tunnel_data;
+    setenv("GSMENU_VTX_DETECTED" , "0", 1);
 
     lv_group_set_default(default_group);
     return menu;
