@@ -473,8 +473,10 @@ case "$@" in
         ;;
     "set gs wfbng gs_channel"*)
         channel=$(echo $5 | awk '{print $1}')
-        $SSH 'sed -i "s/^channel=.*/channel='$channel'/" /etc/wfb.conf'
-        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
+            $SSH wifibroadcast cli -s .wireless.channel $channel
+            $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        fi
         sed -i "s/^wifi_channel =.*/wifi_channel = $channel/" /etc/wifibroadcast.cfg
         systemctl restart wifibroadcast.service
         ;;
