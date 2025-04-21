@@ -72,7 +72,7 @@ void show_error(CommandResult result) {
         lv_obj_add_style(button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
         lv_obj_add_style(button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
         msgbox_label = lv_msgbox_add_text(msgbox,"");
-        lv_label_set_long_mode(msgbox_label, LV_LABEL_LONG_MODE_SCROLL);
+        // lv_label_set_long_mode(msgbox_label, LV_LABEL_LONG_MODE_SCROLL);
     };
 
     build_output_string(
