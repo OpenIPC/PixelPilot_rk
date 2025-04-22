@@ -183,117 +183,129 @@ void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample
 }
 
 /* socket → appsrc */
-guint  pkt_counter = 0;
-time_t last_report = 0;
-static gboolean on_socket(GIOChannel *src, GIOCondition cond, gpointer user)
-{
-    GstAppSrc *appsrc = GST_APP_SRC(user);
-    guint8 buf[MAX_PACKET_SIZE];
-    ssize_t n = recv(g_io_channel_unix_get_fd(src), buf, sizeof(buf), 0);
-    if (n <= RTP_HEADER_LEN) return TRUE;
+static constexpr int SOCKET_POLL_TIMEOUT_MS = 100;
 
-    GstBuffer *buffer = gst_buffer_new_allocate(NULL, n, NULL);
-    gst_buffer_fill(buffer, 0, buf, n);
-    if (gst_app_src_push_buffer(appsrc, buffer) != GST_FLOW_OK) {
-        g_printerr("push error\n");
-        return FALSE;
+static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc) {
+    uint8_t buf[MAX_PACKET_SIZE];
+    uint64_t pkt_counter = 0;
+    auto last_report = std::chrono::steady_clock::now();
+
+    while (keep_looping) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock_fd, &read_fds);
+
+        struct timeval timeout = { .tv_sec = 0, .tv_usec = SOCKET_POLL_TIMEOUT_MS * 1000 };
+        int ready = select(sock_fd + 1, &read_fds, nullptr, nullptr, &timeout);
+        if (ready <= 0) continue;
+
+        ssize_t n = recv(sock_fd, buf, sizeof(buf), 0);
+        if (n <= RTP_HEADER_LEN) {
+            spdlog::warn("Invalid RTP packet size: {}", n);
+            continue;
+        }
+
+        // Copy data into a new GStreamer buffer
+        GstBuffer* buffer = gst_buffer_new_allocate(nullptr, n, nullptr);
+        GstMapInfo map;
+        gst_buffer_map(buffer, &map, GST_MAP_WRITE);
+        memcpy(map.data, buf, n);
+        gst_buffer_unmap(buffer, &map);
+
+        // Push to appsrc
+        GstFlowReturn ret = gst_app_src_push_buffer(appsrc, buffer);
+        if (ret != GST_FLOW_OK) {
+            spdlog::warn("Appsrc push error: {}", gst_flow_get_name(ret));
+            break;
+        }
+
+        // Log packet rate (optional)
+        pkt_counter++;
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_report >= std::chrono::seconds(1)) {
+            spdlog::debug("socket pkts/s {}", pkt_counter);
+            pkt_counter = 0;
+            last_report = now;
+        }
     }
-    pkt_counter++; time_t now=time(NULL);
-    if(now!=last_report){g_print("[INFO] pkts/s %u\n",pkt_counter);pkt_counter=0;last_report=now;}
-    return TRUE;
 }
 
-void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb)
-{
+void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb) {
     spdlog::info("GstRtpReceiver::start_receiving begin");
-    assert(m_gst_pipeline==nullptr);
-    m_cb=cb;
+    assert(m_gst_pipeline == nullptr);
+    m_cb = cb;
 
-    const auto pipeline=construct_gstreamer_pipeline();
-    GError *error = nullptr;
+    const auto pipeline = construct_gstreamer_pipeline();
+    GError* error = nullptr;
     m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
     spdlog::info("GSTREAMER PIPE=[{}]", pipeline);
+    
     if (error) {
         spdlog::warn("gst_parse_launch error: {}", error->message);
         return;
     }
-    if(!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))){
+    
+    if (!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))) {
         spdlog::warn("Cannot construct pipeline");
         m_gst_pipeline = nullptr;
         return;
     }
 
     if (unix_socket) {
-        // Then get the appsrc element by name
-        GstElement *appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
+        GstElement* appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
         if (!appsrc) {
-            g_printerr("Failed to get appsrc element from pipeline\n");
-            // Handle error
+            spdlog::error("Failed to get appsrc element from pipeline");
+            return;
         }
+        
         g_object_set(appsrc,
             "stream-type", 0,
             "is-live", TRUE,
             "format", GST_FORMAT_TIME,
             "block", FALSE,
-            "max-bytes", 2000000,  // 2MB buffer
-            "min-percent", 20,     // Start pushing when 20% empty
-            "do-timestamp", TRUE,  // Auto-timestamp buffers
+            "max-bytes", 2000000,
+            "min-percent", 20,
+            "do-timestamp", TRUE,
             NULL);
-
-        // Replace g_io_add_watch with this more robust version
-        GIOChannel* chan = g_io_channel_unix_new(sock);
-        g_io_channel_set_flags(chan, G_IO_FLAG_NONBLOCK, NULL);
-        guint watch_id = g_io_add_watch_full(
-            chan, 
-            G_PRIORITY_HIGH,  // Higher priority
-            static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL),
-            on_socket,
-            appsrc,
-            NULL);
-    }
-
-    gst_element_set_state (m_gst_pipeline, GST_STATE_PLAYING);
-
-    if (unix_socket) {
-        m_loop = g_main_loop_new(nullptr, FALSE);
-        m_main_loop_thread = std::make_unique<std::thread>([this]() {
-            pthread_setname_np(pthread_self(), "gst-main-loop");
-            g_main_loop_run(this->m_loop);
+            
+        // Start socket reading thread
+        m_read_socket_run = true;
+        m_read_socket_thread = std::make_unique<std::thread>([this, appsrc]() {
+            pthread_setname_np(pthread_self(), "socket-reader");
+            loop_read_socket(m_read_socket_run, this->sock, GST_APP_SRC(appsrc));
         });
     }
 
-    //
-    // we pull data out of the gst pipeline as cpu memory buffer(s) using the gstreamer "appsink" element
-    m_app_sink_element=gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
+    gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
+
+    // Setup appsink
+    m_app_sink_element = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
     assert(m_app_sink_element);
-    m_pull_samples_run= true;
-    m_pull_samples_thread=std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+    m_pull_samples_run = true;
+    m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
 
     spdlog::info("GstRtpReceiver::start_receiving end");
 }
 
-void GstRtpReceiver::stop_receiving()
-{
-    m_pull_samples_run=false;
-    if(m_pull_samples_thread){
+void GstRtpReceiver::stop_receiving() {
+    m_pull_samples_run = false;
+    m_read_socket_run = false;
+    
+    if (m_pull_samples_thread) {
         m_pull_samples_thread->join();
-        m_pull_samples_thread=nullptr;
+        m_pull_samples_thread = nullptr;
     }
-    //TODO unref appsink reference
+    
+    if (m_read_socket_thread) {
+        m_read_socket_thread->join();
+        m_read_socket_thread = nullptr;
+    }
+    
     if (m_gst_pipeline != nullptr) {
-        // Needed on jetson ?!
-        gst_element_send_event ((GstElement*)m_gst_pipeline, gst_event_new_eos ());
+        gst_element_send_event((GstElement*)m_gst_pipeline, gst_event_new_eos());
         gst_element_set_state(m_gst_pipeline, GST_STATE_PAUSED);
-        gst_element_set_state (m_gst_pipeline, GST_STATE_NULL);
-        gst_object_unref (m_gst_pipeline);
-        m_gst_pipeline=nullptr;
-    }
-    if (m_loop) {
-        g_main_loop_quit(m_loop);
-        if (m_main_loop_thread && m_main_loop_thread->joinable()) {
-            m_main_loop_thread->join();
-        }
-        g_main_loop_unref(m_loop);
-        m_loop = nullptr;
+        gst_element_set_state(m_gst_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_gst_pipeline);
+        m_gst_pipeline = nullptr;
     }
 }

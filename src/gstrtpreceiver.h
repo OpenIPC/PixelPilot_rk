@@ -66,8 +66,8 @@ private:
     // appsrc
     const char* unix_socket = nullptr;
     int sock;
-    GMainLoop* m_loop = nullptr;
-    std::unique_ptr<std::thread> m_main_loop_thread;
+    bool m_read_socket_run = false;
+    std::unique_ptr<std::thread> m_read_socket_thread;
 };
 
 
