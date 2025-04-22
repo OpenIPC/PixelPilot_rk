@@ -186,7 +186,7 @@ void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample
 static constexpr int SOCKET_POLL_TIMEOUT_MS = 100;
 
 static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc) {
-    uint8_t buf[MAX_PACKET_SIZE];
+    GstBufferPool* pool = GST_BUFFER_POOL(g_object_get_data(G_OBJECT(appsrc), "buffer-pool"));
     uint64_t pkt_counter = 0;
     auto last_report = std::chrono::steady_clock::now();
 
@@ -199,21 +199,37 @@ static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc)
         int ready = select(sock_fd + 1, &read_fds, nullptr, nullptr, &timeout);
         if (ready <= 0) continue;
 
-        ssize_t n = recv(sock_fd, buf, sizeof(buf), 0);
-        if (n <= RTP_HEADER_LEN) {
-            spdlog::warn("Invalid RTP packet size: {}", n);
+        // Get buffer from pool
+        GstBuffer* buffer = nullptr;
+        GstFlowReturn ret = gst_buffer_pool_acquire_buffer(pool, &buffer, nullptr);
+        if (ret != GST_FLOW_OK || !buffer) {
+            spdlog::warn("Failed to acquire buffer from pool");
             continue;
         }
 
-        // Copy data into a new GStreamer buffer
-        GstBuffer* buffer = gst_buffer_new_allocate(nullptr, n, nullptr);
+        // Map buffer for writing
         GstMapInfo map;
-        gst_buffer_map(buffer, &map, GST_MAP_WRITE);
-        memcpy(map.data, buf, n);
+        if (!gst_buffer_map(buffer, &map, GST_MAP_WRITE)) {
+            spdlog::warn("Failed to map buffer");
+            gst_buffer_unref(buffer);
+            continue;
+        }
+
+        // Read data directly into buffer
+        ssize_t n = recv(sock_fd, map.data, map.size, 0);
         gst_buffer_unmap(buffer, &map);
+        
+        if (n <= RTP_HEADER_LEN) {
+            spdlog::warn("Invalid RTP packet size: {}", n);
+            gst_buffer_unref(buffer);
+            continue;
+        }
+
+        // Resize buffer to actual data size
+        gst_buffer_resize(buffer, 0, n);
 
         // Push to appsrc
-        GstFlowReturn ret = gst_app_src_push_buffer(appsrc, buffer);
+        ret = gst_app_src_push_buffer(appsrc, buffer);
         if (ret != GST_FLOW_OK) {
             spdlog::warn("Appsrc push error: {}", gst_flow_get_name(ret));
             break;
@@ -227,6 +243,11 @@ static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc)
             pkt_counter = 0;
             last_report = now;
         }
+    }
+    
+    if (pool) {
+        gst_buffer_pool_set_active(pool, FALSE);
+        gst_object_unref(pool);
     }
 }
 
@@ -258,15 +279,39 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb) {
             return;
         }
         
+        // Configure appsrc with buffer pool
+        GstBufferPool* pool = nullptr;
+        GstStructure* config = nullptr;
+        
         g_object_set(appsrc,
             "stream-type", 0,
             "is-live", TRUE,
             "format", GST_FORMAT_TIME,
             "block", FALSE,
-            "max-bytes", 2000000,
-            "min-percent", 20,
             "do-timestamp", TRUE,
             NULL);
+            
+        // Create buffer pool
+        pool = gst_buffer_pool_new();
+        config = gst_buffer_pool_get_config(pool);
+        
+        GstCaps* caps = gst_caps_new_simple("application/x-rtp",
+            "media", G_TYPE_STRING, "video",
+            "encoding-name", G_TYPE_STRING, 
+                (m_video_codec == VideoCodec::H264) ? "H264" : "H265",
+            NULL);
+        
+        gst_buffer_pool_config_set_params(config, caps, MAX_PACKET_SIZE, 10, 20);
+        // gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_META);
+        gst_buffer_pool_set_config(pool, config);
+        gst_caps_unref(caps);
+        
+        if (!gst_buffer_pool_set_active(pool, TRUE)) {
+            spdlog::error("Failed to activate buffer pool");
+            gst_object_unref(pool);
+        } else {
+            g_object_set_data(G_OBJECT(appsrc), "buffer-pool", pool);
+        }
             
         // Start socket reading thread
         m_read_socket_run = true;
