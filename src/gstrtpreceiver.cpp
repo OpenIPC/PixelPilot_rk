@@ -81,31 +81,40 @@ GstRtpReceiver::GstRtpReceiver(int udp_port, const VideoCodec& codec)
 
 }
 
-GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec)
-{
+GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec) {
     unix_socket = strdup(s);
-    m_video_codec=codec;
+    m_video_codec = codec;
     initGstreamerOrThrow();
 
-    spdlog::debug("Creating receiver socket");
-    unlink(unix_socket);
-    sock=socket(AF_UNIX,SOCK_DGRAM,0);
-    if(sock<0){
-        perror("socket");
-    }
-    struct sockaddr_un addr={0};
-    addr.sun_family=AF_UNIX;
-    strncpy(addr.sun_path,unix_socket,sizeof(addr.sun_path) - 1);
-    if (bind(sock,(struct sockaddr*)&addr,sizeof(addr))<0)
-    {
-        perror("bind");
+    spdlog::debug("Creating receiver socket on {}", unix_socket);
+
+    sock = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        throw std::runtime_error(std::string("socket() failed: ") + strerror(errno));
     }
 
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+
+    // Abstract socket: Start sun_path with a null byte, then copy the rest.
+    // The "@" in logs is a placeholder for the null byte.
+    addr.sun_path[0] = '\0';  // First byte is null
+    strncpy(addr.sun_path + 1, unix_socket, sizeof(addr.sun_path) - 2);  // Leave room for null
+    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';  // Ensure null-terminated
+
+    // Length = sizeof(sun_family) + 1 (null byte) + strlen(path)
+    socklen_t addr_len = sizeof(addr.sun_family) + 1 + strlen(unix_socket);
+
+    if (bind(sock, (struct sockaddr*)&addr, addr_len) < 0) {
+        close(sock);
+        throw std::runtime_error(std::string("bind() failed: ") + strerror(errno));
+    }
+
+    spdlog::debug("Bound successfully to abstract socket: @{}", unix_socket);
 }
 
 GstRtpReceiver::~GstRtpReceiver(){
     close(sock);
-    unlink(unix_socket);
 }
 
 static std::shared_ptr<std::vector<uint8_t>> gst_copy_buffer(GstBuffer* buffer){
