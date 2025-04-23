@@ -46,11 +46,21 @@ typedef struct {
 
 // Define all GPIO buttons
 gpio_button_t gpio_buttons[] = {
+
+    // Ruby
+    // {"/dev/gpiochip3", 9,  NULL, NULL, -1, 0},  // Up   PIN_16
+    // {"/dev/gpiochip3", 10,  NULL, NULL, -1, 0}, // Down PIN_18
+    // {"/dev/gpiochip3", 2,  NULL, NULL, -1, 0},  // Left PIN_13
+    // {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // Right PIN_11
+    // {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK   PIN_32
+
+    // RunCam VRX
     {"/dev/gpiochip3", 9,  NULL, NULL, -1, 0},  // Up   PIN_16
     {"/dev/gpiochip3", 10,  NULL, NULL, -1, 0}, // Down PIN_18
     {"/dev/gpiochip3", 2,  NULL, NULL, -1, 0},  // Left PIN_13
-    {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // Right PIN_11
-    {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK   PIN_32
+    {"/dev/gpiochip3", 6,  NULL, NULL, -1, 0}, // Right PIN_38
+    {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // OK   PIN_11
+    {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK   PIN_18
 };
 #endif
 
