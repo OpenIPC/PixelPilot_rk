@@ -33,6 +33,7 @@
 #include <linux/videodev2.h>
 #include <rockchip/rk_mpi.h>
 #include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 #include "spdlog/spdlog.h"
 
 extern "C" {
@@ -52,12 +53,15 @@ extern "C" {
 #include "scheduling_helper.hpp"
 #include "time_util.h"
 #include "pixelpilot_config.h"
+#include <iostream>
 
 
 #define READ_BUF_SIZE (1024*1024) // SZ_1M https://github.com/rockchip-linux/mpp/blob/ed377c99a733e2cdbcc457a6aa3f0fcd438a9dff/osal/inc/mpp_common.h#L179
 #define MAX_FRAMES 24		// min 16 and 20+ recommended (mpp/readme.txt)
 
 #define CODEC_ALIGN(x, a)   (((x)+(a)-1)&~((a)-1))
+
+YAML::Node config;
 
 struct {
 	MppCtx		  ctx;
@@ -573,6 +577,25 @@ int main(int argc, char **argv)
     std::ofstream pidFile(pidFilePath);
     pidFile << getpid();
     pidFile.close();
+
+	// Load yaml config
+    try {
+        config = YAML::LoadFile("/etc/pixelpilot.yml");
+
+		// GSMENU settings
+		if (config["gsmenu"]) {
+            if (config["gsmenu"]["enabled"]) {
+                gsmenu_enabled = config["gsmenu"]["enabled"].as<bool>();
+            }
+        }
+
+	} catch (const YAML::BadFile& e) {
+		std::cout << "Configuration file /etc/pixelpilot.yml not found." << std::endl;
+	} catch (const YAML::ParserException& e) {
+		std::cerr << "Error parsing configuration: " << e.what() << std::endl;
+	} catch (const YAML::Exception& e) {
+		std::cerr << "Configuration error: " << e.what() << std::endl;
+	}
 
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
