@@ -56,7 +56,7 @@ set(SIMULATOR_SOURCES
         src/menu.h
         src/menu.c
         src/input.h
-        src/input.c
+        src/input.cpp
 )
 # LVGL setup
 
@@ -97,7 +97,7 @@ set(SOURCE_FILES
         src/menu.h
         src/menu.c
         src/input.h
-        src/input.c
+        src/input.cpp
         src/osd.h
         src/osd.hpp
         src/osd.cpp
@@ -131,9 +131,10 @@ if(USE_SIMULATOR)
 else()
   find_package(spdlog REQUIRED)
   find_package(nlohmann_json 3 REQUIRED)
+  find_package(yaml-cpp REQUIRED)
   pkg_check_modules(LIBGPIOD REQUIRED libgpiod)
   add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-  target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json rt lvgl ${LIBGPIOD_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES})
   # Embed gstreamer
   find_package(PkgConfig REQUIRED)
   pkg_search_module(GST REQUIRED

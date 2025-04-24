@@ -7,13 +7,18 @@
 #include <dirent.h>
 #include <string.h>
 #include <time.h>
+#include <yaml-cpp/yaml.h>
+#include <glob.h>
 #include "main.h"
 #include "../../lvgl/lvgl.h"
 #include "../../lvgl/src/core/lv_global.h"
 #include "input.h"
 #include "gsmenu/gs_system.h"
 
-typedef struct Dvr* Dvr; // Forward declaration
+extern YAML::Node config;
+
+
+struct Dvr;
 void dvr_start_recording(Dvr* dvr);
 void dvr_stop_recording(Dvr* dvr);
 extern Dvr *dvr;
@@ -25,43 +30,27 @@ lv_timer_t * timer = NULL;
 #endif
 #ifndef USE_SIMULATOR
 extern bool menu_active;
-#define MAX_GPIO_BUTTONS 10  // Adjust based on your hardware
-#define MAX_GPIO_CHIPS 5     // Max number of GPIO chips to scan
-#define GPIO_PATH "/dev/"    // Base path for GPIO chips
+#define MAX_GPIO_BUTTONS 6  // Adjust based on your hardware
 #define DEBOUNCE_DELAY_MS 50 // Debounce delay in milliseconds
 #define INITIAL_REPEAT_DELAY_MS 500  // Time before repeat starts
 #define REPEAT_RATE_MS 100           // Time between repeated events
 
-// Add this to the gpio_button_t struct
+// gpio_button_t structure
 typedef struct {
-    const char *chip_name;
-    int line_num;
+    const char *name;        // Button name ("up", "down", etc.)
+    int pin_number;          // Physical pin number from YAML
+    const char *chip_name;   // GPIO chip path (e.g., "/dev/gpiochip0")
+    int line_num;            // GPIO line number
     struct gpiod_chip *chip;
     struct gpiod_line *line;
     int last_state;
     long last_time;
-    long repeat_time;       // Time when next repeat should occur
-    bool is_holding;        // Whether button is being held down
+    long repeat_time;
+    bool is_holding;
 } gpio_button_t;
 
-// Define all GPIO buttons
-gpio_button_t gpio_buttons[] = {
-
-    // Ruby
-    // {"/dev/gpiochip3", 9,  NULL, NULL, -1, 0},  // Up   PIN_16
-    // {"/dev/gpiochip3", 10,  NULL, NULL, -1, 0}, // Down PIN_18
-    // {"/dev/gpiochip3", 2,  NULL, NULL, -1, 0},  // Left PIN_13
-    // {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // Right PIN_11
-    // {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK   PIN_32
-
-    // RunCam VRX
-    {"/dev/gpiochip3", 9,  NULL, NULL, -1, 0},  // Up   PIN_16
-    {"/dev/gpiochip3", 10,  NULL, NULL, -1, 0}, // Down PIN_18
-    {"/dev/gpiochip3", 2,  NULL, NULL, -1, 0},  // Left PIN_13
-    {"/dev/gpiochip3", 6,  NULL, NULL, -1, 0}, // Right PIN_38
-    {"/dev/gpiochip3", 1,  NULL, NULL, -1, 0}, // OK   PIN_11
-    {"/dev/gpiochip3", 18,  NULL, NULL, -1, 0}, // OK   PIN_18
-};
+// Global array of GPIO buttons
+gpio_button_t gpio_buttons[MAX_GPIO_BUTTONS] = {0};
 #endif
 
 extern lv_obj_t * pp_menu_screen;
@@ -78,9 +67,143 @@ void simulate_traffic(lv_timer_t *t)
 }
 
 #ifndef USE_SIMULATOR
+// Function to find GPIO chip and line for a given pin number
+bool find_gpio_mapping(int pin, const char** chip_name, int* line_num) {
+    glob_t globbuf;
+    struct gpiod_chip *chip = NULL;
+    bool found = false;
+
+    if (glob("/dev/gpiochip*", 0, NULL, &globbuf) != 0) {
+        perror("Failed to find GPIO chips");
+        return false;
+    }
+
+    for (size_t i = 0; i < globbuf.gl_pathc && !found; i++) {
+        chip = gpiod_chip_open(globbuf.gl_pathv[i]);
+        if (!chip) continue;
+
+        // For libgpiod v1.x
+        int num_lines = gpiod_chip_num_lines(chip);
+        for (int offset = 0; offset < num_lines && !found; offset++) {
+            struct gpiod_line *line = gpiod_chip_get_line(chip, offset);
+            if (!line) continue;
+
+            const char *name = gpiod_line_name(line);
+            if (name) {
+                int extracted_pin = 0;
+                if (sscanf(name, "PIN_%d", &extracted_pin) == 1 || 
+                    sscanf(name, "GPIO%d", &extracted_pin) == 1 ||
+                    sscanf(name, "%d", &extracted_pin) == 1) {
+                    if (extracted_pin == pin) {
+                        *chip_name = strdup(globbuf.gl_pathv[i]);
+                        *line_num = offset;
+                        found = true;
+                    }
+                }
+            }
+            gpiod_line_release(line);
+        }
+        gpiod_chip_close(chip);
+    }
+    globfree(&globbuf);
+    return found;
+}
+
+void init_gpio_buttons_from_config(YAML::Node& config) {
+    // Get GPIO config from YAML
+    YAML::Node gpio_config = config["gsmenu"]["gpio"];
+    
+    // Initialize buttons based on config
+    int button_index = 0;
+    
+    if (gpio_config["up"]) {
+        gpio_buttons[button_index].name = "up";
+        gpio_buttons[button_index].pin_number = gpio_config["up"].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (up)\n", 
+                    gpio_buttons[button_index].pin_number);
+        }
+    }
+    
+    if (gpio_config["down"]) {
+        gpio_buttons[button_index].name = "down";
+        gpio_buttons[button_index].pin_number = gpio_config["down"].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (down)\n", 
+                    gpio_buttons[button_index].pin_number);
+        }
+    }
+    
+    if (gpio_config["left"]) {
+        gpio_buttons[button_index].name = "left";
+        gpio_buttons[button_index].pin_number = gpio_config["left"].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (left)\n", 
+                    gpio_buttons[button_index].pin_number);
+        }
+    }
+    
+    if (gpio_config["right"]) {
+        gpio_buttons[button_index].name = "right";
+        gpio_buttons[button_index].pin_number = gpio_config["right"].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (right)\n", 
+                    gpio_buttons[button_index].pin_number);
+        }
+    }
+    
+    if (gpio_config["center"]) {
+        gpio_buttons[button_index].name = "center";
+        gpio_buttons[button_index].pin_number = gpio_config["center"].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (center)\n", 
+                    gpio_buttons[button_index].pin_number);
+        }
+    }
+    
+    if (gpio_config["rec"]) {
+        gpio_buttons[button_index].name = "rec";
+        gpio_buttons[button_index].pin_number = gpio_config["rec"].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (rec)\n", 
+                    gpio_buttons[button_index].pin_number);
+        }
+    }
+}
+
 // Function to initialize GPIO buttons
-void setup_gpio(void) {
+void setup_gpio(YAML::Node& config) {
+    // Initialize buttons from config first
+    init_gpio_buttons_from_config(config);
+    
+    // Then setup the GPIO lines
     for (size_t i = 0; i < sizeof(gpio_buttons) / sizeof(gpio_buttons[0]); i++) {
+        if (gpio_buttons[i].chip_name == NULL) continue;
+        
         gpio_buttons[i].chip = gpiod_chip_open(gpio_buttons[i].chip_name);
         if (!gpio_buttons[i].chip) {
             perror("Failed to open GPIO chip");
@@ -249,11 +372,15 @@ void handle_gpio_input(void) {
 
 // Cleanup function for GPIO
 void cleanup_gpio(void) {
-    for (size_t i = 0; i < sizeof(gpio_buttons) / sizeof(gpio_buttons[0]); i++) {
+    for (int i = 0; i < MAX_GPIO_BUTTONS; i++) {
         if (gpio_buttons[i].chip) {
             gpiod_chip_close(gpio_buttons[i].chip);
             gpio_buttons[i].chip = NULL;
             gpio_buttons[i].line = NULL;
+        }
+        if (gpio_buttons[i].chip_name) {
+            free((void*)gpio_buttons[i].chip_name);  // Free the strdup'ed chip_name
+            gpio_buttons[i].chip_name = NULL;
         }
     }
 }
@@ -405,11 +532,7 @@ void handle_keyboard_input(void) {
             case 'Q':
                 printf("Exiting...\n");
                 restore_stdin();
-#ifndef USE_SIMULATOR
-                sig_handler(2);
-#else
                 exit(0);
-#endif
                 break;
         }
     }
@@ -457,7 +580,7 @@ lv_indev_t * create_virtual_keyboard() {
 
     set_stdin_nonblock(); // setup keyboard input from stdin
 #ifndef USE_SIMULATOR 
-    setup_gpio();          // Initialize GPIO
+    setup_gpio(config);          // Initialize GPIO
 #endif
     lv_indev_t * indev_drv = lv_indev_create();
     lv_indev_set_type(indev_drv, LV_INDEV_TYPE_KEYPAD);
