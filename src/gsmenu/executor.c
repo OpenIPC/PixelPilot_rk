@@ -49,6 +49,7 @@ void build_output_string(char *buffer, const char *msgbox_text, CommandResult re
 }
 
 void show_error(CommandResult result) {
+    lv_lock();
 
     if (error_group != lv_indev_get_group(indev_drv)) {
         current_group = lv_indev_get_group(indev_drv);
@@ -83,6 +84,7 @@ void show_error(CommandResult result) {
 
     lv_label_set_text(msgbox_label,buffer);
     lv_obj_set_width(msgbox, lv_pct(80));
+    lv_unlock();
 
 }
 
