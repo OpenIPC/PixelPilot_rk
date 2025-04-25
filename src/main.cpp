@@ -412,8 +412,13 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
 }
 
 uint64_t first_frame_ms=0;
-void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoCodec& codec){
-    GstRtpReceiver receiver(gst_udp_port, codec);
+void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *sock ,const VideoCodec& codec){
+	std::unique_ptr<GstRtpReceiver> receiver;
+	if (sock) {
+		receiver = std::make_unique<GstRtpReceiver>(sock, codec);
+	} else {
+		receiver = std::make_unique<GstRtpReceiver>(gst_udp_port, codec);
+	}
 	long long bytes_received = 0; 
 	uint64_t period_start=0;
     auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
@@ -431,11 +436,11 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const VideoC
 			dvr->frame(frame);
         }
     };
-    receiver.start_receiving(cb);
+    receiver->start_receiving(cb);
     while (!signal_flag){
         sleep(10);
     }
-    receiver.stop_receiving();
+    receiver->stop_receiving();
     spdlog::info("Feeding eos");
     mpp_packet_set_eos(packet);
     //mpp_packet_set_pos(packet, nal_buffer);
@@ -503,6 +508,8 @@ void printHelp() {
     "\n"
     "    -p <port>              - UDP port for RTP video stream         (Default: 5600)\n"
     "\n"
+    "    --socket <socket>      - read data from socket\n"
+    "\n"
     "    --mavlink-port <port>  - UDP port for mavlink telemetry        (Default: 14550)\n"
     "\n"
     "    --mavlink-dvr-on-arm   - Start recording when armed\n"
@@ -560,6 +567,7 @@ int main(int argc, char **argv)
 	int mp4_fragmentation_mode = 0;
 	bool dvr_filenames_with_sequence = false;
 	uint16_t listen_port = 5600;
+	const char* unix_socket = NULL;
 	uint16_t wfb_port = 8003;
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
@@ -609,6 +617,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("-p") {
 		listen_port = atoi(__ArgValue);
+		continue;
+	}
+	
+	__OnArgument("--socket") {
+		unix_socket = const_cast<char*>(__ArgValue);
 		continue;
 	}
 
@@ -874,7 +887,7 @@ int main(int argc, char **argv)
 	}
 
 	////////////////////////////////////////////// MAIN LOOP
-    read_gstreamerpipe_stream((void**)packet, listen_port, codec);
+    read_gstreamerpipe_stream((void**)packet, listen_port, unix_socket, codec);
 
 	////////////////////////////////////////////// MPI CLEANUP
 
