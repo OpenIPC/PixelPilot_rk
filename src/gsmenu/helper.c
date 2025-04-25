@@ -22,6 +22,34 @@ extern lv_obj_t * gs_actions_cont;
 extern lv_group_t *main_group;
 
 
+void generic_page_load_callback(lv_obj_t * page)
+{
+    menu_page_data_t *menu_page_data = lv_obj_get_user_data(page);
+    PageEntry *entries = menu_page_data->page_entries;
+
+    lv_obj_t *msgbox = lv_msgbox_create(NULL);
+    lv_obj_add_style(msgbox, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *label = lv_label_create(msgbox);
+    lv_obj_t *bar = lv_bar_create(msgbox);
+    lv_obj_add_style(bar, &style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_add_style(bar, &style_openipc_dropdown, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_bar_set_range(bar, 0, menu_page_data->entry_count);
+    lv_obj_center(bar);
+
+    for (int i = 0; i < menu_page_data->entry_count; i++) {
+        PageEntry *entry = &entries[i];
+        if (entry->caption && entry->reload) {
+            lv_label_set_text(label, entry->caption);
+            lv_bar_set_value(bar, i, LV_ANIM_OFF);
+            lv_refr_now(NULL);
+            entries[i].reload(page, entries[i].target);
+        }
+    }
+
+    lv_msgbox_close(msgbox);
+}
+
 void back_event_handler(lv_event_t * e) {
     lv_key_t key = lv_event_get_key(e);
     if (key == LV_KEY_HOME) {
