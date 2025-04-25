@@ -202,6 +202,11 @@ void run_command_and_block(lv_event_t* e,const char * command) {
 
 void generic_switch_event_cb(lv_event_t * e)
 {
+    lv_key_t key = lv_indev_get_key(indev_drv);
+    if (key == LV_KEY_HOME) {
+        printf("skipping change as user wants to go back");  // workaround for see: https://github.com/lvgl/lvgl/issues/8093
+        return;
+    }
     lv_obj_t * target = lv_event_get_target(e);
     thread_data_t * user_data = (thread_data_t *) lv_event_get_user_data(e);
     char final_command[200] = "gsmenu.sh set ";

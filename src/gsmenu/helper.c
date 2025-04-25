@@ -297,25 +297,6 @@ lv_obj_t * create_spinbox(lv_obj_t * parent, const char * icon, const char * txt
     return obj;
 }
 
-void lv_issue_8093_workaround_cd(lv_event_t * e)
-{
-    lv_event_code_t code = lv_event_get_code(e);
-    switch (code)
-    {
-    case LV_EVENT_FOCUSED:
-        printf("GSMENU_CONTROL_MODE_LVGL_ISSUE_8093\n");
-        control_mode = GSMENU_CONTROL_MODE_LVGL_ISSUE_8093;
-        break;
-    case LV_EVENT_DEFOCUSED:
-        printf("GSMENU_CONTROL_MODE_NAV\n");
-        control_mode = GSMENU_CONTROL_MODE_NAV;
-        break;
-
-    default:
-        break;
-    }
-}
-
 lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,const char * parameter, menu_page_data_t* menu_page_data,bool blocking)
 {
     lv_obj_t * obj = lv_menu_cont_create(parent);
@@ -352,8 +333,7 @@ lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,
         lv_obj_add_event_cb(sw, generic_switch_event_cb, LV_EVENT_VALUE_CHANGED,data);
     }
 
-    // lv_obj_add_event_cb(sw, back_event_handler, LV_EVENT_KEY,NULL); // disabled for now, see: https://github.com/lvgl/lvgl/issues/8093
-    lv_obj_add_event_cb(sw, lv_issue_8093_workaround_cd, LV_EVENT_ALL,NULL);
+    lv_obj_add_event_cb(sw, back_event_handler, LV_EVENT_KEY,NULL);
 
     return obj;
 }
