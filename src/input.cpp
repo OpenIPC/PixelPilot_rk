@@ -227,92 +227,93 @@ void setup_gpio(YAML::Node& config) {
 }
 
 void send_button_event(size_t button_index) {
+    if (gpio_buttons[button_index].name == NULL) return;
+
     // Adjust for control_mode
     switch (control_mode) {
         case GSMENU_CONTROL_MODE_NAV:
-            switch (gpio_buttons[button_index].line_num) {
-                case 9:  // Up
-                    next_key = LV_KEY_PREV;
-                    break;
-                case 10: // Down
-                    next_key = LV_KEY_NEXT;
-                    break;
-                case 2:  // Left
-                    next_key = LV_KEY_HOME;
-                    break;
-                case 1:  // Right
-                    next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
-                    break;
-                case 18: // OK
-                    next_key = LV_KEY_ENTER;
-                    break;
+            if (strcmp(gpio_buttons[button_index].name, "up") == 0) {
+                next_key = LV_KEY_PREV;
+            } 
+            else if (strcmp(gpio_buttons[button_index].name, "down") == 0) {
+                next_key = LV_KEY_NEXT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "left") == 0) {
+                next_key = LV_KEY_HOME;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "right") == 0) {
+                next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "center") == 0) {
+                next_key = LV_KEY_ENTER;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "rec") == 0) {
+                // Handle rec button if needed
             }
             break;
+            
         case GSMENU_CONTROL_MODE_EDIT:
-            switch (gpio_buttons[button_index].line_num) {
-                case 9:  // Up
-                    next_key = LV_KEY_UP;
-                    break;
-                case 10: // Down
-                    next_key = LV_KEY_DOWN;
-                    break;
-                case 2:  // Left
-                    next_key = LV_KEY_ESC;
-                    break;
-                case 1:  // Right
-                    next_key = LV_KEY_ENTER;
-                    break;
-                case 18: // OK
-                    next_key = LV_KEY_ENTER;
-                    break;
+            if (strcmp(gpio_buttons[button_index].name, "up") == 0) {
+                next_key = LV_KEY_UP;
+            } 
+            else if (strcmp(gpio_buttons[button_index].name, "down") == 0) {
+                next_key = LV_KEY_DOWN;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "left") == 0) {
+                next_key = LV_KEY_ESC;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "right") == 0 ||
+                     strcmp(gpio_buttons[button_index].name, "center") == 0) {
+                next_key = LV_KEY_ENTER;
             }
             break;
+            
         case GSMENU_CONTROL_MODE_SLIDER:
-            switch (gpio_buttons[button_index].line_num) {
-                case 9:  // Up
-                    next_key = LV_KEY_RIGHT;
-                    break;
-                case 10: // Down
-                    next_key = LV_KEY_LEFT;
-                    break;
-                case 2:  // Left
-                    next_key = LV_KEY_ESC;
-                    break;
-                case 1:  // Right
-                    next_key = LV_KEY_ENTER;
-                    break;
-                case 18: // OK
-                    next_key = LV_KEY_ENTER;
-                    break;
+            if (strcmp(gpio_buttons[button_index].name, "up") == 0) {
+                next_key = LV_KEY_RIGHT;
+            } 
+            else if (strcmp(gpio_buttons[button_index].name, "down") == 0) {
+                next_key = LV_KEY_LEFT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "left") == 0) {
+                next_key = LV_KEY_ESC;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "right") == 0 ||
+                     strcmp(gpio_buttons[button_index].name, "center") == 0) {
+                next_key = LV_KEY_ENTER;
             }
             break;
+            
         case GSMENU_CONTROL_MODE_KEYBOARD:
-            switch (gpio_buttons[button_index].line_num) {
-                case 9:  // Up
-                    next_key = LV_KEY_UP;
-                    break;
-                case 10: // Down
-                    next_key = LV_KEY_DOWN;
-                    break;
-                case 2:  // Left
-                    next_key = LV_KEY_LEFT;
-                    break;
-                case 1:  // Right
-                    next_key = LV_KEY_RIGHT;
-                    break;
-                case 18: // OK
-                    next_key = LV_KEY_ENTER;
-                    break;
+            if (strcmp(gpio_buttons[button_index].name, "up") == 0) {
+                next_key = LV_KEY_UP;
+            } 
+            else if (strcmp(gpio_buttons[button_index].name, "down") == 0) {
+                next_key = LV_KEY_DOWN;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "left") == 0) {
+                next_key = LV_KEY_LEFT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "right") == 0) {
+                next_key = LV_KEY_RIGHT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "center") == 0) {
+                next_key = LV_KEY_ENTER;
             }
             break;
+            
         default:
             break;
     }
-    next_key_pressed = true;
-    printf("GPIO %s: %d (Chip: %s)\n", 
-           gpio_buttons[button_index].is_holding ? "Holding" : "Pressed", 
-           gpio_buttons[button_index].line_num, 
-           gpio_buttons[button_index].chip_name);
+    
+    if (next_key != LV_KEY_END) {
+        next_key_pressed = true;
+        printf("GPIO %s: %s (Pin: %d, Chip: %s)\n", 
+               gpio_buttons[button_index].is_holding ? "Holding" : "Pressed", 
+               gpio_buttons[button_index].name,
+               gpio_buttons[button_index].pin_number,
+               gpio_buttons[button_index].chip_name);
+    }
 }
 
 void handle_gpio_input(void) {
