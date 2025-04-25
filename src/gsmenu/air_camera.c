@@ -8,6 +8,7 @@
 
 extern lv_group_t * default_group;
 
+#define ENTRIES 20
 lv_obj_t * mirror;
 lv_obj_t * flip;
 lv_obj_t * contrast;
@@ -29,70 +30,14 @@ lv_obj_t * sensor_file;
 lv_obj_t * fpv_enable;
 lv_obj_t * noiselevel;
 
-void air_camera_page_load_callback(lv_obj_t * page)
-{
-
-    lv_obj_t * msgbox = lv_msgbox_create(NULL);
-    lv_obj_add_style(msgbox,&style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_t * label = lv_label_create(msgbox);
-    lv_obj_t * bar1 = lv_bar_create(msgbox);
-    lv_obj_add_style(bar1,&style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_add_style(bar1,&style_openipc_dropdown, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_bar_set_range(bar1,0,20);
-    lv_obj_center(bar1);
-    int progress = 0;
-
-    lv_label_set_text(label,"Loading mirror ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,mirror);
-    lv_label_set_text(label,"Loading flip ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,flip);
-    lv_label_set_text(label,"Loading contrast ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,contrast);
-    lv_label_set_text(label,"Loading hue ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,hue);
-    lv_label_set_text(label,"Loading saturation ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,saturation);
-    lv_label_set_text(label,"Loading luminace ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,luminace);
-    lv_label_set_text(label,"Loading size ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,size);
-    lv_label_set_text(label,"Loading fps ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,fps);
-    lv_label_set_text(label,"Loading bitrate ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,bitrate);
-    lv_label_set_text(label,"Loading video_codec ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,video_codec);
-    lv_label_set_text(label,"Loading gopsize ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,gopsize);
-    lv_label_set_text(label,"Loading mirror ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,rc_mode);
-    lv_label_set_text(label,"Loading rec_enable ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,rec_enable);
-    lv_label_set_text(label,"Loading rec_split ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,rec_split);
-    lv_label_set_text(label,"Loading rec_maxusage ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,rec_maxusage);
-    lv_label_set_text(label,"Loading exposure ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,exposure);
-    lv_label_set_text(label,"Loading antiflicker ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,antiflicker);
-    lv_label_set_text(label,"Loading sensor_file ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,sensor_file);
-    lv_label_set_text(label,"Loading fpv_enable ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,fpv_enable);
-    lv_label_set_text(label,"Loading noiselevel ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,noiselevel);
-
-    lv_msgbox_close(msgbox);
-}
-
 void create_air_camera_menu(lv_obj_t * parent) {
 
-    menu_page_data_t* menu_page_data = malloc(sizeof(menu_page_data_t));
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "camera");
-    menu_page_data->page_load_callback = air_camera_page_load_callback;
+    menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
+    menu_page_data->entry_count = ENTRIES;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
@@ -149,6 +94,31 @@ void create_air_camera_menu(lv_obj_t * parent) {
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
     fpv_enable = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","fpv_enable", menu_page_data,false);
     noiselevel = create_slider(cont,LV_SYMBOL_SETTINGS,"Noiselevel",0,1,0,"noiselevel",menu_page_data,false);
+
+
+    PageEntry entries[] = {
+        { "Loading mirror ...", mirror, reload_switch_value },
+        { "Loading flip ...", flip, reload_switch_value },
+        { "Loading contrast ...", contrast, reload_slider_value },
+        { "Loading hue ...", hue, reload_slider_value },
+        { "Loading saturation ...", saturation, reload_slider_value },
+        { "Loading luminace ...", luminace, reload_slider_value },
+        { "Loading size ...", size, reload_dropdown_value },
+        { "Loading fps ...", fps, reload_dropdown_value },
+        { "Loading bitrate ...", bitrate, reload_dropdown_value },
+        { "Loading video_codec ...", video_codec, reload_dropdown_value },
+        { "Loading gopsize ...", gopsize, reload_slider_value },
+        { "Loading rc_mode ...", rc_mode, reload_dropdown_value },
+        { "Loading rec_enable ...", rec_enable, reload_switch_value },
+        { "Loading rec_split ...", rec_split, reload_slider_value },
+        { "Loading rec_maxusage ...", rec_maxusage, reload_slider_value },
+        { "Loading exposure ...", exposure, reload_slider_value },
+        { "Loading antiflicker ...", antiflicker, reload_dropdown_value },
+        { "Loading sensor_file ...", sensor_file, reload_dropdown_value },
+        { "Loading fpv_enable ...", fpv_enable, reload_switch_value },
+        { "Loading noiselevel ...", noiselevel, reload_slider_value }
+    };
+    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
 
     lv_group_set_default(default_group);
 }

@@ -10,6 +10,7 @@
 
 extern lv_group_t * default_group;
 
+#define ENTRIES 9
 lv_obj_t * driver_txpower_override;
 lv_obj_t * air_channel;
 lv_obj_t * air_bandwidth;
@@ -20,49 +21,14 @@ lv_obj_t * fec_k;
 lv_obj_t * fec_n;
 lv_obj_t * air_adaptivelink;
 
-void air_wfbng_page_load_callback(lv_obj_t * page)
-{
-
-    lv_obj_t * msgbox = lv_msgbox_create(NULL);
-    lv_obj_add_style(msgbox,&style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_t * label = lv_label_create(msgbox);
-    lv_obj_t * bar1 = lv_bar_create(msgbox);
-    lv_obj_add_style(bar1,&style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_add_style(bar1,&style_openipc_dropdown, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_bar_set_range(bar1,0,6);
-    lv_obj_center(bar1);
-    int progress = 0;
-
-    lv_label_set_text(label,"Loading driver_txpower_override ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,driver_txpower_override);
-    lv_label_set_text(label,"Loading air_channel ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,air_channel);
-    lv_label_set_text(label,"Loading air_bandwidth ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_dropdown_value(page,air_bandwidth);
-    lv_label_set_text(label,"Loading mcs_index ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,mcs_index);
-    lv_label_set_text(label,"Loading stbc ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,stbc);
-    lv_label_set_text(label,"Loading ldpc ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,ldpc);
-    lv_label_set_text(label,"Loading fec_k ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,fec_k);
-    lv_label_set_text(label,"Loading fec_n ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_slider_value(page,fec_n);
-    lv_label_set_text(label,"Loading air_adaptivelink ..."); lv_bar_set_value(bar1, progress++, LV_ANIM_OFF); lv_refr_now(NULL);
-    reload_switch_value(page,air_adaptivelink);
-
-    lv_msgbox_close(msgbox);
-
-}
-
 void create_air_wfbng_menu(lv_obj_t * parent) {
 
-    menu_page_data_t* menu_page_data = malloc(sizeof(menu_page_data_t));
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "wfbng");
-    menu_page_data->page_load_callback = air_wfbng_page_load_callback;
+    menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
+    menu_page_data->entry_count = ENTRIES;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);    
 
@@ -88,6 +54,19 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
 
     air_adaptivelink = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","adaptivelink", menu_page_data,false);
+
+    PageEntry entries[] = {
+        { "Loading driver_txpower_override ...", driver_txpower_override, reload_dropdown_value },
+        { "Loading air_channel ...", air_channel, reload_dropdown_value },
+        { "Loading air_bandwidth ...", air_bandwidth, reload_dropdown_value },
+        { "Loading mcs_index ...", mcs_index, reload_slider_value },
+        { "Loading stbc ...", stbc, reload_switch_value },
+        { "Loading ldpc ...", ldpc, reload_switch_value },
+        { "Loading fec_k ...", fec_k, reload_slider_value },
+        { "Loading fec_n ...", fec_n, reload_slider_value },
+        { "Loading air_adaptivelink ...", air_adaptivelink, reload_switch_value },
+    };
+    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
 
     lv_group_set_default(default_group);
 }

@@ -12,6 +12,7 @@ typedef enum {
     LV_MENU_ITEM_BUILDER_VARIANT_2
 } lv_menu_builder_variant_t;
 
+void generic_page_load_callback(lv_obj_t * page);
 
 lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking,lv_menu_builder_variant_t builder_variant);
 
