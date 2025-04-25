@@ -11,4 +11,4 @@ void sig_handler(int signum);
 
 #define __OnArgument(Name) if (!strcmp(Arg, Name))
 #define __ArgValue (argc > ArgID + 1 ? argv[++ArgID] : "")
-#define __EndParseConsoleArguments__ else { printf("ERROR: Unknown argument\n"); return 1; } }
+#define __EndParseConsoleArguments__ else { printf("ERROR: Unknown argument %s\n",Arg); return 1; } }

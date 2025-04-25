@@ -61,6 +61,8 @@ extern "C" {
 
 #define CODEC_ALIGN(x, a)   (((x)+(a)-1)&~((a)-1))
 
+#define DEFAULT_CONFIG_PATH "/etc/pixelpilot.yaml"
+const char * config_file_path;
 YAML::Node config;
 
 struct {
@@ -502,6 +504,8 @@ void printHelp() {
     "    pixelpilot [Arguments]\n"
     "\n"
     "  Arguments:\n"
+    "    --config <configfile>  - Load pixelpilot config from file      (Default: /etc/pixelpilot.yaml)\n"
+    "\n"
     "    -p <port>              - UDP port for RTP video stream         (Default: 5600)\n"
     "\n"
     "    --socket <socket>      - read data from socket\n"
@@ -521,8 +525,6 @@ void printHelp() {
     "    --osd-refresh <rate>   - Defines the delay between osd refresh (Default: 1000 ms)\n"
     "\n"
     "    --osd-custom-message   - Enables the display of /run/pixelpilot.msg (beta feature, may be removed)\n"
-    "\n"
-    "    --disable-gsmenu       - Disables the gsmenu and frees up gpios\n"
     "\n"
     "    --dvr-template <path>  - Save the video feed (no osd) to the provided filename template.\n"
     "                             DVR is toggled by SIGUSR1 signal\n"
@@ -580,7 +582,20 @@ int main(int argc, char **argv)
 
 	// Load yaml config
     try {
-        config = YAML::LoadFile("/etc/pixelpilot.yml");
+
+		// First just check for --config argument
+		for (int i = 1; i < argc; i++) {
+			if (!strcmp(argv[i], "--config") && i+1 < argc) {
+				config_file_path = strdup(argv[i+1]);
+				break;
+			}
+		}
+
+		// Set default config path if none specified
+		if (config_file_path == NULL) {
+			config_file_path = strdup(DEFAULT_CONFIG_PATH);
+		}
+        config = YAML::LoadFile(config_file_path);
 
 		// GSMENU settings
 		if (config["gsmenu"]) {
@@ -590,7 +605,7 @@ int main(int argc, char **argv)
         }
 
 	} catch (const YAML::BadFile& e) {
-		std::cout << "Configuration file /etc/pixelpilot.yml not found." << std::endl;
+		std::cout << "Configuration file " << config_file_path << " not found." << std::endl;
 	} catch (const YAML::ParserException& e) {
 		std::cerr << "Error parsing configuration: " << e.what() << std::endl;
 	} catch (const YAML::Exception& e) {
@@ -599,7 +614,7 @@ int main(int argc, char **argv)
 
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
-	
+
 	__OnArgument("-p") {
 		listen_port = atoi(__ArgValue);
 		continue;
@@ -609,6 +624,12 @@ int main(int argc, char **argv)
 		unix_socket = const_cast<char*>(__ArgValue);
 		continue;
 	}
+
+	__OnArgument("--config") {
+		// Already handled above, just skip
+		const char* dummy = __ArgValue;  // Skip the filename
+		continue;
+	}	
 
 	__OnArgument("--codec") {
 		char * codec_str = const_cast<char*>(__ArgValue);
@@ -710,11 +731,6 @@ int main(int argc, char **argv)
 		osd_custom_message = true;
 		continue;
 	}
-
-	__OnArgument("--disable-gsmenu") {
-		gsmenu_enabled = false;
-		continue;
-	}	
 
 	__OnArgument("--screen-mode") {
 		char* mode = const_cast<char*>(__ArgValue);
