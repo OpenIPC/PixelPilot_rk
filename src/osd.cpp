@@ -51,7 +51,7 @@ extern pthread_mutex_t video_mutex;
 extern pthread_cond_t video_cond;
 bool osd_update_ready = false;
 bool menu_active = false;
-bool gsmenu_enabled = true;
+bool gsmenu_enabled = false;
 
 osd_thread_params *p;
 
