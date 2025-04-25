@@ -22,6 +22,7 @@ lv_obj_t * ssid;
 lv_obj_t * password;
 lv_obj_t * wlan;
 lv_obj_t * hotspot;
+lv_obj_t * ipinfo;
 
 void wifi_page_load_callback(lv_obj_t * page)
 {
@@ -29,6 +30,7 @@ void wifi_page_load_callback(lv_obj_t * page)
     reload_switch_value(page,wlan);
     reload_textarea_value(page,ssid);
     reload_textarea_value(page,password);
+    reload_label_value(page,ipinfo);
 }
 
 static void btn_event_cb(lv_event_t * e)
@@ -105,21 +107,24 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_t * section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
 
-    hotspot = create_switch(section,NULL,"Hotspot","hotspot", menu_page_data,false);
+    lv_obj_t * cont = lv_menu_cont_create(section);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    hotspot = create_switch(cont,NULL,"Hotspot","hotspot", menu_page_data,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(hotspot,0,&lv_switch_class), interlocking_switch_callback, LV_EVENT_VALUE_CHANGED, hotspot);
 
 
-    ssid = create_textarea(section, "", "SSID", "ssid", menu_page_data, false);
-    password = create_textarea(section, "", "Password", "password", menu_page_data, true);
+    ssid = create_textarea(cont, "", "SSID", "ssid", menu_page_data, false);
+    password = create_textarea(cont, "", "Password", "password", menu_page_data, true);
 
-    wlan = create_switch(section,NULL,"Connected","wlan", menu_page_data,false);
+    wlan = create_switch(cont,NULL,"Connected","wlan", menu_page_data,false);
     thread_data_t* data = lv_obj_get_user_data(lv_obj_get_child_by_type(wlan,0,&lv_switch_class));
     data->arguments[0] = lv_obj_get_child_by_type(ssid,0,&lv_textarea_class);
     data->arguments[1] = lv_obj_get_child_by_type(password,0,&lv_textarea_class);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(wlan,0,&lv_switch_class), interlocking_switch_callback, LV_EVENT_VALUE_CHANGED, wlan);
 
   
-    lv_obj_t * kb = lv_keyboard_create(lv_obj_get_parent(section));
+    lv_obj_t * kb = lv_keyboard_create(lv_obj_get_parent(cont));
     lv_obj_add_flag(kb, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_style(kb, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
@@ -131,7 +136,17 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(ssid,0,&lv_button_class), btn_event_cb, LV_EVENT_ALL, kb);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(password,0,&lv_button_class), btn_event_cb, LV_EVENT_ALL, kb);
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_ALL,kb);
-    lv_keyboard_set_textarea(kb, NULL);    
+    lv_keyboard_set_textarea(kb, NULL);
+
+    create_text(parent, NULL, "Network", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    section = lv_menu_section_create(parent);
+    lv_obj_add_style(section, &style_openipc_section, 0);
+
+    cont = lv_menu_cont_create(section);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    ipinfo = create_text(cont, LV_SYMBOL_SETTINGS, "Network", "IP", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+
 
     lv_group_set_default(default_group);
 }

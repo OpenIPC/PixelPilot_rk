@@ -409,6 +409,10 @@ case "$@" in
             echo -n ""
         fi
         ;;
+    "get gs wifi IP")
+        WIFI_DEV=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f4)
+        ip -4 addr show "$WIFI_DEV" | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
+        ;;
     "set gs wifi wlan"*)
         [ ! -d /sys/class/net/wlan0 ] && exit 0 # we have no wifi
         if [ "$5" = "on" ]
