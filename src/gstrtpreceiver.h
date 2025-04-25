@@ -12,6 +12,9 @@
 #include <vector>
 #include <functional>
 
+#define MAX_PACKET_SIZE 4096
+#define RTP_HEADER_LEN 12
+
 enum class VideoCodec {
     UNKNOWN=0,
     H264,
@@ -38,6 +41,7 @@ public:
      * The constructor is delayed, remember to use start_receiving()
      */
     explicit GstRtpReceiver(int udp_port, const VideoCodec& codec);
+    explicit GstRtpReceiver(const char *s, const VideoCodec& codec);
     virtual ~GstRtpReceiver();
     // Depending on the codec, these are h264,h265 or mjpeg "frames" / frame buffers
     // The big advantage of gstreamer is that it seems to handle all those parsing quirks the best,
@@ -59,6 +63,11 @@ private:
     GstElement *m_app_sink_element = nullptr;
     bool m_pull_samples_run;
     std::unique_ptr<std::thread> m_pull_samples_thread=nullptr;
+    // appsrc
+    const char* unix_socket = nullptr;
+    int sock;
+    bool m_read_socket_run = false;
+    std::unique_ptr<std::thread> m_read_socket_thread;
 };
 
 

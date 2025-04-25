@@ -7,6 +7,7 @@
 #include "gst/gstparse.h"
 #include "gst/gstpipeline.h"
 #include "gst/app/gstappsink.h"
+#include "gst/app/gstappsrc.h"
 #include "spdlog/spdlog.h"
 #include <cstring>
 #include <stdexcept>
@@ -15,6 +16,11 @@
 #include <iostream>
 #include <memory>
 #include <utility>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <sys/un.h>
+#include <fcntl.h>
+#include <pthread.h>
 
 namespace pipeline {
     static std::string gst_create_rtp_caps(const VideoCodec& videoCodec){
@@ -22,7 +28,7 @@ namespace pipeline {
         if(videoCodec==VideoCodec::H264){
             ss<<"caps=\"application/x-rtp, media=(string)video, encoding-name=(string)H264, payload=(int)96\"";
         }else if(videoCodec==VideoCodec::H265){
-            ss<<"caps=\"application/x-rtp, media=(string)video, encoding-name=(string)H265\"";
+            ss<<"caps=\"application/x-rtp, media=(string)video, encoding-name=(string)H265, clock-rate=(int)90000\"";
         }
         return ss.str();
     }
@@ -72,10 +78,44 @@ GstRtpReceiver::GstRtpReceiver(int udp_port, const VideoCodec& codec)
     m_port=udp_port;
     m_video_codec=codec;
     initGstreamerOrThrow();
+
 }
 
+GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec) {
+    unix_socket = strdup(s);
+    m_video_codec = codec;
+    initGstreamerOrThrow();
 
-GstRtpReceiver::~GstRtpReceiver(){}
+    spdlog::debug("Creating receiver socket on {}", unix_socket);
+
+    sock = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        throw std::runtime_error(std::string("socket() failed: ") + strerror(errno));
+    }
+
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+
+    // Abstract socket: Start sun_path with a null byte, then copy the rest.
+    // The "@" in logs is a placeholder for the null byte.
+    addr.sun_path[0] = '\0';  // First byte is null
+    strncpy(addr.sun_path + 1, unix_socket, sizeof(addr.sun_path) - 2);  // Leave room for null
+    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';  // Ensure null-terminated
+
+    // Length = sizeof(sun_family) + 1 (null byte) + strlen(path)
+    socklen_t addr_len = sizeof(addr.sun_family) + 1 + strlen(unix_socket);
+
+    if (bind(sock, (struct sockaddr*)&addr, addr_len) < 0) {
+        close(sock);
+        throw std::runtime_error(std::string("bind() failed: ") + strerror(errno));
+    }
+
+    spdlog::debug("Bound successfully to abstract socket: @{}", unix_socket);
+}
+
+GstRtpReceiver::~GstRtpReceiver(){
+    close(sock);
+}
 
 static std::shared_ptr<std::vector<uint8_t>> gst_copy_buffer(GstBuffer* buffer){
     assert(buffer);
@@ -113,7 +153,10 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
 std::string GstRtpReceiver::construct_gstreamer_pipeline()
 {
     std::stringstream ss;
-    ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
+    if (! unix_socket)
+        ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
+    else
+        ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
     ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec);
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
@@ -139,51 +182,175 @@ void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample
     }
 }
 
+/* socket → appsrc */
+static constexpr int SOCKET_POLL_TIMEOUT_MS = 100;
 
-void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb)
-{
+static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc) {
+    GstBufferPool* pool = GST_BUFFER_POOL(g_object_get_data(G_OBJECT(appsrc), "buffer-pool"));
+    uint64_t pkt_counter = 0;
+    auto last_report = std::chrono::steady_clock::now();
+
+    while (keep_looping) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(sock_fd, &read_fds);
+
+        struct timeval timeout = { .tv_sec = 0, .tv_usec = SOCKET_POLL_TIMEOUT_MS * 1000 };
+        int ready = select(sock_fd + 1, &read_fds, nullptr, nullptr, &timeout);
+        if (ready <= 0) continue;
+
+        // Get buffer from pool
+        GstBuffer* buffer = nullptr;
+        GstFlowReturn ret = gst_buffer_pool_acquire_buffer(pool, &buffer, nullptr);
+        if (ret != GST_FLOW_OK || !buffer) {
+            spdlog::warn("Failed to acquire buffer from pool");
+            continue;
+        }
+
+        // Map buffer for writing
+        GstMapInfo map;
+        if (!gst_buffer_map(buffer, &map, GST_MAP_WRITE)) {
+            spdlog::warn("Failed to map buffer");
+            gst_buffer_unref(buffer);
+            continue;
+        }
+
+        // Read data directly into buffer
+        ssize_t n = recv(sock_fd, map.data, map.size, 0);
+        gst_buffer_unmap(buffer, &map);
+        
+        if (n <= RTP_HEADER_LEN) {
+            spdlog::warn("Invalid RTP packet size: {}", n);
+            gst_buffer_unref(buffer);
+            continue;
+        }
+
+        // Resize buffer to actual data size
+        gst_buffer_resize(buffer, 0, n);
+
+        // Push to appsrc
+        ret = gst_app_src_push_buffer(appsrc, buffer);
+        if (ret != GST_FLOW_OK) {
+            spdlog::warn("Appsrc push error: {}", gst_flow_get_name(ret));
+            break;
+        }
+
+        // Log packet rate (optional)
+        pkt_counter++;
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_report >= std::chrono::seconds(1)) {
+            spdlog::debug("socket pkts/s {}", pkt_counter);
+            pkt_counter = 0;
+            last_report = now;
+        }
+    }
+    
+    if (pool) {
+        gst_buffer_pool_set_active(pool, FALSE);
+        gst_object_unref(pool);
+    }
+}
+
+void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb) {
     spdlog::info("GstRtpReceiver::start_receiving begin");
-    assert(m_gst_pipeline==nullptr);
-    m_cb=cb;
+    assert(m_gst_pipeline == nullptr);
+    m_cb = cb;
 
-    const auto pipeline=construct_gstreamer_pipeline();
-    GError *error = nullptr;
+    const auto pipeline = construct_gstreamer_pipeline();
+    GError* error = nullptr;
     m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
     spdlog::info("GSTREAMER PIPE=[{}]", pipeline);
+    
     if (error) {
         spdlog::warn("gst_parse_launch error: {}", error->message);
         return;
     }
-    if(!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))){
+    
+    if (!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))) {
         spdlog::warn("Cannot construct pipeline");
         m_gst_pipeline = nullptr;
         return;
     }
-    gst_element_set_state (m_gst_pipeline, GST_STATE_PLAYING);
-    //
-    // we pull data out of the gst pipeline as cpu memory buffer(s) using the gstreamer "appsink" element
-    m_app_sink_element=gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
+
+    if (unix_socket) {
+        GstElement* appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
+        if (!appsrc) {
+            spdlog::error("Failed to get appsrc element from pipeline");
+            return;
+        }
+        
+        // Configure appsrc with buffer pool
+        GstBufferPool* pool = nullptr;
+        GstStructure* config = nullptr;
+        
+        g_object_set(appsrc,
+            "stream-type", 0,
+            "is-live", TRUE,
+            "format", GST_FORMAT_TIME,
+            "block", FALSE,
+            "do-timestamp", TRUE,
+            NULL);
+            
+        // Create buffer pool
+        pool = gst_buffer_pool_new();
+        config = gst_buffer_pool_get_config(pool);
+        
+        GstCaps* caps = gst_caps_new_simple("application/x-rtp",
+            "media", G_TYPE_STRING, "video",
+            "encoding-name", G_TYPE_STRING, 
+                (m_video_codec == VideoCodec::H264) ? "H264" : "H265",
+            NULL);
+        
+        gst_buffer_pool_config_set_params(config, caps, MAX_PACKET_SIZE, 10, 20);
+        // gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_META);
+        gst_buffer_pool_set_config(pool, config);
+        gst_caps_unref(caps);
+        
+        if (!gst_buffer_pool_set_active(pool, TRUE)) {
+            spdlog::error("Failed to activate buffer pool");
+            gst_object_unref(pool);
+        } else {
+            g_object_set_data(G_OBJECT(appsrc), "buffer-pool", pool);
+        }
+            
+        // Start socket reading thread
+        m_read_socket_run = true;
+        m_read_socket_thread = std::make_unique<std::thread>([this, appsrc]() {
+            pthread_setname_np(pthread_self(), "socket-reader");
+            loop_read_socket(m_read_socket_run, this->sock, GST_APP_SRC(appsrc));
+        });
+    }
+
+    gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
+
+    // Setup appsink
+    m_app_sink_element = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
     assert(m_app_sink_element);
-    m_pull_samples_run= true;
-    m_pull_samples_thread=std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+    m_pull_samples_run = true;
+    m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
 
     spdlog::info("GstRtpReceiver::start_receiving end");
 }
 
-void GstRtpReceiver::stop_receiving()
-{
-    m_pull_samples_run=false;
-    if(m_pull_samples_thread){
+void GstRtpReceiver::stop_receiving() {
+    m_pull_samples_run = false;
+    m_read_socket_run = false;
+    
+    if (m_pull_samples_thread) {
         m_pull_samples_thread->join();
-        m_pull_samples_thread=nullptr;
+        m_pull_samples_thread = nullptr;
     }
-    //TODO unref appsink reference
+    
+    if (m_read_socket_thread) {
+        m_read_socket_thread->join();
+        m_read_socket_thread = nullptr;
+    }
+    
     if (m_gst_pipeline != nullptr) {
-        // Needed on jetson ?!
-        gst_element_send_event ((GstElement*)m_gst_pipeline, gst_event_new_eos ());
+        gst_element_send_event((GstElement*)m_gst_pipeline, gst_event_new_eos());
         gst_element_set_state(m_gst_pipeline, GST_STATE_PAUSED);
-        gst_element_set_state (m_gst_pipeline, GST_STATE_NULL);
-        gst_object_unref (m_gst_pipeline);
-        m_gst_pipeline=nullptr;
+        gst_element_set_state(m_gst_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_gst_pipeline);
+        m_gst_pipeline = nullptr;
     }
 }
