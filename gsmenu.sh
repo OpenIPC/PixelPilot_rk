@@ -12,6 +12,9 @@ case "$@" in
     "values air wfbng fec_n")
         echo -n 0 15
         ;;
+    "values air wfbng mlink")
+        echo -e "1500\n1600\n1700\n1800\n1900\n2000\n2100\n2200\n2300\n2400\n2500\n2600\n2700\n2800\n2900\n3000\n3100\n3200\n3300\n3400\n3500\n3600\n3700\n3800\n3900\n4000"
+        ;;
     "values air camera contrast")
         echo -n 0 100
         ;;
@@ -282,6 +285,9 @@ case "$@" in
     "get air wfbng fec_n")
         $SSH wifibroadcast cli -g .broadcast.fec_n
         ;;
+    "get air wfbng mlink")
+        $SSH wifibroadcast cli -g .wireless.mlink
+        ;;
     "get air wfbng adaptivelink")
         $SSH grep ^alink_drone /etc/rc.local | grep -q 'alink_drone' && echo 1 || echo 0
         ;;
@@ -330,6 +336,10 @@ case "$@" in
         ;;
     "set air wfbng fec_n"*)
         $SSH wifibroadcast cli -s .broadcast.fec_n $5
+        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        ;;
+    "set air wfbng mlink"*)
+        $SSH wifibroadcast cli -s .wireless.mlink $5
         $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;
     "set air wfbng adaptivelink"*)
