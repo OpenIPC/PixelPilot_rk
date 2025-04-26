@@ -10,7 +10,7 @@
 
 extern lv_group_t * default_group;
 
-#define ENTRIES 9
+#define ENTRIES 10
 lv_obj_t * driver_txpower_override;
 lv_obj_t * air_channel;
 lv_obj_t * air_bandwidth;
@@ -19,6 +19,7 @@ lv_obj_t * stbc;
 lv_obj_t * ldpc;
 lv_obj_t * fec_k;
 lv_obj_t * fec_n;
+lv_obj_t * mlink;
 lv_obj_t * air_adaptivelink;
 
 void create_air_wfbng_menu(lv_obj_t * parent) {
@@ -46,6 +47,7 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
     ldpc = create_switch(cont,LV_SYMBOL_SETTINGS,"LDPC","ldpc", menu_page_data,false);
     fec_k = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_K", 0 , 12, 12,"fec_k",menu_page_data,false);
     fec_n = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_N", 0 , 12, 8,"fec_n",menu_page_data,false);
+    mlink = create_dropdown(cont,LV_SYMBOL_SETTINGS,"MLink", "","mlink",menu_page_data,false);
 
     create_text(parent, NULL, "Adaptive Link", NULL, NULL, false,  LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
@@ -64,6 +66,7 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
         { "Loading ldpc ...", ldpc, reload_switch_value },
         { "Loading fec_k ...", fec_k, reload_slider_value },
         { "Loading fec_n ...", fec_n, reload_slider_value },
+        { "Loading mlink ...", mlink, reload_dropdown_value },
         { "Loading air_adaptivelink ...", air_adaptivelink, reload_switch_value },
     };
     memcpy(menu_page_data->page_entries, entries, sizeof(entries));
