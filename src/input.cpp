@@ -16,6 +16,8 @@
 #include "gsmenu/gs_system.h"
 
 extern YAML::Node config;
+extern lv_group_t *main_group;
+extern lv_indev_t * indev_drv;
 
 
 struct Dvr;
@@ -242,13 +244,16 @@ void send_button_event(size_t button_index) {
                 next_key = LV_KEY_HOME;
             }
             else if (strcmp(gpio_buttons[button_index].name, "right") == 0) {
-                next_key = menu_active ? LV_KEY_ENTER : LV_KEY_RIGHT;
+                next_key = LV_KEY_ENTER;
             }
             else if (strcmp(gpio_buttons[button_index].name, "center") == 0) {
                 next_key = LV_KEY_ENTER;
             }
             else if (strcmp(gpio_buttons[button_index].name, "rec") == 0) {
-                // Handle rec button if needed
+                #ifdef USE_SIMULATOR
+                                dvr_enabled ^= 1;
+                #endif
+                            toggle_rec_enabled();
             }
             break;
             
@@ -394,6 +399,7 @@ void restore_stdin(void) {
 void toggle_screen(void) {
     if( ! menu_active ) {
         lv_scr_load(pp_menu_screen);
+        lv_indev_set_group(indev_drv,main_group);
         lv_obj_invalidate(pp_menu_screen);
         menu_active = true;
     }
@@ -531,15 +537,8 @@ static void virtual_keyboard_read(lv_indev_t * indev, lv_indev_data_t * data) {
 
         next_key_pressed = !next_key_pressed;  // Toggle state
 
-        if ( next_key != LV_KEY_ENTER && ! menu_active )
+        if (next_key != LV_KEY_ENTER)
             toggle_screen();
-        if ( next_key == LV_KEY_ENTER && ! menu_active ) {
-            data->key = LV_KEY_END;
-#ifdef USE_SIMULATOR
-                dvr_enabled ^= 1;
-#endif
-            toggle_rec_enabled();
-        }
 
         if (!next_key_pressed) {  
             next_key = LV_KEY_END;  // Reset key after release event
