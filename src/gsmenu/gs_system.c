@@ -13,6 +13,7 @@ lv_obj_t * gs_rendering;
 lv_obj_t * resolution;
 lv_obj_t * rec_enabled;
 lv_obj_t * rec_fps;
+lv_obj_t * vsync_disabled;
 
 typedef struct Dvr* Dvr; // Forward declaration
 void dvr_start_recording(Dvr* dvr);
@@ -20,6 +21,7 @@ void dvr_stop_recording(Dvr* dvr);
 void dvr_set_video_framerate(Dvr* dvr,int f);
 extern Dvr *dvr;
 extern int dvr_enabled;
+extern bool disable_vsync;
 
 void gs_system_page_load_callback(lv_obj_t * page)
 {
@@ -29,6 +31,9 @@ void gs_system_page_load_callback(lv_obj_t * page)
 
     if (dvr_enabled) lv_obj_add_state(lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class), LV_STATE_CHECKED);
+
+    if (disable_vsync) lv_obj_add_state(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), LV_STATE_CHECKED);
+    else lv_obj_clear_state(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), LV_STATE_CHECKED);
 
 }
 
@@ -57,6 +62,15 @@ void rec_enabled_cb(lv_event_t *e) {
             printf("dvr_stop_recording(dvr);\n");
 #endif            
         }
+    }
+}
+
+
+void disable_vsync_cb(lv_event_t *e) {
+    lv_event_code_t event = lv_event_get_code(e);
+    if (event == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *ta = lv_event_get_target(e);
+        disable_vsync = lv_obj_has_state(ta, LV_STATE_CHECKED);
     }
 }
 
@@ -98,7 +112,8 @@ void create_gs_system_menu(lv_obj_t * parent) {
 
     gs_rendering = create_switch(cont,LV_SYMBOL_SETTINGS,"GS Rendering","gs_rendering", menu_page_data,false);
     resolution = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Resolution","","resolution",menu_page_data,false);
-
+    vsync_disabled = create_switch(cont,LV_SYMBOL_SETTINGS,"Disable VSYNC","disable_vsync", NULL,false);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), disable_vsync_cb, LV_EVENT_VALUE_CHANGED,NULL);
 
     create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
