@@ -23,6 +23,7 @@ lv_obj_t * root_page;
 lv_group_t *main_group;
 extern lv_group_t *default_group;
 extern lv_obj_t * pp_osd_screen;
+extern lv_group_t * osd_group;
 
 lv_obj_t * sub_gs_main_page;
 lv_obj_t * sub_air_wfbng_page;
@@ -330,6 +331,7 @@ static void back_event_handler(lv_event_t * e)
         lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
         lv_screen_load(pp_osd_screen);
+        lv_indev_set_group(indev_drv,osd_group);
         menu_active = false;
     }
 }
