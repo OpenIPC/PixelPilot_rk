@@ -10,6 +10,7 @@
 
 int dvr_enabled = 0;
 uint64_t gtotal_tunnel_data = 0;
+bool disable_vsync = false;
 
 void my_log_cb(lv_log_level_t level, const char * buf)
 {
