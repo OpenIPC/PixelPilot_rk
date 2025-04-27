@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <pthread.h>
 #include "../../lvgl/lvgl.h"
 #include "../input.h"
 #include "helper.h"
@@ -20,13 +21,19 @@ extern lv_obj_t * gs_system_cont;
 extern lv_obj_t * gs_wlan_cont;
 extern lv_obj_t * gs_actions_cont;
 extern lv_group_t *main_group;
+extern lv_group_t * error_group;
 
 
-void generic_page_load_callback(lv_obj_t * page)
-{
+lv_group_t *loader_group;
+
+void* generic_page_load_thread(void *arg) {
+    lv_obj_t *page = (lv_obj_t*)arg;
     menu_page_data_t *menu_page_data = lv_obj_get_user_data(page);
     PageEntry *entries = menu_page_data->page_entries;
 
+    lv_lock(); // Lock LVGL before any GUI operations
+
+    // Create progress UI
     lv_obj_t *msgbox = lv_msgbox_create(NULL);
     lv_obj_add_style(msgbox, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -37,17 +44,38 @@ void generic_page_load_callback(lv_obj_t * page)
     lv_bar_set_range(bar, 0, menu_page_data->entry_count);
     lv_obj_center(bar);
 
+    lv_unlock();
+
+    // Process entries
     for (int i = 0; i < menu_page_data->entry_count; i++) {
         PageEntry *entry = &entries[i];
         if (entry->caption && entry->reload) {
+            lv_lock();
             lv_label_set_text(label, entry->caption);
             lv_bar_set_value(bar, i, LV_ANIM_OFF);
-            lv_refr_now(NULL);
-            entries[i].reload(page, entries[i].target);
+            lv_unlock();
+            entry->reload(page, entry->target);
         }
     }
 
+    lv_lock();
     lv_msgbox_close(msgbox);
+    lv_unlock();
+
+    if (! error_group)
+        lv_indev_set_group(indev_drv,menu_page_data->indev_group);
+
+    return NULL;
+}
+
+void generic_page_load_callback(lv_obj_t *page) {
+
+    if (!loader_group)
+        loader_group = lv_group_create();
+    lv_indev_set_group(indev_drv,loader_group);
+    pthread_t loader_thread;
+    pthread_create(&loader_thread, NULL, generic_page_load_thread, page);
+    pthread_detach(loader_thread); // Don't wait for thread to finish
 }
 
 void back_event_handler(lv_event_t * e) {
@@ -541,20 +569,28 @@ void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_switch_class);
     thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
-    lv_obj_set_state(obj,LV_STATE_CHECKED,atoi(get_paramater(page,param_user_data->parameter)));  
+    bool value = atoi(get_paramater(page,param_user_data->parameter));
+    lv_lock();
+    lv_obj_set_state(obj,LV_STATE_CHECKED,value);
+    lv_unlock();
 }
 
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_dropdown_class);
     thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
     char * value = get_paramater(page, param_user_data->parameter);
+    lv_lock();
     lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
+    lv_unlock();
 }
 
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_textarea_class);
     thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    lv_textarea_set_text(obj,get_paramater(page,param_user_data->parameter));
+    const char * value = get_paramater(page,param_user_data->parameter);
+    lv_lock();
+    lv_textarea_set_text(obj,value);
+    lv_unlock();
 }
 
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
@@ -562,8 +598,10 @@ void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * label = lv_obj_get_child_by_type(parameter,1,&lv_label_class);
     thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
     char * value = get_paramater(page,param_user_data->parameter);
+    lv_lock();
     lv_slider_set_value(obj,atoi(value),LV_ANIM_OFF);
     lv_label_set_text(label,value);
+    lv_unlock();
 }
 
 char* get_values(thread_data_t * data) {

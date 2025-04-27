@@ -21,6 +21,7 @@ typedef struct {
 
 lv_group_t * current_group;
 lv_group_t * error_group = NULL;
+extern lv_obj_t * menu;
 extern lv_indev_t * indev_drv;
 lv_obj_t * msgbox = NULL;
 lv_obj_t * msgbox_label = NULL;
@@ -28,8 +29,10 @@ char buffer[BUFFER_SIZE];
 
 
 void error_button_callback(lv_event_t * e) {
-    lv_group_set_default(current_group);
-    lv_indev_set_group(indev_drv,current_group);
+    lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
+    menu_page_data_t* menu_page_data = lv_obj_get_user_data(current_page);
+    lv_group_set_default(menu_page_data->indev_group);
+    lv_indev_set_group(indev_drv,menu_page_data->indev_group);
     lv_obj_del(msgbox_label);
     lv_group_del(error_group);
     error_group = NULL;
@@ -51,9 +54,6 @@ void build_output_string(char *buffer, const char *msgbox_text, CommandResult re
 void show_error(CommandResult result) {
     lv_lock();
 
-    if (error_group != lv_indev_get_group(indev_drv)) {
-        current_group = lv_indev_get_group(indev_drv);
-    }
     if (!error_group) {
         error_group = lv_group_create();
         lv_group_set_default(error_group);
