@@ -51,7 +51,7 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
 
     gs_channel = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Channel", "","gs_channel",menu_page_data,false);
     gs_search = create_button(cont, "Search");
-    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_search,0,&lv_button_class),gs_wfbng_search_callback,LV_EVENT_CLICKED,NULL);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_search,0,&lv_button_class),gs_wfbng_search_callback,LV_EVENT_CLICKED,menu_page_data);
     bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","bandwidth",menu_page_data,false);
 
     create_text(parent, NULL, "Adaptive Link", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);

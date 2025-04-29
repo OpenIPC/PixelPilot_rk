@@ -26,6 +26,7 @@ extern lv_indev_t * indev_drv;
 lv_obj_t * msgbox = NULL;
 lv_obj_t * msgbox_label = NULL;
 char buffer[BUFFER_SIZE];
+extern lv_group_t *loader_group;
 
 
 void error_button_callback(lv_event_t * e) {
@@ -57,7 +58,10 @@ void show_error(CommandResult result) {
     if (!error_group) {
         error_group = lv_group_create();
         lv_group_set_default(error_group);
-        lv_indev_set_group(indev_drv,error_group);
+        if (loader_group)
+            lv_indev_set_group(indev_drv,loader_group);
+        else
+            lv_indev_set_group(indev_drv,error_group);
     }
 
     if ( ! lv_obj_is_valid(msgbox)) {
@@ -176,6 +180,8 @@ void check_thread_complete(lv_timer_t* timer) {
         lv_obj_del(data->spinner);
         lv_timer_del(timer);
         free(data);
+        if (error_group)
+            lv_indev_set_group(indev_drv, error_group);
     }
 }
 
