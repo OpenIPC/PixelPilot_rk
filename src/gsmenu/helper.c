@@ -25,8 +25,38 @@ extern lv_group_t * error_group;
 
 
 lv_group_t *loader_group;
+pthread_t loader_thread;
+lv_obj_t *loader_msgbox = NULL;
+
+void loader_cancel_button_cb(lv_event_t * e) {
+    printf("Cancelling loader thread\n");
+    
+    // Cancel the loader thread
+    pthread_cancel(loader_thread);
+
+    menu_page_data_t *menu_page_data = lv_event_get_user_data(e);
+    
+    // Close the message box
+    lv_lock();
+    if (loader_msgbox)
+        lv_msgbox_close(loader_msgbox);
+    lv_unlock();
+    
+    // Restore input device group
+    if (!error_group) {
+        lv_indev_set_group(indev_drv, menu_page_data->indev_group);
+    } else {
+        // Find the first focusable object recursively
+        lv_obj_t * first_obj = find_first_focusable_obj(loader_msgbox);
+        lv_group_focus_obj(first_obj);
+        lv_indev_set_group(indev_drv, error_group);
+    }
+}
 
 void* generic_page_load_thread(void *arg) {
+    // Set cancel type to deferred to allow cleanup
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+    
     lv_obj_t *page = (lv_obj_t*)arg;
     menu_page_data_t *menu_page_data = lv_obj_get_user_data(page);
     PageEntry *entries = menu_page_data->page_entries;
@@ -34,20 +64,36 @@ void* generic_page_load_thread(void *arg) {
     lv_lock(); // Lock LVGL before any GUI operations
 
     // Create progress UI
-    lv_obj_t *msgbox = lv_msgbox_create(NULL);
-    lv_obj_add_style(msgbox, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+    loader_msgbox = lv_msgbox_create(NULL);
+    lv_obj_add_style(loader_msgbox, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_t *label = lv_label_create(msgbox);
-    lv_obj_t *bar = lv_bar_create(msgbox);
+    lv_obj_t *label = lv_label_create(loader_msgbox);
+    lv_obj_t *bar = lv_bar_create(loader_msgbox);
     lv_obj_add_style(bar, &style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_add_style(bar, &style_openipc_dropdown, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_bar_set_range(bar, 0, menu_page_data->entry_count);
     lv_obj_center(bar);
 
+    lv_obj_t * cancel_button =  lv_msgbox_add_footer_button(loader_msgbox, "Canel");
+    lv_group_add_obj(loader_group,cancel_button);
+    lv_obj_add_style(cancel_button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_style(cancel_button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_add_event_cb(cancel_button,loader_cancel_button_cb,LV_EVENT_CLICKED,menu_page_data);
+    lv_obj_center(cancel_button);
+
+    // lv_obj_set_width(loader_msgbox, LV_SIZE_CONTENT);
+    // lv_obj_set_flex_grow(cancel_button, 1);
+    // lv_obj_align_to(bar, cancel_button, LV_ALIGN_OUT_BOTTOM_MID, 0, -50);
+    // lv_obj_set_height(loader_msgbox, LV_SIZE_CONTENT);
+
+
     lv_unlock();
 
-    // Process entries
+    // Process entries with cancellation point
     for (int i = 0; i < menu_page_data->entry_count; i++) {
+        // Add cancellation point
+        pthread_testcancel();
+        
         PageEntry *entry = &entries[i];
         if (entry->caption && entry->reload) {
             lv_lock();
@@ -59,12 +105,13 @@ void* generic_page_load_thread(void *arg) {
     }
 
     lv_lock();
-    lv_msgbox_close(msgbox);
+    lv_msgbox_close(loader_msgbox);
     lv_unlock();
 
     if (! error_group)
         lv_indev_set_group(indev_drv,menu_page_data->indev_group);
-
+    else
+        lv_indev_set_group(indev_drv,error_group);
     return NULL;
 }
 
@@ -73,7 +120,6 @@ void generic_page_load_callback(lv_obj_t *page) {
     if (!loader_group)
         loader_group = lv_group_create();
     lv_indev_set_group(indev_drv,loader_group);
-    pthread_t loader_thread;
     pthread_create(&loader_thread, NULL, generic_page_load_thread, page);
     pthread_detach(loader_thread); // Don't wait for thread to finish
 }
