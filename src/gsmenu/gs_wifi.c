@@ -67,7 +67,7 @@ static void kb_event_cb(lv_event_t * e)
     else if(code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
         lv_indev_reset(NULL, ta);   /*To forget the last clicked object to make it focusable again*/
-        lv_group_focus_obj(lv_keyboard_get_textarea(kb));
+        lv_group_focus_obj(lv_obj_get_child_by_type(lv_obj_get_parent(lv_keyboard_get_textarea(kb)),0,&lv_button_class));
         lv_obj_update_layout(lv_obj_get_parent(kb));
     }
 }
@@ -124,7 +124,7 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(wlan,0,&lv_switch_class), interlocking_switch_callback, LV_EVENT_VALUE_CHANGED, wlan);
 
   
-    lv_obj_t * kb = lv_keyboard_create(lv_obj_get_parent(cont));
+    lv_obj_t * kb = lv_keyboard_create(lv_obj_get_parent(section));
     lv_obj_add_flag(kb, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_style(kb, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
