@@ -29,6 +29,12 @@ lv_group_t *loader_group;
 pthread_t loader_thread;
 lv_obj_t *loader_msgbox = NULL;
 
+void on_focus(lv_event_t* e)
+{
+    lv_obj_t* obj = lv_event_get_current_target(e);
+    lv_obj_scroll_to_view_recursive(lv_obj_get_parent(obj), LV_ANIM_ON);
+}
+
 void loader_cancel_button_cb(lv_event_t * e) {
     printf("Cancelling loader thread\n");
     
@@ -291,6 +297,7 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     lv_obj_add_style(slider, &style_openipc, LV_STATE_FOCUS_KEY);
 
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_ALL, slider_label);
+    lv_obj_add_event_cb(slider, on_focus, LV_EVENT_FOCUSED, NULL);
 
     thread_data_t* data = malloc(sizeof(thread_data_t));
     if (data) {
@@ -326,6 +333,8 @@ lv_obj_t * create_button(lv_obj_t * parent, const char * txt)
 
     lv_obj_add_style(btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_add_event_cb(btn, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(btn, on_focus, LV_EVENT_FOCUSED, NULL);
+
 
     return obj;
 }
@@ -416,6 +425,8 @@ lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,
     }
 
     lv_obj_add_event_cb(sw, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(sw, on_focus, LV_EVENT_FOCUSED, NULL);
+
 
     return obj;
 }
@@ -478,6 +489,7 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
 
     lv_obj_add_event_cb(dd, generic_dropdown_event_cb, LV_EVENT_VALUE_CHANGED,data);
     lv_obj_add_event_cb(dd, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(dd, on_focus, LV_EVENT_FOCUSED, NULL);
 
     get_dropdown_value(obj);
 
