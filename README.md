@@ -183,6 +183,7 @@ Specific widgets expect quite concrete facts as input:
 The menu provides options to modify air and ground settings.
 Navigation is controlled via a GPIO button, adhering to Ruby wiring conventions.
 PixelPilot_rk will take ownership of the needed gpios.
+The provided gsmenu.sh script needs https://github.com/openipc/yaml-cli/
 
 ### Navigation
 Up/Down – Cycles through menu items (wraps around at the top and bottom of the page/sections).

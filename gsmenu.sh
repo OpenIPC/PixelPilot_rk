@@ -1,6 +1,54 @@
 #!/bin/bash
 set -o pipefail
-SSH='timeout -k 1 11 sshpass -p 12345 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/run/ssh_control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=3 -o ServerAliveCountMax=2 root@10.5.0.10 '
+
+# Configuration
+REMOTE_IP="10.5.0.10"
+SSH_PASS="12345"
+CACHE_DIR="/tmp/gsmenu_cache"
+CACHE_TTL=10 # seconds
+MAJESTIC_YAML="/etc/majestic.yaml"
+WFB_YAML="/etc/wfb.yaml"
+
+# SSH command setup
+SSH="timeout -k 1 11 sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/run/ssh_control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=3 -o ServerAliveCountMax=2 root@$REMOTE_IP"
+
+# Create cache directory if it doesn't exist
+mkdir -p "$CACHE_DIR"
+
+# Function to refresh cached files
+refresh_cache() {
+    local current_time=$(date +%s)
+    local last_refresh=$((current_time - CACHE_TTL))
+    
+    # Check if we need to refresh
+    if [[ ! -f "$CACHE_DIR/last_refresh" ]] || [[ $(cat "$CACHE_DIR/last_refresh") -lt $last_refresh ]]; then
+        # Copy the YAML configuration files
+        $SSH "cat $MAJESTIC_YAML" > "$CACHE_DIR/majestic.yaml" 2>/dev/null
+        $SSH "cat $WFB_YAML" > "$CACHE_DIR/wfb.yaml" 2>/dev/null
+        
+        # Update refresh timestamp
+        echo "$current_time" > "$CACHE_DIR/last_refresh"
+    fi
+}
+
+# Function to get value from majestic.yaml using yaml-cli
+get_majestic_value() {
+    local key="$1"
+    yaml-cli -i "$CACHE_DIR/majestic.yaml" -g "$key" 2>/dev/null
+}
+
+# Function to get value from wfb.yaml using yaml-cli
+get_wfb_value() {
+    local key="$1"
+    yaml-cli -i "$CACHE_DIR/wfb.yaml" -g "$key" 2>/dev/null
+}
+
+# Refresh cache for get
+case "$@" in
+  "get air"*)
+    refresh_cache
+    ;;
+esac
 
 case "$@" in
     "values air wfbng mcs_index")
@@ -83,64 +131,64 @@ case "$@" in
         ;;
 
     "get air camera mirror")
-        [ "true" = $($SSH cli -g .image.mirror) ] && echo 1 || echo 0
+        [ "$(get_majestic_value '.image.mirror')" = "true" ] && echo 1 || echo 0
         ;;
     "get air camera flip")
-        [ "true" = $($SSH cli -g .image.flip) ] && echo 1 || echo 0
+        [ "$(get_majestic_value '.image.flip')" = "true" ] && echo 1 || echo 0
         ;;
     "get air camera contrast")
-        $SSH cli -g .image.contrast
+        get_majestic_value '.image.contrast'
         ;;
     "get air camera hue")
-        $SSH cli -g .image.hue
+        get_majestic_value '.image.hue'
         ;;
     "get air camera saturation")
-        $SSH cli -g .image.saturation
+        get_majestic_value '.image.saturation'
         ;;
     "get air camera luminace")
-        $SSH cli -g .image.luminance
+        get_majestic_value '.image.luminance'
         ;;
     "get air camera size")
-        $SSH cli -g .video0.size
+        get_majestic_value '.video0.size'
         ;;
     "get air camera fps")
-        $SSH cli -g .video0.fps
+        get_majestic_value '.video0.fps'
         ;;
     "get air camera bitrate")
-        $SSH cli -g .video0.bitrate
+        get_majestic_value '.video0.bitrate'
         ;;
     "get air camera codec")
-        $SSH cli -g .video0.codec
+        get_majestic_value '.video0.codec'
         ;;
     "get air camera gopsize")
-        $SSH cli -g .video0.gopSize
+        get_majestic_value '.video0.gopSize'
         ;;
     "get air camera rc_mode")
-        $SSH cli -g .video0.rcMode
+        get_majestic_value '.video0.rcMode'
         ;;
     "get air camera rec_enable")
-         [ "true" = $($SSH cli -g .records.enabled) ] && echo 1 || echo 0
+        [ "$(get_majestic_value '.records.enabled')" = "true" ] && echo 1 || echo 0
         ;;
     "get air camera rec_split")
-        $SSH cli -g .records.split
+        get_majestic_value '.records.split'
         ;;
     "get air camera rec_maxusage")
-        $SSH cli -g .records.maxUsage
+        get_majestic_value '.records.maxUsage'
         ;;
     "get air camera exposure")
-        $SSH cli -g .isp.exposure
+        get_majestic_value '.isp.exposure'
         ;;
     "get air camera antiflicker")
-        $SSH cli -g .isp.antiFlicker
+        get_majestic_value '.isp.antiFlicker'
         ;;
     "get air camera sensor_file")
-        $SSH cli -g .isp.sensorConfig
+        get_majestic_value '.isp.sensorConfig'
         ;;
     "get air camera fpv_enable")
-        $SSH cli -g .fpv.enabled | grep -q true && echo 1 || echo 0
+        get_majestic_value '.fpv.enabled' | grep -q true && echo 1 || echo 0
         ;;
     "get air camera noiselevel")
-        $SSH cli -g .fpv.noiseLevel
+        get_majestic_value '.fpv.noiseLevel'
         ;;
 
     "set air camera mirror"*)
@@ -261,32 +309,32 @@ case "$@" in
         ;;
 
     "get air wfbng power")
-        $SSH wifibroadcast cli -g .wireless.txpower
+        get_wfb_value '.wireless.txpower'
         ;;
     "get air wfbng air_channel")
-        channel=$($SSH wifibroadcast cli -g .wireless.channel | tr -d '\n')
-        iw list | grep "\[$channel\]" | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | sort -n | uniq | tr -d '\n'        
+        channel=$(get_wfb_value '.wireless.channel' | tr -d '\n')
+        iw list | grep "\[$channel\]" | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | sort -n | uniq | tr -d '\n'
         ;;
     "get air wfbng width")
-        $SSH wifibroadcast cli -g .wireless.width
+        get_wfb_value '.wireless.width'
         ;;
     "get air wfbng mcs_index")
-        $SSH wifibroadcast cli -g .broadcast.mcs_index
+        get_wfb_value '.broadcast.mcs_index'
         ;;
     "get air wfbng stbc")
-        $SSH wifibroadcast cli -g .broadcast.stbc
+        get_wfb_value '.broadcast.stbc'
         ;;
     "get air wfbng ldpc")
-        $SSH wifibroadcast cli -g .broadcast.ldpc
+        get_wfb_value '.broadcast.ldpc'
         ;;
     "get air wfbng fec_k")
-        $SSH wifibroadcast cli -g .broadcast.fec_k
+        get_wfb_value '.broadcast.fec_k'
         ;;
     "get air wfbng fec_n")
-        $SSH wifibroadcast cli -g .broadcast.fec_n
+        get_wfb_value '.broadcast.fec_n'
         ;;
     "get air wfbng mlink")
-        $SSH wifibroadcast cli -g .wireless.mlink
+        get_wfb_value '.wireless.mlink'
         ;;
     "get air wfbng adaptivelink")
         $SSH grep ^alink_drone /etc/rc.local | grep -q 'alink_drone' && echo 1 || echo 0
