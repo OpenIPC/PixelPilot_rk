@@ -23,6 +23,7 @@ extern lv_obj_t * gs_actions_cont;
 extern lv_group_t *main_group;
 extern lv_group_t * error_group;
 
+extern lv_obj_t * msgbox;
 
 lv_group_t *loader_group;
 pthread_t loader_thread;
@@ -47,10 +48,13 @@ void loader_cancel_button_cb(lv_event_t * e) {
         lv_indev_set_group(indev_drv, menu_page_data->indev_group);
     } else {
         // Find the first focusable object recursively
-        lv_obj_t * first_obj = find_first_focusable_obj(loader_msgbox);
+        lv_obj_t * first_obj = find_first_focusable_obj(msgbox);
         lv_group_focus_obj(first_obj);
         lv_indev_set_group(indev_drv, error_group);
     }
+
+    lv_group_del(loader_group);
+    loader_group = NULL;
 }
 
 void* generic_page_load_thread(void *arg) {
@@ -112,6 +116,10 @@ void* generic_page_load_thread(void *arg) {
         lv_indev_set_group(indev_drv,menu_page_data->indev_group);
     else
         lv_indev_set_group(indev_drv,error_group);
+
+    lv_group_del(loader_group);
+    loader_group = NULL;
+
     return NULL;
 }
 
