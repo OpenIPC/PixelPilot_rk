@@ -5,6 +5,7 @@
 
 #include "images.h"
 #include "helper.h"
+#include "air_presets.h"
 #include "air_wfbng.h"
 #include "air_camera.h"
 #include "air_telemetry.h"
@@ -26,6 +27,7 @@ extern lv_obj_t * pp_osd_screen;
 extern lv_group_t * osd_group;
 
 lv_obj_t * sub_gs_main_page;
+lv_obj_t * sub_air_presets_page;
 lv_obj_t * sub_air_wfbng_page;
 lv_obj_t * sub_air_camera_page;
 lv_obj_t * sub_air_telemetry_page;
@@ -35,6 +37,7 @@ lv_obj_t * sub_gs_system_page;
 lv_obj_t * sub_wlan_page;
 lv_obj_t * sub_gs_actions_page;
 
+lv_obj_t * air_presets_cont;
 lv_obj_t * air_wfbng_cont;
 lv_obj_t * air_camera_cont;
 lv_obj_t * air_telemetry_cont;
@@ -91,17 +94,20 @@ void check_connection_timer(lv_timer_t * timer)
     
     if (is_reset) {
         if (objects_active) {
+            recursive_state_set(air_presets_cont, false);
             recursive_state_set(air_wfbng_cont, false);
             recursive_state_set(air_camera_cont, false);
             recursive_state_set(air_telemetry_cont, false);
             recursive_state_set(air_actions_cont, false);
+            recursive_state_set(sub_air_presets_page, false);
             recursive_state_set(sub_air_wfbng_page, false);
             recursive_state_set(sub_air_camera_page, false);
             recursive_state_set(sub_air_telemetry_page, false);
             recursive_state_set(sub_air_actions_page, false);
             setenv("GSMENU_VTX_DETECTED" , "0", 1);
             lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
-            if (sub_air_wfbng_page == current_page ||
+            if (sub_air_presets_page == current_page ||
+                sub_air_wfbng_page == current_page ||
                 sub_air_camera_page == current_page ||
                 sub_air_telemetry_page == current_page ||
                 sub_air_actions_page == current_page
@@ -121,10 +127,12 @@ void check_connection_timer(lv_timer_t * timer)
         last_value = current_value;
         
         if (!objects_active) {
+            recursive_state_set(air_presets_cont, true);
             recursive_state_set(air_wfbng_cont, true);
             recursive_state_set(air_camera_cont, true);
             recursive_state_set(air_telemetry_cont, true);
             recursive_state_set(air_actions_cont, true);
+            recursive_state_set(sub_air_presets_page, true);
             recursive_state_set(sub_air_wfbng_page, true);
             recursive_state_set(sub_air_camera_page, true);
             recursive_state_set(sub_air_telemetry_page, true);
@@ -132,7 +140,8 @@ void check_connection_timer(lv_timer_t * timer)
             setenv("GSMENU_VTX_DETECTED" , "1", 1);
 
             lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
-            if (sub_air_wfbng_page == current_page ||
+            if (sub_air_presets_page == current_page ||
+                sub_air_wfbng_page == current_page ||
                 sub_air_camera_page == current_page ||
                 sub_air_telemetry_page == current_page ||
                 sub_air_actions_page == current_page
@@ -145,10 +154,12 @@ void check_connection_timer(lv_timer_t * timer)
     }
     // Timeout detection
     else if (objects_active && (lv_tick_elaps(last_increase_time) > 2000)) {
+        recursive_state_set(air_presets_cont, false);
         recursive_state_set(air_wfbng_cont, false);
         recursive_state_set(air_camera_cont, false);
         recursive_state_set(air_telemetry_cont, false);
         recursive_state_set(air_actions_cont, false);
+        recursive_state_set(sub_air_presets_page, false);
         recursive_state_set(sub_air_wfbng_page, false);
         recursive_state_set(sub_air_camera_page, false);
         recursive_state_set(sub_air_telemetry_page, false);
@@ -156,7 +167,8 @@ void check_connection_timer(lv_timer_t * timer)
         setenv("GSMENU_VTX_DETECTED" , "0", 1);
 
         lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
-        if (sub_air_wfbng_page == current_page ||
+        if (sub_air_presets_page == current_page ||
+            sub_air_wfbng_page == current_page ||
             sub_air_camera_page == current_page ||
             sub_air_telemetry_page == current_page ||
             sub_air_actions_page == current_page
@@ -211,6 +223,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_separator_create(sub_gs_main_page);
     create_main_menu(sub_gs_main_page);
 
+    sub_air_presets_page = lv_menu_page_create(menu, LV_SYMBOL_LIST" presets");
+    lv_obj_set_style_pad_hor(sub_air_presets_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_presets_page);
+    create_air_presets_menu(sub_air_presets_page);
+
     sub_air_wfbng_page = lv_menu_page_create(menu, LV_SYMBOL_WIFI" WFB-NG");
     lv_obj_set_style_pad_hor(sub_air_wfbng_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     lv_menu_separator_create(sub_air_wfbng_page);
@@ -258,6 +275,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     create_text(root_page, NULL, "Drone Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);    
     section = lv_menu_section_create(root_page);
     lv_obj_add_style(section, &style_openipc_section, 0);
+
+    air_presets_cont = create_text(section, LV_SYMBOL_LIST, "Presets", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(main_group,air_presets_cont);
+    lv_menu_set_load_page_event(menu, air_presets_cont, sub_air_presets_page);
+    lv_obj_add_event_cb(air_presets_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     air_wfbng_cont = create_text(section, LV_SYMBOL_WIFI, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,air_wfbng_cont);
@@ -322,6 +344,7 @@ static void back_event_handler(lv_event_t * e)
         printf("Go Back\n");
         lv_menu_set_page(menu,NULL);
         lv_menu_set_page(menu,sub_gs_main_page);
+        lv_obj_remove_state(air_presets_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);

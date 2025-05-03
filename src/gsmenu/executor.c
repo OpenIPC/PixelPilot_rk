@@ -175,24 +175,45 @@ void check_thread_complete(lv_timer_t* timer) {
     thread_data_t* data = (thread_data_t*)lv_timer_get_user_data(timer);    
     
     if(data->work_complete) {
-        // Thread has finished - clean up
+        // Save callback BEFORE cleanup
+        callback_fn cb = data->callback_fn;
+        
+        // Clean up resources
         pthread_join(data->thread_id, NULL);
         lv_obj_del(data->spinner);
         lv_timer_del(timer);
-        free(data);
-        if (error_group)
+        
+        // Handle error group if needed
+        if (error_group) {
             lv_indev_set_group(indev_drv, error_group);
+        }
+        
+        // Free the command string if it exists
+        if (data->command) {
+            free(data->command);
+        }
+        
+        // Call callback if it exists (after cleanup but before freeing data)
+        if (cb != NULL) {  // Explicit NULL check
+            cb();
+        }
+        
+        // Finally free the data structure
+        free(data);
     }
 }
 
-void run_command_and_block(lv_event_t* e,const char * command) {
+void run_command_and_block(lv_event_t* e, const char *command, callback_fn callback) {
     lv_obj_t* parent = lv_event_get_current_target(e);
     
-    // Setup thread data
-    thread_data_t* data = malloc(sizeof(thread_data_t));
+    // Use calloc to zero-initialize the memory
+    thread_data_t* data = calloc(1, sizeof(thread_data_t));
+    if (!data) return;  // Always check allocation
+    
     data->parent = parent;
     data->work_complete = false;
     data->command = strdup(command);
+    data->callback_fn = callback;
     
     // Show loading screen
     data->spinner = lv_spinner_create(lv_layer_top());
@@ -242,7 +263,7 @@ void generic_switch_event_cb(lv_event_t * e)
     if (user_data->blocking)
         run_command(final_command);
     else
-        run_command_and_block(e,final_command);
+        run_command_and_block(e,final_command,NULL);
 }
 
 void generic_dropdown_event_cb(lv_event_t * e)
@@ -266,7 +287,7 @@ void generic_dropdown_event_cb(lv_event_t * e)
     if (user_data->blocking)
         run_command(final_command);
     else
-        run_command_and_block(e,final_command);
+        run_command_and_block(e,final_command,NULL);
 }
 
 void generic_slider_event_cb(lv_event_t * e)
@@ -299,7 +320,7 @@ void generic_slider_event_cb(lv_event_t * e)
     if (user_data->blocking)
         run_command(final_command);
     else
-        run_command_and_block(e,final_command);
+        run_command_and_block(e,final_command,NULL);
 
     // Free previous user data if it exists
     int32_t *old_value = lv_obj_get_user_data(slider_label);
