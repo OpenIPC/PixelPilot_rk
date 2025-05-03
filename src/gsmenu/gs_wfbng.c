@@ -25,7 +25,7 @@ void gs_wfbng_page_load_callback(lv_obj_t * page)
 
 void gs_wfbng_search_callback(lv_event_t * event)
 {
-    run_command_and_block(event,"gsmenu.sh search channel");
+    run_command_and_block(event,"gsmenu.sh search channel",NULL);
 }
 
 
