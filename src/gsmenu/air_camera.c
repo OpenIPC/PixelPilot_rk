@@ -30,6 +30,20 @@ lv_obj_t * sensor_file;
 lv_obj_t * fpv_enable;
 lv_obj_t * noiselevel;
 
+
+extern lv_obj_t * rec_fps;
+void air_rec_fps_cb(lv_event_t *e) {
+    char val[100] = "";
+
+    lv_obj_t *ta = lv_event_get_target(e);
+    lv_dropdown_get_selected_str(ta, val, sizeof(val) - 1);
+
+    lv_obj_t *obj = lv_obj_get_child_by_type(rec_fps, 0, &lv_dropdown_class);
+    int index = lv_dropdown_get_option_index(obj,val);
+    lv_dropdown_set_selected(obj, index);
+    lv_obj_send_event(obj,LV_EVENT_VALUE_CHANGED,NULL);
+}
+
 void create_air_camera_menu(lv_obj_t * parent) {
 
     menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
@@ -50,7 +64,11 @@ void create_air_camera_menu(lv_obj_t * parent) {
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
     size = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Size","","size",menu_page_data,false);
+
     fps = create_dropdown(cont,LV_SYMBOL_SETTINGS, "FPS","","fps",menu_page_data,false);
+    // change rec fps when changeing camera fps
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(fps,0,&lv_dropdown_class), air_rec_fps_cb, LV_EVENT_VALUE_CHANGED,fps);
+
     bitrate = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Bitrate","","bitrate",menu_page_data,false);
     video_codec = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Codec","","codec",menu_page_data,false);
     gopsize = create_slider(cont,LV_SYMBOL_SETTINGS,"Gopsize",0,20,1,"gopsize",menu_page_data,false);
