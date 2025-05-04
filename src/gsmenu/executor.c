@@ -27,6 +27,7 @@ lv_obj_t * msgbox = NULL;
 lv_obj_t * msgbox_label = NULL;
 char buffer[BUFFER_SIZE];
 extern lv_group_t *loader_group;
+extern lv_group_t * default_group;
 
 
 void error_button_callback(lv_event_t * e) {
@@ -186,8 +187,12 @@ void check_thread_complete(lv_timer_t* timer) {
         // Handle error group if needed
         if (error_group) {
             lv_indev_set_group(indev_drv, error_group);
+        } else {
+            lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
+            menu_page_data_t* menu_page_data = lv_obj_get_user_data(current_page);
+            lv_indev_set_group(indev_drv,menu_page_data->indev_group);
         }
-        
+
         // Free the command string if it exists
         if (data->command) {
             free(data->command);
@@ -205,7 +210,10 @@ void check_thread_complete(lv_timer_t* timer) {
 
 void run_command_and_block(lv_event_t* e, const char *command, callback_fn callback) {
     lv_obj_t* parent = lv_event_get_current_target(e);
-    
+
+    // disable input
+    lv_indev_set_group(indev_drv,default_group);
+
     // Use calloc to zero-initialize the memory
     thread_data_t* data = calloc(1, sizeof(thread_data_t));
     if (!data) return;  // Always check allocation
