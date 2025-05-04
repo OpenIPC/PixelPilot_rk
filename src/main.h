@@ -1,5 +1,8 @@
 #pragma once
 
+
+void sig_handler(int signum);
+
 /* --- Console arguments parser --- */
 #define __BeginParseConsoleArguments__(printHelpFunction) \
   if (argc < 1 || (argc == 2 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "/?") \
@@ -8,4 +11,4 @@
 
 #define __OnArgument(Name) if (!strcmp(Arg, Name))
 #define __ArgValue (argc > ArgID + 1 ? argv[++ArgID] : "")
-#define __EndParseConsoleArguments__ else { printf("ERROR: Unknown argument\n"); return 1; } }
+#define __EndParseConsoleArguments__ else { printf("ERROR: Unknown argument %s\n",Arg); return 1; } }
