@@ -78,7 +78,7 @@ int process_rx(const msgpack::object& packet) {
         uint32_t bandwidth = freq_mcs_bw_array.ptr[2].as<uint32_t>();
 
         // Extract the second element of the key (antenna_id)
-        uint32_t antenna_id = key_array.ptr[1].as<uint32_t>();
+        uint64_t antenna_id = key_array.ptr[1].as<uint64_t>();
 
         strcpy(tags[1].key, "ant_id");
         snprintf(tags[1].val, sizeof(tags[0].val), "%u", antenna_id);
