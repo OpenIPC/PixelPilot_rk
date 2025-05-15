@@ -70,7 +70,7 @@ case "$@" in
         echo -n 0 15
         ;;
     "values air wfbng mlink")
-        echo -e "1500\n1600\n1700\n1800\n1900\n2000\n2100\n2200\n2300\n2400\n2500\n2600\n2700\n2800\n2900\n3000\n3100\n3200\n3300\n3400\n3500\n3600\n3700\n3800\n3900\n4000"
+        echo -n -e "1500\n1600\n1700\n1800\n1900\n2000\n2100\n2200\n2300\n2400\n2500\n2600\n2700\n2800\n2900\n3000\n3100\n3200\n3300\n3400\n3500\n3600\n3700\n3800\n3900\n4000"
         ;;
     "values air camera contrast")
         echo -n 0 100
@@ -103,40 +103,40 @@ case "$@" in
         echo -n 0 60
         ;;
     "values air wfbng power")
-        echo -e "1\n20\n25\n30\n35\n40\n45\n50\n55\n58"
+        echo -n -e "1\n20\n25\n30\n35\n40\n45\n50\n55\n58"
         ;;
     "values air wfbng air_channel")
-        iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n |  uniq
+        iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n |  uniq  | sed -z '$ s/\n$//'
         ;;
     "values air wfbng width")
-        echo -e "20\n40"
+        echo -n -e "20\n40"
         ;;
     "values air camera size")
-        echo -e "1280x720\n1456x816\n1920x1080\n1440x1080\n1920x1440\n2104x1184\n2208x1248\n2240x1264\n2312x1304\n2436x1828\n2512x1416\n2560x1440\n2560x1920\n2720x1528\n2944x1656\n3200x1800\n3840x2160"
+        echo -n -e "1280x720\n1456x816\n1920x1080\n1440x1080\n1920x1440\n2104x1184\n2208x1248\n2240x1264\n2312x1304\n2436x1828\n2512x1416\n2560x1440\n2560x1920\n2720x1528\n2944x1656\n3200x1800\n3840x2160"
         ;;
     "values air camera fps")
-        echo -e "60\n90\n120"
+        echo -n -e "60\n90\n120"
         ;;
     "values air camera bitrate")
-        echo -e "1024\n2048\n3072\n4096\n5120\n6144\n7168\n8192\n9216\n10240\n11264\n12288\n13312\n14336\n15360\n16384\n17408\n18432\n19456\n20480\n21504\n22528\n23552\n24576\n25600\n26624\n27648\n28672\n29692\n30720"
+        echo -n -e "1024\n2048\n3072\n4096\n5120\n6144\n7168\n8192\n9216\n10240\n11264\n12288\n13312\n14336\n15360\n16384\n17408\n18432\n19456\n20480\n21504\n22528\n23552\n24576\n25600\n26624\n27648\n28672\n29692\n30720"
         ;;
     "values air camera codec")
-        echo -e "h264\nh265"
+        echo -n -e "h264\nh265"
         ;;
     "values air camera rc_mode")
-        echo -e "vbr\navbr\ncbr"
+        echo -n -e "vbr\navbr\ncbr"
         ;;
     "values air camera antiflicker")
-        echo -e "disabled\n50\n60"
+        echo -n -e "disabled\n50\n60"
         ;;
     "values air camera sensor_file")
-        echo -e "/etc/sensors/imx307.bin\n/etc/sensors/imx335.bin\n/etc/sensors/imx335_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_milos10.bin\n/etc/sensors/imx415_milos15.bin\n/etc/sensors/imx335_milos12tweak.bin\n/etc/sensors/imx335_greg15.bin\n/etc/sensors/imx335_spike5.bin\n/etc/sensors/gregspike05.bin"
+        echo -n -e "/etc/sensors/imx307.bin\n/etc/sensors/imx335.bin\n/etc/sensors/imx335_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_milos10.bin\n/etc/sensors/imx415_milos15.bin\n/etc/sensors/imx335_milos12tweak.bin\n/etc/sensors/imx335_greg15.bin\n/etc/sensors/imx335_spike5.bin\n/etc/sensors/gregspike05.bin"
         ;;
     "values air telemetry serial")
-        echo -e "ttyS0\nttyS1\nttyS2"
+        echo -n -e "ttyS0\nttyS1\nttyS2"
         ;;
     "values air telemetry router")
-        echo -e "mavfwd\nmsposd"
+        echo -n -e "mavfwd\nmsposd"
         ;;
 
     "get air presets info"*)
@@ -486,42 +486,42 @@ case "$@" in
         ;;
 
     "values gs wfbng gs_channel")
-        iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n |  uniq
+        iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n |  uniq  | sed -z '$ s/\n$//'
         ;;
     "values gs wfbng bandwidth")
-        echo -e "20\n40"
+        echo -n -e "20\n40"
         ;;
     "values gs system resolution")
-        drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq
+        drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq  | sed -z '$ s/\n$//'
         ;;
     "values gs system rec_fps")
-        echo -e "60\n90\n120"
+        echo -n -e "60\n90\n120"
         ;;
 
     "get gs system gs_rendering")
-        [ "$(grep ground /config/scripts/osd | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
+        [ "$(grep ^osd /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
         ;;
     "get gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".crtcs[0].mode| .name + "@" + (.vrefresh|tostring)'
         ;;
     "get gs system rec_fps")
-        grep fps /config/scripts/rec-fps | cut -d ' ' -f 3 
+        grep ^rec_fps /config/setup.txt | cut -d ' ' -f 3 
         ;;
     "set gs system gs_rendering"*)
         if [ "$5" = "off" ]
         then
-            sed -i 's/^render =.*/render = air/' /config/scripts/osd
+            sed -i 's/^osd =.*/osd = air/' /config/setup.txt
             killall -q msposd_rockchip
         else
-            sed -i 's/^render =.*/render = ground/' /config/scripts/osd
+            sed -i 's/^osd =.*/osd = ground/' /config/setup.txt
             msposd_rockchip --osd --ahi 0 --matrix 11 -v -r 5 --master 0.0.0.0:14551 &
         fi
         ;;
     "set gs system resolution"*)
-        sed -i "s/^mode =.*/mode = $5/" /config/scripts/screen-mode
+        sed -i "s/^screen_mode =.*/screen_mode = $5/" /config/setup.txt
         ;;
     "set gs system rec_fps"*)
-        sed -i "s/^fps =.*/fps = $5/" /config/scripts/rec-fps
+        sed -i "s/^rec_fps =.*/rec_fps = $5/" /config/setup.txt
         ;;
     "set gs system rec_enabled"*)
         if [ "$5" = "off" ]
