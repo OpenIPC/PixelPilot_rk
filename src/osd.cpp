@@ -1072,7 +1072,34 @@ private:
     cairo_surface_t* selectIcon(Fact& fact) {
         if (!fact.isDefined()) return nullptr;
 
-        long value = fact.getIntValue(); // Assuming the fact is of type T_INT
+        long value = 0;
+        
+        // Convert all fact types to comparable integer values
+        switch (fact.getType()) {
+            case Fact::T_BOOL:
+                value = fact.getBoolValue() ? 1 : 0;
+                break;
+            case Fact::T_INT:
+                value = fact.getIntValue();
+                break;
+            case Fact::T_UINT:
+                value = static_cast<long>(fact.getUintValue());
+                break;
+            case Fact::T_DOUBLE:
+                value = static_cast<long>(fact.getDoubleValue());
+                break;
+            case Fact::T_STRING:
+                try {
+                    value = std::stol(fact.getStrValue());
+                } catch (...) {
+                    // If string can't be converted to number, use 0
+                    value = 0;
+                }
+                break;
+            case Fact::T_UNDEF:
+            default:
+                return nullptr;
+        }
 
         // Iterate through the configured ranges and select the appropriate icon
         for (const auto& [range, icon] : icon_cache) {
