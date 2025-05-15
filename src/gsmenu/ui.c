@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include "../../lvgl/lvgl.h"
 
+#include "../input.h"
 #include "images.h"
 #include "helper.h"
 #include "air_presets.h"
@@ -20,6 +21,7 @@
 static void back_event_handler(lv_event_t * e);
 extern lv_obj_t * menu;
 extern lv_indev_t * indev_drv;
+extern gsmenu_control_mode_t control_mode;
 lv_obj_t * root_page;
 lv_group_t *main_group;
 extern lv_group_t *default_group;
@@ -94,6 +96,15 @@ void check_connection_timer(lv_timer_t * timer)
     
     if (is_reset) {
         if (objects_active) {
+            if(control_mode != GSMENU_CONTROL_MODE_NAV) {
+                lv_key_t key = LV_KEY_ESC;
+                lv_group_t * group = lv_indev_get_group(indev_drv);
+                lv_obj_t * obj = lv_group_get_focused(group);
+                if (lv_obj_check_type(obj,&lv_dropdown_class))
+                    lv_obj_send_event(obj,LV_EVENT_KEY,&key);
+                else if (lv_obj_check_type(obj,&lv_slider_class))
+                    lv_obj_send_event(obj,LV_EVENT_CANCEL,obj);
+            }
             recursive_state_set(air_presets_cont, false);
             recursive_state_set(air_wfbng_cont, false);
             recursive_state_set(air_camera_cont, false);
@@ -154,6 +165,15 @@ void check_connection_timer(lv_timer_t * timer)
     }
     // Timeout detection
     else if (objects_active && (lv_tick_elaps(last_increase_time) > 2000)) {
+        if(control_mode != GSMENU_CONTROL_MODE_NAV) {
+            lv_key_t key = LV_KEY_ESC;
+            lv_group_t * group = lv_indev_get_group(indev_drv);
+            lv_obj_t * obj = lv_group_get_focused(group);
+            if (lv_obj_check_type(obj,&lv_dropdown_class))
+                lv_obj_send_event(obj,LV_EVENT_KEY,&key);
+            else if (lv_obj_check_type(obj,&lv_slider_class))
+                lv_obj_send_event(obj,LV_EVENT_CANCEL,obj);
+        }
         recursive_state_set(air_presets_cont, false);
         recursive_state_set(air_wfbng_cont, false);
         recursive_state_set(air_camera_cont, false);
