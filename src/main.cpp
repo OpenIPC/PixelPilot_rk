@@ -33,6 +33,7 @@
 #include <linux/videodev2.h>
 #include <rockchip/rk_mpi.h>
 #include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 #include "spdlog/spdlog.h"
 
 extern "C" {
@@ -41,6 +42,7 @@ extern "C" {
 
 #include "mavlink/common/mavlink.h"
 #include "mavlink.h"
+#include "input.h"
 }
 
 #include "osd.h"
@@ -51,12 +53,17 @@ extern "C" {
 #include "scheduling_helper.hpp"
 #include "time_util.h"
 #include "pixelpilot_config.h"
+#include <iostream>
 
 
 #define READ_BUF_SIZE (1024*1024) // SZ_1M https://github.com/rockchip-linux/mpp/blob/ed377c99a733e2cdbcc457a6aa3f0fcd438a9dff/osal/inc/mpp_common.h#L179
 #define MAX_FRAMES 24		// min 16 and 20+ recommended (mpp/readme.txt)
 
 #define CODEC_ALIGN(x, a)   (((x)+(a)-1)&~((a)-1))
+
+#define DEFAULT_CONFIG_PATH "/etc/pixelpilot.yaml"
+const char * config_file_path;
+YAML::Node config;
 
 struct {
 	MppCtx		  ctx;
@@ -80,6 +87,7 @@ int drm_fd = 0;
 pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
 extern bool osd_update_ready;
+extern bool gsmenu_enabled;
 int video_zpos = 1;
 
 bool mavlink_dvr_on_arm = false;
@@ -338,6 +346,7 @@ end:
 // signal
 
 int signal_flag = 0;
+int return_value = 0;
 
 void sig_handler(int signum)
 {
@@ -349,6 +358,7 @@ void sig_handler(int signum)
 	if (dvr != NULL) {
 		dvr->shutdown();
 	}
+	return_value = signum;
 }
 
 void sigusr1_handler(int signum) {
@@ -494,6 +504,8 @@ void printHelp() {
     "    pixelpilot [Arguments]\n"
     "\n"
     "  Arguments:\n"
+    "    --config <configfile>  - Load pixelpilot config from file      (Default: /etc/pixelpilot.yaml)\n"
+    "\n"
     "    -p <port>              - UDP port for RTP video stream         (Default: 5600)\n"
     "\n"
     "    --socket <socket>      - read data from socket\n"
@@ -568,9 +580,41 @@ int main(int argc, char **argv)
     pidFile << getpid();
     pidFile.close();
 
+	// Load yaml config
+    try {
+
+		// First just check for --config argument
+		for (int i = 1; i < argc; i++) {
+			if (!strcmp(argv[i], "--config") && i+1 < argc) {
+				config_file_path = strdup(argv[i+1]);
+				break;
+			}
+		}
+
+		// Set default config path if none specified
+		if (config_file_path == NULL) {
+			config_file_path = strdup(DEFAULT_CONFIG_PATH);
+		}
+        config = YAML::LoadFile(config_file_path);
+
+		// GSMENU settings
+		if (config["gsmenu"]) {
+            if (config["gsmenu"]["enabled"]) {
+                gsmenu_enabled = config["gsmenu"]["enabled"].as<bool>();
+            }
+        }
+
+	} catch (const YAML::BadFile& e) {
+		std::cout << "Configuration file " << config_file_path << " not found." << std::endl;
+	} catch (const YAML::ParserException& e) {
+		std::cerr << "Error parsing configuration: " << e.what() << std::endl;
+	} catch (const YAML::Exception& e) {
+		std::cerr << "Configuration error: " << e.what() << std::endl;
+	}
+
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
-	
+
 	__OnArgument("-p") {
 		listen_port = atoi(__ArgValue);
 		continue;
@@ -580,6 +624,12 @@ int main(int argc, char **argv)
 		unix_socket = const_cast<char*>(__ArgValue);
 		continue;
 	}
+
+	__OnArgument("--config") {
+		// Already handled above, just skip
+		const char* dummy = __ArgValue;  // Skip the filename
+		continue;
+	}	
 
 	__OnArgument("--codec") {
 		char * codec_str = const_cast<char*>(__ArgValue);
@@ -916,5 +966,6 @@ int main(int argc, char **argv)
 
     remove(pidFilePath.c_str());
 
-	return 0;
+	restore_stdin();
+	return return_value;
 }
