@@ -29,12 +29,6 @@ void gs_actions_exit_pp(lv_event_t * event)
     sig_handler(*signal);
 }
 
-
-void gs_actions_reboot_callback(lv_event_t * event)
-{
-    run_command("reboot &");
-}
-
 void create_gs_actions_menu(lv_obj_t * parent) {
 
     menu_page_data_t* menu_page_data = malloc(sizeof(menu_page_data_t));
@@ -55,7 +49,7 @@ void create_gs_actions_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(exit_pp,0,&lv_button_class),gs_actions_exit_pp,LV_EVENT_CLICKED,&exit_value);
 
     gs_reboot = create_button(section, "Reboot");
-    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_reboot,0,&lv_button_class),gs_actions_reboot_callback,LV_EVENT_CLICKED,NULL);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_reboot,0,&lv_button_class),generic_button_callback,LV_EVENT_CLICKED,menu_page_data);
 
     lv_group_set_default(default_group);
 }

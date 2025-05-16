@@ -23,6 +23,7 @@ void dropdown_event_handler(lv_event_t * e);
 
 lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * label_txt, const char * txt,const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
 
+void generic_button_callback(lv_event_t * e);
 lv_obj_t * create_button(lv_obj_t * parent, const char * txt);
 
 lv_obj_t * create_backbutton(lv_obj_t * parent, const char * icon, const char * label_txt);

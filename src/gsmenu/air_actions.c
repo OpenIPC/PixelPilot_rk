@@ -10,11 +10,6 @@
 extern lv_group_t * default_group;
 lv_obj_t * air_reboot;
 
-void air_actions_reboot_callback(lv_event_t * event)
-{
-    run_command("sshpass -p 12345 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=~/.ssh/control:%h:%p:%r -o ControlPersist=15s -o ServerAliveInterval=30 -o ServerAliveCountMax=3 root@10.5.0.10 reboot &");
-}
-
 void create_air_actions_menu(lv_obj_t * parent) {
 
     menu_page_data_t* menu_page_data = malloc(sizeof(menu_page_data_t));
@@ -30,7 +25,7 @@ void create_air_actions_menu(lv_obj_t * parent) {
 
 
     air_reboot = create_button(section, "Reboot");
-    lv_obj_add_event_cb(lv_obj_get_child_by_type(air_reboot,0,&lv_button_class),air_actions_reboot_callback,LV_EVENT_CLICKED,NULL);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(air_reboot,0,&lv_button_class),generic_button_callback,LV_EVENT_CLICKED,menu_page_data);
 
     lv_group_set_default(default_group);
 }

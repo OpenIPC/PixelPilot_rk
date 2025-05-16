@@ -319,6 +319,21 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     return obj;
 }
 
+void generic_button_callback(lv_event_t * e) {
+    lv_obj_t * target = lv_event_get_target(e);
+    lv_obj_t * button = lv_obj_get_child_by_type(target,0,&lv_button_class);
+    lv_obj_t * button_label = lv_obj_get_child_by_type(target,0,&lv_label_class);
+    menu_page_data_t* menu_page_data = (menu_page_data_t*) lv_event_get_user_data(e);
+    char final_command[200] = "gsmenu.sh button ";
+    strcat(final_command,menu_page_data->type);
+    strcat(final_command," ");
+    strcat(final_command,menu_page_data->page);
+    strcat(final_command," \"");
+    strcat(final_command,lv_label_get_text(button_label));
+    strcat(final_command,"\"");
+    run_command(final_command);
+}
+
 lv_obj_t * create_button(lv_obj_t * parent, const char * txt)
 {
     lv_obj_t * obj = lv_menu_cont_create(parent);

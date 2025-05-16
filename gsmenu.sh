@@ -653,6 +653,15 @@ case "$@" in
         echo "Not implmented" >&2
         exit 1
         ;;
+
+    "button air actions Reboot")
+        $SSH 'reboot &'
+    ;;
+
+    "button gs actions Reboot")
+        reboot
+    ;;
+
     *)
         echo "Unknown $@"
         exit 1
