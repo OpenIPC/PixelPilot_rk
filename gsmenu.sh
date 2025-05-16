@@ -25,9 +25,8 @@ refresh_cache() {
     # Check if we need to refresh
     if [[ ! -f "$CACHE_DIR/last_refresh" ]] || [[ $(cat "$CACHE_DIR/last_refresh") -lt $last_refresh ]]; then
         # Copy the YAML configuration files
-        $SSH "cat $MAJESTIC_YAML" > "$CACHE_DIR/majestic.yaml" 2>/dev/null
-        $SSH "cat $WFB_YAML" > "$CACHE_DIR/wfb.yaml" 2>/dev/null
-        
+        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML $CACHE_DIR 2>/dev/null
+
         # Update refresh timestamp
         echo "$current_time" > "$CACHE_DIR/last_refresh"
     fi
