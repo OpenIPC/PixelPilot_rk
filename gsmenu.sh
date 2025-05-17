@@ -638,7 +638,7 @@ case "$@" in
         gsmenu.sh get gs system resolution
         ;;
     "get gs main Version")
-        grep PRETTY_NAME= /etc/os-release | cut -d \" -f2
+        cat /config/version.md
         ;;
     "get gs main Disk")
         read -r size avail pcent <<< $(df -h / | awk 'NR==2 {print $2, $4, $5}')
