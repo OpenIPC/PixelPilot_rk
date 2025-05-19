@@ -43,3 +43,5 @@ void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter);
 void get_slider_value(lv_obj_t * parent);
 void get_dropdown_value(lv_obj_t * parent);
+
+const char* find_resource_file(const char* relative_path);

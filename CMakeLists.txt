@@ -20,6 +20,9 @@ set(CMAKE_C_STANDARD 99) # LVGL officially supports C99 and above
 set(CMAKE_CXX_STANDARD 17) #C17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(PNG REQUIRED)
+include_directories(${PNG_INCLUDE_DIR})
+
 # Simulator
 set(SIMULATOR_SOURCES
         src/simulator.c
@@ -49,8 +52,6 @@ set(SIMULATOR_SOURCES
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
         src/gsmenu/ui.c
-        src/gsmenu/images.h
-        src/gsmenu/images.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
         src/lvosd.h
@@ -91,8 +92,6 @@ set(SOURCE_FILES
         src/gsmenu/air_wfbng.c
         src/gsmenu/gs_actions.h
         src/gsmenu/gs_actions.c        
-        src/gsmenu/images.h
-        src/gsmenu/images.c        
         src/gsmenu/styles.h
         src/gsmenu/styles.c
         src/gsmenu/ui.c 
@@ -131,14 +130,14 @@ if(USE_SIMULATOR)
   target_compile_definitions(lvgl PRIVATE USE_SIMULATOR)
   pkg_check_modules(LIBSDL REQUIRED sdl2)
   add_executable(${PROJECT_NAME} ${SIMULATOR_SOURCES} lvgl)
-  target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES} ${PNG_LIBRARIES})
 else()
   find_package(spdlog REQUIRED)
   find_package(nlohmann_json 3 REQUIRED)
   find_package(yaml-cpp REQUIRED)
   pkg_check_modules(LIBGPIOD REQUIRED libgpiod)
   add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-  target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES} ${PNG_LIBRARIES})
   # Embed gstreamer
   find_package(PkgConfig REQUIRED)
   pkg_search_module(GST REQUIRED
