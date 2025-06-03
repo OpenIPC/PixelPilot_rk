@@ -87,7 +87,7 @@ int modeset_find_crtc(int fd, drmModeRes *res, drmModeConnector *conn, struct mo
 
 const char* drm_fourcc_to_string(uint32_t fourcc);
 
-int modeset_find_plane(int fd, struct modeset_output *out, struct drm_object *plane_out, uint32_t plane_format);
+int modeset_find_plane(int fd, struct modeset_output *out, struct drm_object *plane_out, uint32_t plane_format, uint32_t plane_id_override);
 
 void modeset_drm_object_fini(struct drm_object *obj);
 
@@ -103,9 +103,9 @@ int modeset_setup_framebuffers(int fd, drmModeConnector *conn, struct modeset_ou
 
 void modeset_output_destroy(int fd, struct modeset_output *out);
 
-struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh);
+struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id);
 
-struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh);
+struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id);
 
 void *modeset_print_modes(int fd);
 
