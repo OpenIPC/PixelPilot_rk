@@ -90,6 +90,10 @@ uint32_t refresh_frequency_ms = 1000;
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
 
+// Add global variables for plane id overrides
+uint32_t video_plane_id_override = 0;
+uint32_t osd_plane_id_override = 0;
+
 void init_buffer(MppFrame frame) {
 	output_list->video_frm_width = mpp_frame_get_width(frame);
 	output_list->video_frm_height = mpp_frame_get_height(frame);
@@ -710,6 +714,15 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
+	__OnArgument("--video-plane-id") {
+		video_plane_id_override = atoi(__ArgValue);
+		continue;
+	}
+	__OnArgument("--osd-plane-id") {
+		osd_plane_id_override = atoi(__ArgValue);
+		continue;
+	}
+
 	__EndParseConsoleArguments__
 
 	spdlog::set_level(log_level);
@@ -746,7 +759,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh);
+	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh, video_plane_id_override, osd_plane_id_override);
 	if (!output_list) {
 		fprintf(stderr,
 				"cannot initialize display. Is display connected? Is --screen-mode correct?\n");
