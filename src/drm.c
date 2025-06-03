@@ -213,7 +213,7 @@ const char* drm_fourcc_to_string(uint32_t fourcc) {
     return result;
 }
 
-int modeset_find_plane(int fd, struct modeset_output *out, struct drm_object *plane_out, uint32_t plane_format)
+int modeset_find_plane(int fd, struct modeset_output *out, struct drm_object *plane_out, uint32_t plane_format, uint32_t plane_id_override)
 {
 	drmModePlaneResPtr plane_res;
 	bool found_plane = false;
@@ -224,6 +224,33 @@ int modeset_find_plane(int fd, struct modeset_output *out, struct drm_object *pl
 		fprintf(stderr, "drmModeGetPlaneResources failed: %s\n",
 				strerror(errno));
 		return -ENOENT;
+	}
+
+	if (plane_id_override) {
+		// Try to use the user-specified plane id
+		drmModePlanePtr plane = drmModeGetPlane(fd, plane_id_override);
+		if (!plane) {
+			fprintf(stderr, "drmModeGetPlane(%u) failed: %s\n", plane_id_override, strerror(errno));
+			drmModeFreePlaneResources(plane_res);
+			return -ENOENT;
+		}
+		if (plane->possible_crtcs & (1 << out->crtc_index)) {
+			for (int j = 0; j < plane->count_formats; j++) {
+				if (plane->formats[j] == plane_format) {
+					found_plane = true;
+					plane_out->id = plane_id_override;
+					ret = 0;
+					break;
+				}
+			}
+		}
+		if (!found_plane) {
+			fprintf(stderr, "Specified plane id %u does not support required format or CRTC\n", plane_id_override);
+			ret = -EINVAL;
+		}
+		drmModeFreePlane(plane);
+		drmModeFreePlaneResources(plane_res);
+		return ret;
 	}
 
 	for (i = 0; (i < plane_res->count_planes) && !found_plane; i++) {
@@ -414,7 +441,7 @@ void modeset_output_destroy(int fd, struct modeset_output *out)
 	free(out);
 }
 
-struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh)
+struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id)
 {
 	int ret;
 	struct modeset_output *out;
@@ -475,14 +502,14 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 		goto out_blob;
 	}
 
-	ret = modeset_find_plane(fd, out, &out->video_plane, DRM_FORMAT_NV12);
+	ret = modeset_find_plane(fd, out, &out->video_plane, DRM_FORMAT_NV12, video_plane_id);
 	if (ret) {
 		fprintf(stderr, "no valid video plane with format NV12 for crtc %u\n", out->crtc.id);
 		goto out_blob;
 	}
 	fprintf(stdout, "Using plane %d (NV12) for Video\n",  out->video_plane.id);
 
-	ret = modeset_find_plane(fd, out, &out->osd_plane, DRM_FORMAT_ARGB8888);
+	ret = modeset_find_plane(fd, out, &out->osd_plane, DRM_FORMAT_ARGB8888, osd_plane_id);
 	if (ret) {
 		fprintf(stderr, "no valid osd plane with format ARGB8888 for crtc %u\n", out->crtc.id);
 		goto out_blob;
@@ -560,7 +587,7 @@ void *modeset_print_modes(int fd)
 
 }
 
-struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh)
+struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id)
 {
 	drmModeRes *res;
 	drmModeConnector *conn;
@@ -582,7 +609,7 @@ struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mod
 			continue;
 		}
 
-		out = modeset_output_create(fd, res, conn, mode_width, mode_height, mode_vrefresh);
+		out = modeset_output_create(fd, res, conn, mode_width, mode_height, mode_vrefresh, video_plane_id, osd_plane_id);
 		drmModeFreeConnector(conn);
 		if (out) {
 			drmModeFreeResources(res);
