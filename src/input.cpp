@@ -111,90 +111,34 @@ bool find_gpio_mapping(int pin, const char** chip_name, int* line_num) {
     return found;
 }
 
+void init_button_from_config(YAML::Node& gpio_config, const char* button_name, int& button_index) {
+    if (gpio_config[button_name] && !gpio_config[button_name].IsNull()) {
+        gpio_buttons[button_index].name = button_name;
+        gpio_buttons[button_index].pin_number = gpio_config[button_name].as<int>();
+        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                            &gpio_buttons[button_index].chip_name,
+                            &gpio_buttons[button_index].line_num)) {
+            button_index++;
+        } else {
+            fprintf(stderr, "Failed to find GPIO mapping for pin %d (%s)\n", 
+                    gpio_buttons[button_index].pin_number, button_name);
+        }
+    } else {
+        printf("Omitting GPIO mapping for pin %d (%s)\n", 
+                gpio_buttons[button_index].pin_number, button_name);
+    }
+}
+
 void init_gpio_buttons_from_config(YAML::Node& config) {
-    // Get GPIO config from YAML
     YAML::Node gpio_config = config["gsmenu"]["gpio"];
-    
-    // Initialize buttons based on config
     int button_index = 0;
     
-    if (gpio_config["up"]) {
-        gpio_buttons[button_index].name = "up";
-        gpio_buttons[button_index].pin_number = gpio_config["up"].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
-            fprintf(stderr, "Failed to find GPIO mapping for pin %d (up)\n", 
-                    gpio_buttons[button_index].pin_number);
-        }
-    }
-    
-    if (gpio_config["down"]) {
-        gpio_buttons[button_index].name = "down";
-        gpio_buttons[button_index].pin_number = gpio_config["down"].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
-            fprintf(stderr, "Failed to find GPIO mapping for pin %d (down)\n", 
-                    gpio_buttons[button_index].pin_number);
-        }
-    }
-    
-    if (gpio_config["left"]) {
-        gpio_buttons[button_index].name = "left";
-        gpio_buttons[button_index].pin_number = gpio_config["left"].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
-            fprintf(stderr, "Failed to find GPIO mapping for pin %d (left)\n", 
-                    gpio_buttons[button_index].pin_number);
-        }
-    }
-    
-    if (gpio_config["right"]) {
-        gpio_buttons[button_index].name = "right";
-        gpio_buttons[button_index].pin_number = gpio_config["right"].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
-            fprintf(stderr, "Failed to find GPIO mapping for pin %d (right)\n", 
-                    gpio_buttons[button_index].pin_number);
-        }
-    }
-    
-    if (gpio_config["center"]) {
-        gpio_buttons[button_index].name = "center";
-        gpio_buttons[button_index].pin_number = gpio_config["center"].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
-            fprintf(stderr, "Failed to find GPIO mapping for pin %d (center)\n", 
-                    gpio_buttons[button_index].pin_number);
-        }
-    }
-    
-    if (gpio_config["rec"]) {
-        gpio_buttons[button_index].name = "rec";
-        gpio_buttons[button_index].pin_number = gpio_config["rec"].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
-            fprintf(stderr, "Failed to find GPIO mapping for pin %d (rec)\n", 
-                    gpio_buttons[button_index].pin_number);
-        }
-    }
+    init_button_from_config(gpio_config, "up", button_index);
+    init_button_from_config(gpio_config, "down", button_index);
+    init_button_from_config(gpio_config, "left", button_index);
+    init_button_from_config(gpio_config, "right", button_index);
+    init_button_from_config(gpio_config, "center", button_index);
+    init_button_from_config(gpio_config, "rec", button_index);
 }
 
 // Function to initialize GPIO buttons
