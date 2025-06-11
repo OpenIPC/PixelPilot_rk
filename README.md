@@ -108,15 +108,22 @@ Currently implemented fact categories are grouped by Mavlink message types:
 More can be easily added later. You can use `DebugWidget` to inspect the current raw value of the fact(s).
 
 Pixelpilot is also able to connect to WFB-ng statistics API and extract some of the facts from there.
-Receiving packets statistics (each fact has "id" tag - channel name, eg "video"/"mavlink"/"tunnel" etc):
+Receiving packets statistics (each fact has "id" tag - channel name, eg "video"/"mavlink"/"tunnel" etc),
+the last section of the name is either `delta` or `total`:
 
-| Fact                          | Type | Description                          |
-|:------------------------------|:-----|:-------------------------------------|
-| `wfbcli.rx.packets.all`       | uint | Number of packets received           |
-| `wfbcli.rx.packets.all_bytes` | uint | Number of bytes received             |
-| `wfbcli.rx.packets.dec_err`   | uint | Number of packets lost               |
-| `wfbcli.rx.packets.dec_ok`    | uint | Number of good packets               |
-| `wfbcli.rx.packets.fec_rec`   | uint | Number of packets recovered with FEC |
+| Fact                                | Type | Description                                  |
+|:------------------------------------|:-----|:---------------------------------------------|
+| `wfbcli.rx.packets.all.delta|total` | uint | Number of packets received                   |
+| `wfbcli.rx.packets.all_bytes.*`     | uint | Number of bytes received                     |
+| `wfbcli.rx.packets.dec_err.*`       | uint | Number of packets we failed to decrypt       |
+| `wfbcli.rx.packets.session.*`       | uint | Number of session packets received           |
+| `wfbcli.rx.packets.data.*`          | uint | Number of payload packets received           |
+| `wfbcli.rx.packets.uniq.*`          | uint | Number of unique packets received            |
+| `wfbcli.rx.packets.fec_rec.*`       | uint | Number of packets recovered with FEC         |
+| `wfbcli.rx.packets.lost.*`          | uint | Number of packets we failed recover with FEC |
+| `wfbcli.rx.packets.bad.*`           | uint | Number of packets lost due to internal errors|
+| `wfbcli.rx.packets.out.*`           | uint | Number of good packets                       |
+| `wfbcli.rx.packets.out_bytes.*`     | uint | Number of good bytes                         |
 
 Receiving per-antenna statistics (each fact has "id" - channel name and "ant_id" - antenna number tags)
 | Fact                           | Type   | Description                                     |
@@ -128,25 +135,24 @@ Receiving per-antenna statistics (each fact has "id" - channel name and "ant_id"
 | `wfbcli.rx.ant_stats.rssi_avg` | int    | Average RSSI for this antenna                   |
 | `wfbcli.rx.ant_stats.snr_avg`  | double | Average SNR for this antenna                    |
 
-Transmitting packets stats (same tags as receiving packets):
+Transmitting packets stats (same tags as receiving packets), add `delta` or `total` in the end:
 
-| Fact                               | Type | Description                              |
-|:-----------------------------------|:-----|:-----------------------------------------|
-| `wfbcli.tx.packets.injected`       | uint | Number of successfully injected packets  |
-| `wfbcli.tx.packets.injected_bytes` | uint | Number of successfully injected bytes    |
-| `wfbcli.tx.packets.dropped`        | uint | Number of dropped packets                |
-| `wfbcli.tx.packets.truncated`      | uint | Number of truncated (?) packets          |
-| `wfbcli.tx.packets.fec_timeouts`   | uint | ?                                        |
-| `wfbcli.tx.packets.incoming`       | uint | Even TX interface may receive, n packets |
-| `wfbcli.tx.packets.incoming_bytes` | uint | Even TX interface may receive, n bytes   |
+| Fact                                     | Type | Description                              |
+|:-----------------------------------------|:-----|:-----------------------------------------|
+| `wfbcli.tx.packets.injected.delta|total` | uint | Number of successfully injected packets  |
+| `wfbcli.tx.packets.injected_bytes.*`     | uint | Number of successfully injected bytes    |
+| `wfbcli.tx.packets.dropped.*`            | uint | Number of dropped packets                |
+| `wfbcli.tx.packets.truncated.*`          | uint | Number of truncated (?) packets          |
+| `wfbcli.tx.packets.fec_timeouts.*`       | uint | ?                                        |
+| `wfbcli.tx.packets.incoming.*`           | uint | Even TX interface may receive, n packets |
+| `wfbcli.tx.packets.incoming_bytes.*`     | uint | Even TX interface may receive, n bytes   |
 
-Transmitting per-antenna stats (same tags as receiving antennas):
+RF chip temperature, tagged with `ant_id`:
 
-| Fact                           | Type | Description                                |
-|:-------------------------------|:-----|:-------------------------------------------|
-| `wfbcli.tx.ant_stats.pkt_sent` | uint | Number packets sent through this antenna   |
-| `wfbcli.tx.ant_stats.pkt_drop` | uint | Number packets dropped by this antenna     |
-| `wfbcli.tx.ant_stats.lat_avg`  | uint | Average injection latency for this antenna |
+| Fact                     | Type | Description                        |
+|:-------------------------|:-----|:-----------------------------------|
+| `wfbcli.rf_temperature`  | uint | Temperature of RX chip per-antenna |
+
 
 #### Widgets
 
