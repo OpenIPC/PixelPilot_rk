@@ -42,6 +42,7 @@ typedef struct {
     const char *name;        // Button name ("up", "down", etc.)
     int pin_number;          // Physical pin number from YAML
     const char *chip_name;   // GPIO chip path (e.g., "/dev/gpiochip0")
+    const char *chip_label;  // GPIO chip label (e.g., "gpiochip3")
     int line_num;            // GPIO line number
     struct gpiod_chip *chip;
     struct gpiod_line *line;
@@ -84,6 +85,12 @@ bool find_gpio_mapping(int pin, const char** chip_name, int* line_num) {
         chip = gpiod_chip_open(globbuf.gl_pathv[i]);
         if (!chip) continue;
 
+        // Check chip label first
+        const char *label = gpiod_chip_label(chip);
+        if (label) {
+            // If we were looking for a specific chip label, we'd check here
+        }
+
         // For libgpiod v1.x
         int num_lines = gpiod_chip_num_lines(chip);
         for (int offset = 0; offset < num_lines && !found; offset++) {
@@ -112,21 +119,44 @@ bool find_gpio_mapping(int pin, const char** chip_name, int* line_num) {
 }
 
 void init_button_from_config(YAML::Node& gpio_config, const char* button_name, int& button_index) {
-    if (gpio_config[button_name] && !gpio_config[button_name].IsNull()) {
-        gpio_buttons[button_index].name = button_name;
+    if (!gpio_config[button_name] || gpio_config[button_name].IsNull()) {
+        printf("Omitting GPIO mapping for button %s\n", button_name);
+        return;
+    }
+
+    gpio_buttons[button_index].name = button_name;
+
+    // Check if the button config is a simple pin number or a map
+    if (gpio_config[button_name].IsScalar()) {
+        // Simple format: just a pin number
         gpio_buttons[button_index].pin_number = gpio_config[button_name].as<int>();
-        if (find_gpio_mapping(gpio_buttons[button_index].pin_number, 
-                            &gpio_buttons[button_index].chip_name,
-                            &gpio_buttons[button_index].line_num)) {
-            button_index++;
-        } else {
+        if (!find_gpio_mapping(gpio_buttons[button_index].pin_number, 
+                             &gpio_buttons[button_index].chip_name,
+                             &gpio_buttons[button_index].line_num)) {
             fprintf(stderr, "Failed to find GPIO mapping for pin %d (%s)\n", 
                     gpio_buttons[button_index].pin_number, button_name);
+            return;
         }
     } else {
-        printf("Omitting GPIO mapping for pin %d (%s)\n", 
-                gpio_buttons[button_index].pin_number, button_name);
+        // Complex format: chip and pin specified
+        YAML::Node button_config = gpio_config[button_name];
+        if (!button_config["chip"] || !button_config["pin"]) {
+            fprintf(stderr, "Invalid GPIO config for button %s - missing chip or pin\n", button_name);
+            return;
+        }
+
+        gpio_buttons[button_index].chip_label = strdup(button_config["chip"].as<std::string>().c_str());
+        gpio_buttons[button_index].pin_number = button_config["pin"].as<int>();
+        
+        // Construct chip path from label
+        std::string chip_path = "/dev/" + std::string(gpio_buttons[button_index].chip_label);
+        gpio_buttons[button_index].chip_name = strdup(chip_path.c_str());
+        
+        // For direct chip/pin mapping, we can use the pin number directly as line_num
+        gpio_buttons[button_index].line_num = gpio_buttons[button_index].pin_number;
     }
+
+    button_index++;
 }
 
 void init_gpio_buttons_from_config(YAML::Node& config) {
@@ -163,7 +193,11 @@ void setup_gpio(YAML::Node& config) {
             continue;
         }
 
-        if (gpiod_line_request_input(gpio_buttons[i].line, "lvgl_input") < 0) {
+        // Create the consumer name with "pixelpilot_" prefix
+        char consumer_name[32];
+        snprintf(consumer_name, sizeof(consumer_name), "pixelpilot_%s", gpio_buttons[i].name);
+
+        if (gpiod_line_request_input(gpio_buttons[i].line, consumer_name) < 0) {
             perror("Failed to request GPIO input");
             gpiod_chip_close(gpio_buttons[i].chip);
             gpio_buttons[i].chip = NULL;
@@ -311,8 +345,12 @@ void cleanup_gpio(void) {
             gpio_buttons[i].line = NULL;
         }
         if (gpio_buttons[i].chip_name) {
-            free((void*)gpio_buttons[i].chip_name);  // Free the strdup'ed chip_name
+            free((void*)gpio_buttons[i].chip_name);
             gpio_buttons[i].chip_name = NULL;
+        }
+        if (gpio_buttons[i].chip_label) {
+            free((void*)gpio_buttons[i].chip_label);
+            gpio_buttons[i].chip_label = NULL;
         }
     }
 }
