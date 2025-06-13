@@ -19,10 +19,10 @@ Build on the Rockchip linux system directly.
 
 ## Install dependencies
 
-- drm, cairo, mpp, logging, json, msgpack
+- drm, cairo, mpp, logging, json, msgpack, gpiod, yaml-cpp
 
 ```
-sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev
+sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
 ```
 
 - gstreamer
@@ -34,6 +34,13 @@ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstream
 ## Build Instructions
 
 Build and run application in production environment:
+
+```
+git clone https://github.com/OpenIPC/PixelPilot_rk
+cd PixelPilot_rk
+git submodule update --init
+cd ..
+```
 
 ```
 cmake -B build
@@ -48,6 +55,13 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 build/pixelpilot --osd
 ```
+
+Build and run gsmenu SDL simulator locally
+```
+./sim.sh
+```
+Simulator has w,a,s,d,Enter input.
+Press t to toggle drone detection.
 
 ## Usage
 
@@ -178,22 +192,36 @@ Specific widgets expect quite concrete facts as input:
 * `GPSWidget` - displays GPS fix type (no fix / 2D fix / 3D fix etc) and GPS coordinates.
   Uses `mavlink.gps_raw.fix_type`, `mavlink.gps_raw.lat` and `mavlink.gps_raw.lon` facts
 
-## Menu
+## GSMenu
 
-The menu provides options to modify air and ground settings.
-Navigation is controlled via a GPIO button, adhering to Ruby wiring conventions.
+The gsmenu provides a ui to modify air and ground settings.
+Navigation is controlled via a GPIO buttons.
+GPIO mapping can be configured in pixelpilot.yaml, see example.
 PixelPilot_rk will take ownership of the needed gpios.
-The provided gsmenu.sh script needs
+Settings on air and ground are get/set useing the gsmenu.sh script.
+
+The provided gsmenu.sh script needs:
   - https://github.com/openipc/yaml-cli/
   - https://github.com/mikefarah/yq/
   - drm_info:  `sudo apt install drm-info`
 
 ### Navigation
-Up/Down – Cycles through menu items (wraps around at the top and bottom of the page/sections).
-Left/Right/Ok (Back/Menu/QA1 in Ruby terms) – Adjusts selected values.
-Ok becomes Rec/QA1 when menu is not shown.
+Navigation mode:
+  - Up/Down: Navigate
+  - Right: Select page / Start edit mode
+  - Left: Back/Close
 
-When not in menu any navigation key will open the menu.
+Edit mode:
+  - Up/down: Change value
+  - Right: Confirm selection
+  - Left: Back/Cancel
+
+Keyboard mode:
+
+  - Up/Down/Left/Right: Select key
+  - Enter: Press selected key
+
+When not in menu Up/Down will open the menu.
 
 ## Known issues
 
@@ -208,6 +236,7 @@ It uses [Direct Rendering Manager (DRM)](https://en.wikipedia.org/wiki/Direct_Re
 display video on the screen, see `drm.c`.
 It uses `mavlink` decoder to read Mavlink telemetry from telemetry UDP (if enabled), see `mavlink.c`
 It uses `cairo` library to draw OSD elements (if enabled), see `osd.c`.
+It uses `lvgl`to draw the gsmenu.
 It writes non-decoded MPEG stream to file as DVR (if enabled) using `minimp4.h` library.
 
 Pixelpilot starts several threads:
