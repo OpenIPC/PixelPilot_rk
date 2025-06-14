@@ -173,3 +173,17 @@ install(FILES ${ICONS}
 install(FILES ${OSD_CONFIGS}
     DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/${PROJECT_NAME}
 )
+
+# Install gsmenu.sh to bin directory
+install(FILES 
+    ${CMAKE_CURRENT_SOURCE_DIR}/gsmenu.sh
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+)
+
+# Install configuration files to /etc
+install(FILES 
+    ${CMAKE_CURRENT_SOURCE_DIR}/pixelpilot.yaml
+    ${CMAKE_CURRENT_SOURCE_DIR}/config_osd.json
+    DESTINATION /etc
+)

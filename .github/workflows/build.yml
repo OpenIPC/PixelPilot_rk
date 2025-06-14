@@ -36,19 +36,20 @@ jobs:
           tar -xf ${system}.xz
 
           output=output
-          mkdir $output
-          
+          mkdir -p $output
           # device=$(sudo losetup -P --show -f ${system})
           # sudo mount ${device}p3 $output
 
           device=$(sudo losetup -P --show -f disk.raw)
           sudo mount ${device}p1 $output
+          sudo mkdir -p $output/usr/src/PixelPilot_rk
+          sudo mount -o bind $PWD $output/usr/src/PixelPilot_rk
 
-          cat > build.sh << EOL
+          cat > $output/usr/src/PixelPilot_rk/build.sh << EOL
           #!/bin/bash
-          cd /home
+          cd /usr/src/PixelPilot_rk
           # install radxa APT repo, see https://radxa-repo.github.io/bullseye/
-          keyring="/home/keyring.deb"
+          keyring="/usr/src/PixelPilot_rk/keyring.deb"
           version="\$(curl -L https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/VERSION)"
           curl -L --output "\$keyring" "https://github.com/radxa-pkg/radxa-archive-keyring/releases/download/\${version}/radxa-archive-keyring_\${version}_all.deb"
           dpkg -i \$keyring
@@ -65,18 +66,17 @@ jobs:
           cmake --build build -j4 --target install
           EOL
 
-          cat > run.sh <<EOL
+          cat > $output/usr/src/PixelPilot_rk/run.sh <<EOL
           #!/bin/bash
           LD_LIBRARY_PATH=/usr/local/lib/ /usr/local/bin/pixelpilot \$@
           EOL
 
-          chmod 755 build.sh run.sh
-          sudo cp -r build.sh run.sh CMakeLists.txt pixelpilot_config.h.in src lvgl lv_conf.h $output/home
+          chmod 755 $output/usr/src/PixelPilot_rk/build.sh $output/usr/src/PixelPilot_rk/run.sh
           sudo rm $output/etc/resolv.conf
           echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
-          sudo chroot $output /home/build.sh
-          sudo chroot $output /home/run.sh --version
-          sudo cp $output/home/build/pixelpilot .
+          sudo chroot $output /usr/src/PixelPilot_rk/build.sh
+          sudo chroot $output /usr/src/PixelPilot_rk/run.sh --version
+          sudo cp $output/usr/src/PixelPilot_rk/build/pixelpilot .
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -84,6 +84,8 @@ jobs:
           path: |
               pixelpilot
               config_osd.json
+              pixelpilot.yaml
+              gsmenu.sh
 
       - name: Versioned release
         if: startsWith(github.ref, 'refs/tags/')
@@ -92,6 +94,8 @@ jobs:
           files: |
             pixelpilot
             config_osd.json
+            pixelpilot.yaml
+            gsmenu.sh
 
       - name: Upload latest
         if: github.event_name != 'pull_request'
@@ -101,3 +105,5 @@ jobs:
           files: |
             pixelpilot
             config_osd.json
+            pixelpilot.yaml
+            gsmenu.sh
