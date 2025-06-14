@@ -39,7 +39,6 @@ Build and run application in production environment:
 git clone https://github.com/OpenIPC/PixelPilot_rk
 cd PixelPilot_rk
 git submodule update --init
-cd ..
 ```
 
 ```
@@ -200,10 +199,16 @@ GPIO mapping can be configured in pixelpilot.yaml, see example.
 PixelPilot_rk will take ownership of the needed gpios.
 Settings on air and ground are get/set useing the gsmenu.sh script.
 
-The provided gsmenu.sh script needs:
-  - https://github.com/openipc/yaml-cli/
-  - https://github.com/mikefarah/yq/
-  - drm_info:  `sudo apt install drm-info`
+Install gsmenu.sh dependencies:
+```
+git clone https://github.com/OpenIPC/yaml-cli.git
+cd yaml-cli
+cmake -B build
+sudo cmake --build build --target install
+curl -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_arm64
+chmod +x /usr/local/bin/yq
+sudo apt install drm-info jq
+```
 
 ### Navigation
 Navigation mode:
