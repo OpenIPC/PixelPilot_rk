@@ -98,6 +98,10 @@ uint32_t refresh_frequency_ms = 1000;
 VideoCodec codec = VideoCodec::H265;
 Dvr *dvr = NULL;
 
+// Add global variables for plane id overrides
+uint32_t video_plane_id_override = 0;
+uint32_t osd_plane_id_override = 0;
+
 void init_buffer(MppFrame frame) {
 	output_list->video_frm_width = mpp_frame_get_width(frame);
 	output_list->video_frm_height = mpp_frame_get_height(frame);
@@ -531,8 +535,8 @@ void printHelp() {
     "                             Supports placeholders %%Y - year, %%m - month, %%d - day,\n"
     "                             %%H - hour, %%M - minute, %%S - second. Ex: /media/DVR/%%Y-%%m-%%d_%%H-%%M-%%S.mp4\n"
     "\n"
-	"    --dvr-sequenced-files  - Prepend a sequence number to the names of the dvr files\n"
-	"\n"
+    "    --dvr-sequenced-files  - Prepend a sequence number to the names of the dvr files\n"
+    "\n"
     "    --dvr-start            - Start DVR immediately\n"
     "\n"
     "    --dvr-framerate <rate> - Force the dvr framerate for smoother dvr, ex: 60\n"
@@ -541,12 +545,16 @@ void printHelp() {
     "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
-	"    --disable-vsync         - Disable VSYNC commits\n"
-	"\n"
+    "    --video-plane-id       - Override default drm plane used for video by plane-id\n"
+    "\n"
+    "    --osd-plane-id         - Override default drm plane used for osd by plane-id\n"
+    "\n"
+    "    --disable-vsync        - Disable VSYNC commits\n"
+    "\n"
     "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
     "    --wfb-api-port         - Port of wfb-server for cli statistics. (Default: 8003)\n"
-	"                             Use \"0\" to disable this stats\n"
+    "                             Use \"0\" to disable this stats\n"
     "\n"
     "    --version              - Show program version\n"
     "\n", APP_VERSION_MAJOR, APP_VERSION_MINOR
@@ -760,6 +768,15 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
+	__OnArgument("--video-plane-id") {
+		video_plane_id_override = atoi(__ArgValue);
+		continue;
+	}
+	__OnArgument("--osd-plane-id") {
+		osd_plane_id_override = atoi(__ArgValue);
+		continue;
+	}
+
 	__EndParseConsoleArguments__
 
 	spdlog::set_level(log_level);
@@ -796,7 +813,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh);
+	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh, video_plane_id_override, osd_plane_id_override);
 	if (!output_list) {
 		fprintf(stderr,
 				"cannot initialize display. Is display connected? Is --screen-mode correct?\n");
