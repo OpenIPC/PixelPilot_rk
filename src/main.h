@@ -3,6 +3,13 @@
 
 void sig_handler(int signum);
 
+void switch_pipeline_source(const char * source_type, const char * source_path);
+void fast_forward(double rate);
+void fast_rewind(double rate);
+void normal_playback();
+void pause_playback();
+void resume_playback();
+
 /* --- Console arguments parser --- */
 #define __BeginParseConsoleArguments__(printHelpFunction) \
   if (argc < 1 || (argc == 2 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "/?") \

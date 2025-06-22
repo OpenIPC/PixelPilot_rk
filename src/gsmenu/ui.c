@@ -10,6 +10,7 @@
 #include "air_camera.h"
 #include "air_telemetry.h"
 #include "air_actions.h"
+#include "gs_dvr.h"
 #include "gs_main.h"
 #include "gs_wfbng.h"
 #include "gs_system.h"
@@ -33,6 +34,7 @@ lv_obj_t * sub_air_wfbng_page;
 lv_obj_t * sub_air_camera_page;
 lv_obj_t * sub_air_telemetry_page;
 lv_obj_t * sub_air_actions_page;
+lv_obj_t * sub_gs_dvr_page;
 lv_obj_t * sub_gs_wfbng_page;
 lv_obj_t * sub_gs_system_page;
 lv_obj_t * sub_wlan_page;
@@ -43,6 +45,7 @@ lv_obj_t * air_wfbng_cont;
 lv_obj_t * air_camera_cont;
 lv_obj_t * air_telemetry_cont;
 lv_obj_t * air_actions_cont;
+lv_obj_t * gs_dvr_cont;
 lv_obj_t * gs_wfbng_cont;
 lv_obj_t * gs_system_cont;
 lv_obj_t * gs_wlan_cont;
@@ -265,7 +268,12 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     sub_air_actions_page = lv_menu_page_create(menu, LV_SYMBOL_PLAY" Actions");
     lv_obj_set_style_pad_hor(sub_air_actions_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     lv_menu_separator_create(sub_air_actions_page);
-    create_air_actions_menu(sub_air_actions_page);    
+    create_air_actions_menu(sub_air_actions_page);
+
+    sub_gs_dvr_page = lv_menu_page_create(menu, LV_SYMBOL_VIDEO" DVR");
+    lv_obj_set_style_pad_hor(sub_gs_dvr_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_gs_dvr_page);
+    create_gs_dvr_menu(sub_gs_dvr_page);
 
     sub_gs_wfbng_page = lv_menu_page_create(menu, LV_SYMBOL_WIFI" WFB-NG");
     lv_obj_set_style_pad_hor(sub_gs_wfbng_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
@@ -324,6 +332,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     section = lv_menu_section_create(root_page);
     lv_obj_add_style(section, &style_openipc_section, 0);
 
+    gs_dvr_cont = create_text(section, LV_SYMBOL_VIDEO, "DVR", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(main_group,gs_dvr_cont);
+    lv_menu_set_load_page_event(menu, gs_dvr_cont, sub_gs_dvr_page);
+    lv_obj_add_event_cb(gs_dvr_cont,back_event_handler,LV_EVENT_KEY,NULL);
+
     gs_wfbng_cont = create_text(section, LV_SYMBOL_WIFI, "WFB-NG", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_wfbng_cont);
     lv_menu_set_load_page_event(menu, gs_wfbng_cont, sub_gs_wfbng_page);
@@ -368,6 +381,7 @@ static void back_event_handler(lv_event_t * e)
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_dvr_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);

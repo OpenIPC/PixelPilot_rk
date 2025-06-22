@@ -5,6 +5,7 @@
 #include "menu.h"
 #include "gsmenu/ui.h"
 #include "gsmenu/styles.h"
+#include "gsmenu/gs_dvrplayer.h"
 #include "lvosd.h"
 
 lv_obj_t * menu;
@@ -12,6 +13,7 @@ lv_indev_t * indev_drv;
 lv_group_t * default_group;
 lv_obj_t * pp_menu_screen; 
 lv_obj_t * pp_osd_screen;
+lv_obj_t * dvr_screen;
 
 /**
  * PP Main Menu
@@ -47,6 +49,10 @@ void pp_menu_main(void)
     pp_header_create(menu_cont);
 
     pp_menu_create(menu_cont);
+
+    dvr_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_opa(dvr_screen, LV_OPA_TRANSP, LV_PART_MAIN);
+    dvr_player_screen_init();
 
     pp_osd_main();
 

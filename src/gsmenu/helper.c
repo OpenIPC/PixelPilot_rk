@@ -17,6 +17,7 @@ extern lv_obj_t * air_wfbng_cont;
 extern lv_obj_t * air_camera_cont;
 extern lv_obj_t * air_telemetry_cont;
 extern lv_obj_t * air_actions_cont;
+extern lv_obj_t * gs_dvr_cont;
 extern lv_obj_t * gs_wfbng_cont;
 extern lv_obj_t * gs_system_cont;
 extern lv_obj_t * gs_wlan_cont;
@@ -139,7 +140,7 @@ void generic_page_load_callback(lv_obj_t *page) {
     pthread_detach(loader_thread); // Don't wait for thread to finish
 }
 
-void back_event_handler(lv_event_t * e) {
+void generic_back_event_handler(lv_event_t * e) {
     lv_key_t key = lv_event_get_key(e);
     if (key == LV_KEY_HOME) {
         lv_menu_set_page(menu,NULL);
@@ -148,6 +149,7 @@ void back_event_handler(lv_event_t * e) {
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_dvr_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
@@ -312,7 +314,7 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     lv_obj_set_user_data(slider,data);
 
     lv_obj_add_event_cb(slider, generic_slider_event_cb, LV_EVENT_CLICKED,data);
-    lv_obj_add_event_cb(slider, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(slider, generic_back_event_handler, LV_EVENT_KEY,NULL);
 
     get_slider_value(obj);
 
@@ -349,7 +351,7 @@ lv_obj_t * create_button(lv_obj_t * parent, const char * txt)
     }    
 
     lv_obj_add_style(btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
-    lv_obj_add_event_cb(btn, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(btn, generic_back_event_handler, LV_EVENT_KEY,NULL);
     lv_obj_add_event_cb(btn, on_focus, LV_EVENT_FOCUSED, NULL);
 
 
@@ -441,7 +443,7 @@ lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,
         lv_obj_add_event_cb(sw, generic_switch_event_cb, LV_EVENT_VALUE_CHANGED,data);
     }
 
-    lv_obj_add_event_cb(sw, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(sw, generic_back_event_handler, LV_EVENT_KEY,NULL);
     lv_obj_add_event_cb(sw, on_focus, LV_EVENT_FOCUSED, NULL);
 
 
@@ -505,7 +507,7 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
     lv_obj_set_user_data(dd,data);
 
     lv_obj_add_event_cb(dd, generic_dropdown_event_cb, LV_EVENT_VALUE_CHANGED,data);
-    lv_obj_add_event_cb(dd, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(dd, generic_back_event_handler, LV_EVENT_KEY,NULL);
     lv_obj_add_event_cb(dd, on_focus, LV_EVENT_FOCUSED, NULL);
 
     get_dropdown_value(obj);
@@ -526,7 +528,7 @@ lv_obj_t * create_backbutton(lv_obj_t * parent, const char * icon, const char * 
     }    
 
     lv_obj_t *back_button = lv_btn_create(obj);
-    lv_obj_add_event_cb(back_button, back_event_handler, LV_EVENT_CLICKED,NULL);    
+    lv_obj_add_event_cb(back_button, generic_back_event_handler, LV_EVENT_CLICKED,NULL);    
     lv_obj_t * label = lv_label_create(back_button);
     lv_label_set_text(label, label_txt);
     return obj;
@@ -562,7 +564,7 @@ lv_obj_t * create_textarea(lv_obj_t * parent, char * text, const char * label_tx
     lv_obj_set_user_data(button, ta); // Associate button with text area
     lv_obj_add_style(button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
-    lv_obj_add_event_cb(button, back_event_handler, LV_EVENT_KEY,NULL);
+    lv_obj_add_event_cb(button, generic_back_event_handler, LV_EVENT_KEY,NULL);
 
     lv_obj_t * button_label = lv_label_create(button);
     lv_label_set_text(button_label,LV_SYMBOL_KEYBOARD);

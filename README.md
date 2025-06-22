@@ -39,6 +39,7 @@ Build and run application in production environment:
 git clone https://github.com/OpenIPC/PixelPilot_rk
 cd PixelPilot_rk
 git submodule update --init
+cd ..
 ```
 
 ```

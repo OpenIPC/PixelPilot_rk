@@ -6,6 +6,7 @@
 #ifndef FPVUE_GSTRTPRECEIVER_H
 #define FPVUE_GSTRTPRECEIVER_H
 
+#include <stdint.h>
 #include <gst/gst.h>
 #include <thread>
 #include <memory>
@@ -49,11 +50,18 @@ public:
     typedef std::function<void(std::shared_ptr<std::vector<uint8_t>> frame)> NEW_FRAME_CALLBACK;
     void start_receiving(NEW_FRAME_CALLBACK cb);
     void stop_receiving();
+    void switch_to_file_playback(const char* file_path);
+    void switch_to_stream();
+    void fast_forward(double rate = 2.0);
+    void fast_rewind(double rate = 2.0);
+    void normal_playback();
+    void pause();
+    void resume();
 private:
     std::string construct_gstreamer_pipeline();
+    std::string construct_file_playback_pipeline(const char * file_path);
     void loop_pull_samples();
     void on_new_sample(std::shared_ptr<std::vector<uint8_t>> sample);
-private:
     // The gstreamer pipeline
     GstElement * m_gst_pipeline=nullptr;
     NEW_FRAME_CALLBACK m_cb;
@@ -68,6 +76,12 @@ private:
     int sock;
     bool m_read_socket_run = false;
     std::unique_ptr<std::thread> m_read_socket_thread;
+
+    // dvr
+    void set_playback_rate(double rate);
+    double m_playback_rate = 1.0;
+    bool m_is_paused = false;
+    double m_pre_pause_rate = 1.0;
 };
 
 

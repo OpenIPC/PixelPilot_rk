@@ -71,7 +71,8 @@ jobs:
           LD_LIBRARY_PATH=/usr/local/lib/ /usr/local/bin/pixelpilot \$@
           EOL
 
-          chmod 755 $output/usr/src/PixelPilot_rk/build.sh $output/usr/src/PixelPilot_rk/run.sh
+          chmod 755 build.sh run.sh
+          sudo cp -r build.sh run.sh CMakeLists.txt pixelpilot_config.h.in src lvgl lv_conf.h $output/home
           sudo rm $output/etc/resolv.conf
           echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
           sudo chroot $output /usr/src/PixelPilot_rk/build.sh

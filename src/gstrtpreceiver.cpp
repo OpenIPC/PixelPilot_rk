@@ -333,6 +333,7 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb) {
 }
 
 void GstRtpReceiver::stop_receiving() {
+     spdlog::info("GstRtpReceiver::startstop_receiving_receiving start");
     m_pull_samples_run = false;
     m_read_socket_run = false;
     
@@ -353,4 +354,236 @@ void GstRtpReceiver::stop_receiving() {
         gst_object_unref(m_gst_pipeline);
         m_gst_pipeline = nullptr;
     }
+    spdlog::info("GstRtpReceiver::startstop_receiving_receiving end");
+}
+
+std::string GstRtpReceiver::construct_file_playback_pipeline(const char * file_path) {
+    std::stringstream ss;
+    ss<<"filesrc location="<<file_path<<" ! qtdemux ! ";
+    ss<<pipeline::create_parse_for_codec(m_video_codec);
+    ss << pipeline::create_out_caps(m_video_codec);
+    ss << " appsink drop=true name=out_appsink";
+    return ss.str();
+}
+
+void GstRtpReceiver::switch_to_file_playback(const char * file_path) {
+    stop_receiving();
+    
+    const auto pipeline = construct_file_playback_pipeline(file_path);
+    GError* error = nullptr;
+    m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
+    spdlog::info("GSTREAMER FILE PLAYBACK PIPE=[{}]", pipeline);
+    
+    if (error) {
+        spdlog::error("gst_parse_launch error: {}", error->message);
+        g_error_free(error);
+        return;
+    }
+    
+    if (!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))) {
+        spdlog::error("Cannot construct file playback pipeline");
+        m_gst_pipeline = nullptr;
+        return;
+    }
+
+    // Setup appsink
+    m_app_sink_element = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
+    assert(m_app_sink_element);
+    
+    gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
+    
+    m_pull_samples_run = true;
+    m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+}
+
+void GstRtpReceiver::switch_to_stream() {
+    stop_receiving();
+    
+    const auto pipeline = construct_gstreamer_pipeline();
+    GError* error = nullptr;
+    m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
+    spdlog::info("GSTREAMER STREAM PIPE=[{}]", pipeline);
+    
+    if (error) {
+        spdlog::error("gst_parse_launch error: {}", error->message);
+        g_error_free(error);
+        return;
+    }
+    
+    if (!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))) {
+        spdlog::error("Cannot construct streaming pipeline");
+        m_gst_pipeline = nullptr;
+        return;
+    }
+
+    // If using Unix socket, setup appsrc with buffer pool
+    if (unix_socket) {
+        GstElement* appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
+        if (!appsrc) {
+            spdlog::error("Failed to get appsrc element from pipeline");
+            return;
+        }
+        
+        // Configure appsrc with buffer pool
+        GstBufferPool* pool = nullptr;
+        GstStructure* config = nullptr;
+        
+        g_object_set(appsrc,
+            "stream-type", 0,
+            "is-live", TRUE,
+            "format", GST_FORMAT_TIME,
+            "block", FALSE,
+            "do-timestamp", TRUE,
+            NULL);
+            
+        // Create buffer pool
+        pool = gst_buffer_pool_new();
+        config = gst_buffer_pool_get_config(pool);
+        
+        GstCaps* caps = gst_caps_new_simple("application/x-rtp",
+            "media", G_TYPE_STRING, "video",
+            "encoding-name", G_TYPE_STRING, 
+                (m_video_codec == VideoCodec::H264) ? "H264" : "H265",
+            NULL);
+        
+        gst_buffer_pool_config_set_params(config, caps, MAX_PACKET_SIZE, 10, 20);
+        gst_buffer_pool_set_config(pool, config);
+        gst_caps_unref(caps);
+        
+        if (!gst_buffer_pool_set_active(pool, TRUE)) {
+            spdlog::error("Failed to activate buffer pool");
+            gst_object_unref(pool);
+        } else {
+            g_object_set_data(G_OBJECT(appsrc), "buffer-pool", pool);
+        }
+            
+        // Start socket reading thread
+        m_read_socket_run = true;
+        m_read_socket_thread = std::make_unique<std::thread>([this, appsrc]() {
+            pthread_setname_np(pthread_self(), "socket-reader");
+            loop_read_socket(m_read_socket_run, this->sock, GST_APP_SRC(appsrc));
+        });
+    }
+
+    // Setup appsink
+    m_app_sink_element = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
+    assert(m_app_sink_element);
+    
+    gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
+    
+    m_pull_samples_run = true;
+    m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+}
+
+void GstRtpReceiver::set_playback_rate(double rate) {
+    if (!m_gst_pipeline) {
+        spdlog::warn("Cannot set playback rate: pipeline is not running.");
+        return;
+    }
+    
+    // Don't do anything if the rate is already set to the desired value
+    if (m_playback_rate == rate) {
+        spdlog::debug("Playback rate is already {}.", rate);
+        return;
+    }
+
+    spdlog::info("Setting playback rate to: {}", rate);
+
+    // To change the playback rate, we seek to the current position with a new rate.
+    // The flags ensure that the pipeline flushes old data and continues smoothly.
+    GstEvent *seek_event = gst_event_new_seek(
+        rate,
+        GST_FORMAT_TIME,
+        (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
+        GST_SEEK_TYPE_NONE, 0, // start from current position
+        GST_SEEK_TYPE_NONE, 0  // do not change stop position
+    );
+
+    if (!gst_element_send_event(m_gst_pipeline, seek_event)) {
+        spdlog::warn("Failed to send seek event to change playback rate.");
+    } else {
+        m_playback_rate = rate;
+    }
+}
+
+void GstRtpReceiver::fast_forward(double rate) {
+    if (rate <= 1.0) {
+        spdlog::warn("Fast forward rate must be greater than 1.0. Using 2.0 instead.");
+        rate = 2.0;
+    }
+    set_playback_rate(rate);
+}
+
+void GstRtpReceiver::fast_rewind(double rate) {
+    if (rate <= 1.0) {
+        spdlog::warn("Fast rewind rate must be greater than 1.0. Using 2.0 instead.");
+        rate = 2.0;
+    }
+    // For rewind, the rate must be negative
+    set_playback_rate(-rate);
+}
+
+void GstRtpReceiver::normal_playback() {
+    set_playback_rate(1.0);
+}
+
+void GstRtpReceiver::pause() {
+    if (!m_gst_pipeline) {
+        spdlog::warn("Cannot pause: pipeline is not running.");
+        return;
+    }
+
+    // If we're already paused, do nothing
+    if (m_is_paused) {
+        spdlog::debug("Pipeline is already paused.");
+        return;
+    }
+
+    // Store current playback rate before pausing
+    m_pre_pause_rate = m_playback_rate;
+    
+    // Set pipeline to PAUSED state
+    GstStateChangeReturn ret = gst_element_set_state(m_gst_pipeline, GST_STATE_PAUSED);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+        spdlog::error("Failed to pause pipeline");
+        return;
+    }
+
+    // Wait for state change to complete
+    ret = gst_element_get_state(m_gst_pipeline, nullptr, nullptr, GST_CLOCK_TIME_NONE);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+        spdlog::error("Failed to complete pause operation");
+        return;
+    }
+
+    m_is_paused = true;
+    spdlog::info("Pipeline paused");
+}
+
+void GstRtpReceiver::resume() {
+    if (!m_gst_pipeline) {
+        spdlog::warn("Cannot resume: pipeline is not running.");
+        return;
+    }
+
+    // If we're not paused, do nothing
+    if (!m_is_paused) {
+        spdlog::debug("Pipeline is not paused.");
+        return;
+    }
+
+    // Set pipeline back to PLAYING state
+    GstStateChangeReturn ret = gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+        spdlog::error("Failed to resume pipeline");
+        return;
+    }
+
+    // Restore previous playback rate if it wasn't normal
+    if (m_pre_pause_rate != 1.0) {
+        set_playback_rate(m_pre_pause_rate);
+    }
+
+    m_is_paused = false;
+    spdlog::info("Pipeline resumed");
 }
