@@ -10,7 +10,7 @@ extern lv_obj_t * pp_menu_screen;
 extern lv_obj_t * dvr_screen;
 
 extern lv_group_t * default_group;
-extern lv_group_t * main_group;
+extern lv_group_t * dvr_page_group;
 lv_group_t * dvr_group;
 
 bool seek_mode = false;
@@ -101,7 +101,7 @@ static void stop_event_handler(lv_event_t * e)
 
     seek_mode = false;
     lv_screen_load(pp_menu_screen);
-    lv_indev_set_group(indev_drv,main_group);
+    lv_indev_set_group(indev_drv,dvr_page_group);
 }
 
 void create_video_controls(lv_obj_t * parent)

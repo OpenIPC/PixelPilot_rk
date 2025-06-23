@@ -15,6 +15,8 @@ extern lv_group_t * default_group;
 extern lv_obj_t * dvr_screen;
 extern lv_indev_t * indev_drv;
 extern lv_group_t * dvr_group;
+lv_group_t * dvr_page_group;
+
 
 char path[256];
 lv_obj_t* rec_list = NULL;
@@ -114,6 +116,7 @@ void create_gs_dvr_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->page, "dvr");
     menu_page_data->page_load_callback = dvr_menu_load_callback;
     menu_page_data->indev_group = lv_group_create();
+    dvr_page_group = menu_page_data->indev_group;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
