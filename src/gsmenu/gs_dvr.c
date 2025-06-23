@@ -64,9 +64,10 @@ void dvr_menu_load_callback(lv_obj_t * page) {
         lv_obj_clean(rec_list);
     } else {
         rec_list = lv_list_create(page);
-        lv_obj_set_size(rec_list, LV_PCT(100), LV_PCT(80)); // Make the list fill the parent
+        lv_obj_set_size(rec_list, LV_PCT(100), LV_SIZE_CONTENT); // Make the list fill the parent
         lv_obj_center(rec_list);
         lv_obj_add_style(rec_list, &style_openipc, LV_PART_SELECTED | LV_STATE_CHECKED);
+        lv_obj_add_style(rec_list, &style_openipc_section, LV_PART_MAIN);
     }
 
     DIR* dir;
@@ -92,6 +93,7 @@ void dvr_menu_load_callback(lv_obj_t * page) {
                 lv_obj_add_event_cb(btn, generic_back_event_handler, LV_EVENT_KEY,NULL);
 
                 lv_obj_add_style(btn, &style_openipc, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+                lv_obj_add_style(btn, &style_openipc_section, LV_PART_MAIN);
             }
         }
         closedir(dir);
