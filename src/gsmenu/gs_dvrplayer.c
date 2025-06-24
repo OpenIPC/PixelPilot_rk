@@ -15,6 +15,7 @@ lv_group_t * dvr_group;
 
 bool seek_mode = false;
 lv_obj_t * btn_container = NULL;
+lv_obj_t * btn_play_pause = NULL;
 lv_timer_t *hide_timer = NULL;
 
 // Animation callback for fade out
@@ -54,9 +55,8 @@ static void timer_reset_handler(lv_event_t * e)
 
 void change_playbutton_label(const char * text) {
     lv_obj_t * screen = lv_screen_active();
-    lv_obj_t * play_pause_btn = lv_obj_get_child(lv_obj_get_child(screen, 0), 1);
-    if(play_pause_btn) {
-        lv_obj_t * label = lv_obj_get_child(play_pause_btn, 0);
+    if(btn_play_pause) {
+        lv_obj_t * label = lv_obj_get_child(btn_play_pause, 0);
         lv_label_set_text(label, text);
     }
 }
@@ -140,6 +140,12 @@ static void stop_event_handler(lv_event_t * e)
     lv_indev_set_group(indev_drv,dvr_page_group);
 }
 
+// Focus on Play/Pause on screen load
+static void screen_load_default_focus(lv_event_t * e)
+{
+    lv_group_focus_obj(btn_play_pause);
+}
+
 void create_video_controls(lv_obj_t * parent)
 {
     // Create a container for the buttons with a flex layout
@@ -167,14 +173,14 @@ void create_video_controls(lv_obj_t * parent)
     lv_obj_add_event_cb(btn,timer_reset_handler,LV_EVENT_FOCUSED, NULL);
 
     // Play/Pause Button
-    btn = lv_button_create(btn_container);
-    lv_obj_add_event_cb(btn, play_pause_event_handler, LV_EVENT_CLICKED, NULL);
-    label = lv_label_create(btn);
+    btn_play_pause = lv_button_create(btn_container);
+    lv_obj_add_event_cb(btn_play_pause, play_pause_event_handler, LV_EVENT_CLICKED, NULL);
+    label = lv_label_create(btn_play_pause);
     lv_label_set_text(label, LV_SYMBOL_PLAY); // Initial state is 'Play'
-    lv_obj_center(label);
-    lv_obj_add_style(btn, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_add_style(btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
-    lv_obj_add_event_cb(btn,timer_reset_handler,LV_EVENT_FOCUSED, NULL);
+    lv_obj_center(btn_play_pause);
+    lv_obj_add_style(btn_play_pause, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_style(btn_play_pause, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_add_event_cb(btn_play_pause,timer_reset_handler,LV_EVENT_FOCUSED, NULL);
 
     // Fast-Forward Button
     btn = lv_button_create(btn_container);
@@ -206,6 +212,7 @@ void dvr_player_screen_init(void)
     // Create the video control buttons
     create_video_controls(dvr_screen);
     lv_obj_add_event_cb(dvr_screen,timer_reset_handler,LV_EVENT_SCREEN_LOADED,NULL);
+    lv_obj_add_event_cb(dvr_screen,screen_load_default_focus,LV_EVENT_SCREEN_LOADED,NULL);
 
     lv_group_set_default(default_group);
 
