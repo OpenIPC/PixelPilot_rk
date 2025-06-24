@@ -256,78 +256,7 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb) {
     assert(m_gst_pipeline == nullptr);
     m_cb = cb;
 
-    const auto pipeline = construct_gstreamer_pipeline();
-    GError* error = nullptr;
-    m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
-    spdlog::info("GSTREAMER PIPE=[{}]", pipeline);
-    
-    if (error) {
-        spdlog::warn("gst_parse_launch error: {}", error->message);
-        return;
-    }
-    
-    if (!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))) {
-        spdlog::warn("Cannot construct pipeline");
-        m_gst_pipeline = nullptr;
-        return;
-    }
-
-    if (unix_socket) {
-        GstElement* appsrc = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "appsrc");
-        if (!appsrc) {
-            spdlog::error("Failed to get appsrc element from pipeline");
-            return;
-        }
-        
-        // Configure appsrc with buffer pool
-        GstBufferPool* pool = nullptr;
-        GstStructure* config = nullptr;
-        
-        g_object_set(appsrc,
-            "stream-type", 0,
-            "is-live", TRUE,
-            "format", GST_FORMAT_TIME,
-            "block", FALSE,
-            "do-timestamp", TRUE,
-            NULL);
-            
-        // Create buffer pool
-        pool = gst_buffer_pool_new();
-        config = gst_buffer_pool_get_config(pool);
-        
-        GstCaps* caps = gst_caps_new_simple("application/x-rtp",
-            "media", G_TYPE_STRING, "video",
-            "encoding-name", G_TYPE_STRING, 
-                (m_video_codec == VideoCodec::H264) ? "H264" : "H265",
-            NULL);
-        
-        gst_buffer_pool_config_set_params(config, caps, MAX_PACKET_SIZE, 10, 20);
-        // gst_buffer_pool_config_add_option(config, GST_BUFFER_POOL_OPTION_VIDEO_META);
-        gst_buffer_pool_set_config(pool, config);
-        gst_caps_unref(caps);
-        
-        if (!gst_buffer_pool_set_active(pool, TRUE)) {
-            spdlog::error("Failed to activate buffer pool");
-            gst_object_unref(pool);
-        } else {
-            g_object_set_data(G_OBJECT(appsrc), "buffer-pool", pool);
-        }
-            
-        // Start socket reading thread
-        m_read_socket_run = true;
-        m_read_socket_thread = std::make_unique<std::thread>([this, appsrc]() {
-            pthread_setname_np(pthread_self(), "socket-reader");
-            loop_read_socket(m_read_socket_run, this->sock, GST_APP_SRC(appsrc));
-        });
-    }
-
-    gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
-
-    // Setup appsink
-    m_app_sink_element = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
-    assert(m_app_sink_element);
-    m_pull_samples_run = true;
-    m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+    switch_to_stream();
 
     spdlog::info("GstRtpReceiver::start_receiving end");
 }
