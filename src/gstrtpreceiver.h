@@ -54,6 +54,7 @@ public:
     void switch_to_stream();
     void fast_forward(double rate = 2.0);
     void fast_rewind(double rate = 2.0);
+    void skip_duration(int64_t skip_ms);
     void normal_playback();
     void pause();
     void resume();

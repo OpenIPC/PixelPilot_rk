@@ -13,7 +13,6 @@ extern lv_group_t * default_group;
 extern lv_group_t * dvr_page_group;
 lv_group_t * dvr_group;
 
-bool seek_mode = false;
 lv_obj_t * btn_container = NULL;
 lv_obj_t * btn_play_pause = NULL;
 lv_timer_t *hide_timer = NULL;
@@ -71,22 +70,14 @@ static void play_pause_event_handler(lv_event_t * e)
     timer_reset_handler(e);
 
     // Toggle the icon and functionality
-    if (strcmp(current_text, LV_SYMBOL_PLAY) == 0 && ! seek_mode) {
+    if (strcmp(current_text, LV_SYMBOL_PLAY) == 0) {
         change_playbutton_label(LV_SYMBOL_PAUSE);
 #ifndef USE_SIMULATOR
         resume_playback();
 #else
         printf("resume_playback();\n");
 #endif
-    } else if (strcmp(current_text, LV_SYMBOL_PLAY) == 0 && seek_mode) {
-        change_playbutton_label(LV_SYMBOL_PAUSE);
-#ifndef USE_SIMULATOR
-        normal_playback();
-#else
-        printf("normal_playback();\n");
-#endif
-        seek_mode = false;
-    } else if (strcmp(current_text, LV_SYMBOL_PAUSE) == 0 && ! seek_mode) {
+    } else if (strcmp(current_text, LV_SYMBOL_PAUSE) == 0) {
         change_playbutton_label(LV_SYMBOL_PLAY);
 #ifndef USE_SIMULATOR
         pause_playback();
@@ -101,12 +92,10 @@ static void fr_event_handler(lv_event_t * e)
 {
     timer_reset_handler(e);
 #ifndef USE_SIMULATOR
-    fast_rewind(-2);
+    skip_duration(-10000);  // Skip back 10 seconds
 #else
-    printf("fast_rewind(2);\n");
+    printf("skip_duration(-10000);n");
 #endif
-    change_playbutton_label(LV_SYMBOL_PLAY);
-    seek_mode = true;
 }
 
 // Event handler for the fast-forward button
@@ -114,12 +103,10 @@ static void ff_event_handler(lv_event_t * e)
 {
     timer_reset_handler(e);
 #ifndef USE_SIMULATOR
-    fast_forward(2);
+    skip_duration(10000);  // Skip forward 10 seconds
 #else
-    printf("fast_forward(2);");
+    printf("skip_duration(10000);\n");
 #endif
-    change_playbutton_label(LV_SYMBOL_PLAY);
-    seek_mode = true;
 }
 
 // Event handler for the stop button
@@ -135,7 +122,6 @@ static void stop_event_handler(lv_event_t * e)
     printf("switch_pipeline_source(\"stream\",NULL);\n");
 #endif
 
-    seek_mode = false;
     lv_screen_load(pp_menu_screen);
     lv_indev_set_group(indev_drv,dvr_page_group);
 }

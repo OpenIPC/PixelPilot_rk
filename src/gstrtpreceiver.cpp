@@ -333,7 +333,7 @@ void GstRtpReceiver::start_receiving(NEW_FRAME_CALLBACK cb) {
 }
 
 void GstRtpReceiver::stop_receiving() {
-     spdlog::info("GstRtpReceiver::startstop_receiving_receiving start");
+     spdlog::info("GstRtpReceiver::stop_receiving start");
     m_pull_samples_run = false;
     m_read_socket_run = false;
     
@@ -354,7 +354,7 @@ void GstRtpReceiver::stop_receiving() {
         gst_object_unref(m_gst_pipeline);
         m_gst_pipeline = nullptr;
     }
-    spdlog::info("GstRtpReceiver::startstop_receiving_receiving end");
+    spdlog::info("GstRtpReceiver::stop_receiving end");
 }
 
 std::string GstRtpReceiver::construct_file_playback_pipeline(const char * file_path) {
@@ -481,11 +481,6 @@ void GstRtpReceiver::set_playback_rate(double rate) {
         return;
     }
     
-    // Don't do anything if the rate is already set to the desired value
-    if (m_playback_rate == rate) {
-        spdlog::debug("Playback rate is already {}.", rate);
-        return;
-    }
 
     spdlog::info("Setting playback rate to: {}", rate);
 
@@ -586,4 +581,50 @@ void GstRtpReceiver::resume() {
 
     m_is_paused = false;
     spdlog::info("Pipeline resumed");
+}
+
+void GstRtpReceiver::skip_duration(int64_t skip_ms) {
+    if (!m_gst_pipeline) {
+        spdlog::warn("Cannot skip: pipeline is not running.");
+        return;
+    }
+
+    if (skip_ms == 0) {
+        spdlog::debug("Skip duration is zero - no action taken.");
+        return;
+    }
+
+    // Get current position
+    gint64 current_pos;
+    if (!gst_element_query_position(m_gst_pipeline, GST_FORMAT_TIME, &current_pos)) {
+        spdlog::warn("Could not query current position");
+        return;
+    }
+
+    // Calculate new position (convert skip_ms to nanoseconds)
+    gint64 new_pos = current_pos + (skip_ms * GST_MSECOND);
+    
+    // Clamp the position to valid range
+    if (new_pos < 0) {
+        new_pos = 0;
+        spdlog::debug("Clamped skip to start of stream");
+    }
+
+    spdlog::info("Skipping {} ms (from {} to {} ms)",
+                skip_ms,
+                current_pos / GST_MSECOND,
+                new_pos / GST_MSECOND);
+
+    // Create seek event
+    GstEvent* seek_event = gst_event_new_seek(
+        1.0,  // Normal playback rate
+        GST_FORMAT_TIME,
+        (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
+        GST_SEEK_TYPE_SET, new_pos,  // start from new position
+        GST_SEEK_TYPE_NONE, 0        // do not change stop position
+    );
+
+    if (!gst_element_send_event(m_gst_pipeline, seek_event)) {
+        spdlog::warn("Failed to send seek event for skipping.");
+    }
 }

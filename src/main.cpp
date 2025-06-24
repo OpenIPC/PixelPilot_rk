@@ -437,6 +437,10 @@ void fast_rewind(double rate){
         receiver->fast_rewind();
 }
 
+void skip_duration(int64_t skip_ms){
+        receiver->skip_duration(skip_ms);
+}
+
 void normal_playback() { 
         receiver->normal_playback();
 }
