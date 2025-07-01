@@ -126,17 +126,21 @@ void create_gs_dvr_menu(lv_obj_t * parent) {
     lv_obj_add_style(section, &style_openipc_section, 0);
 
     // Extract directory path from dvr_template
-    const char *last_slash = strrchr(dvr_template, '/');
-    if (last_slash) {
-        size_t path_len = last_slash - dvr_template + 1;
-        strncpy(path, dvr_template, path_len);
-        path[path_len] = '\0';  // Null-terminate
-    } else {
-        strcpy(path, "./"); // Fallback to current directory if no slash found
-    }
-    printf("Extracted path: \"%s\"\n", path);
+    if (dvr_template) {  // Check if dvr_template is not NULL
+        const char *last_slash = strrchr(dvr_template, '/');
+        if (last_slash) {
+            size_t path_len = last_slash - dvr_template + 1;
+            strncpy(path, dvr_template, path_len);
+            path[path_len] = '\0';  // Null-terminate
+        } else {
+            strcpy(path, "./"); // Fallback to current directory if no slash found
+        }
+        printf("Extracted path: \"%s\"\n", path);
 
-    dvr_menu_load_callback(parent);
+        dvr_menu_load_callback(parent);
+    } else {
+        strcpy(path, "./"); // Fallback to current directory if dvr_template is null
+    }
 
     lv_group_set_default(default_group);
 }
