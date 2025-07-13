@@ -711,10 +711,45 @@ void get_slider_value(lv_obj_t * parent) {
     lv_slider_set_range(obj,min,max);
 }
 
+
+void update_dropdown_width(lv_obj_t * dropdown) {
+    const char * options = lv_dropdown_get_options(dropdown);
+    uint16_t option_cnt = lv_dropdown_get_option_cnt(dropdown);
+    
+    lv_coord_t max_width = 0;
+    lv_point_t p;
+    
+    // Get the style to use for font info
+    const lv_font_t * font = lv_obj_get_style_text_font(dropdown, LV_PART_MAIN);
+    
+    // Iterate through options (split by \n)
+    const char * opt = options;
+    for(uint16_t i = 0; i < option_cnt; i++) {
+        const char * next_opt = strchr(opt, '\n');
+        size_t len = next_opt ? (size_t)(next_opt - opt) : strlen(opt);
+        
+        // Get text width
+        lv_txt_get_size(&p, opt, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        
+        if(p.x > max_width) max_width = p.x;
+        
+        if(!next_opt) break;
+        opt = next_opt + 1;
+    }
+    
+    // Add some padding (adjust as needed)
+    max_width += lv_obj_get_style_pad_left(dropdown, LV_PART_MAIN) + 
+                 lv_obj_get_style_pad_right(dropdown, LV_PART_MAIN) + 
+                 20; // Extra space for the arrow
+    
+    lv_obj_set_width(dropdown, max_width);
+}
+
 void get_dropdown_value(lv_obj_t * parent) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parent,0,&lv_dropdown_class);
     thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
     lv_dropdown_set_options(obj,get_values(param_user_data));
+    update_dropdown_width(obj);
 }
 
 bool file_exists(const char *path) {
