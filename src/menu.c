@@ -31,7 +31,7 @@ void pp_menu_main(void)
 
     pp_menu_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_opa(pp_menu_screen, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(pp_menu_screen, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(pp_menu_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * menu_cont = lv_obj_create(pp_menu_screen);
     lv_obj_set_size(menu_cont,lv_obj_get_width(pp_menu_screen) / 4 * 3,
