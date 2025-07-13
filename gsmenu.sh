@@ -384,7 +384,7 @@ case "$@" in
         ;;
     "set air telemetry gs_rendering"*)
         if [ "$5" = "on" ]
-        then -o 127.0.0.1:"$port_tx" -z "$size"
+        then
             $SSH 'sed -i "s/-o 127\.0\.0\.1:\"\$port_tx\" -z \"\$size\"/-o 10\.5\.0\.1:\"\$port_tx\"/" /usr/bin/wifibroadcast'
             $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         else
@@ -553,8 +553,7 @@ case "$@" in
         fi
         ;;
     "get gs wifi IP")
-        WIFI_DEV=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f4)
-        ip -4 addr show "$WIFI_DEV" | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
+        ip -4 addr show  | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
         ;;
     "set gs wifi wlan"*)
         [ ! -d /sys/class/net/wlan0 ] && exit 0 # we have no wifi
