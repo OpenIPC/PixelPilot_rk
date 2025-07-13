@@ -199,6 +199,8 @@ lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, c
         lv_obj_set_user_data(label,data);
     }
 
+    lv_obj_add_event_cb(label, on_focus, LV_EVENT_FOCUSED, NULL);
+
     return obj;
 }
 
