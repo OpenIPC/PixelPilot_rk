@@ -129,7 +129,7 @@ case "$@" in
         echo -n -e "disabled\n50\n60"
         ;;
     "values air camera sensor_file")
-        echo -n -e "/etc/sensors/imx307.bin\n/etc/sensors/imx335.bin\n/etc/sensors/imx335_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_fpv.bin\n/etc/sensors/imx415_milos10.bin\n/etc/sensors/imx415_milos15.bin\n/etc/sensors/imx335_milos12tweak.bin\n/etc/sensors/imx335_greg15.bin\n/etc/sensors/imx335_spike5.bin\n/etc/sensors/gregspike05.bin"
+        echo -n -e "imx307\nimx335\nimx335_fpv\nimx415_fpv\nimx415_fpv\nimx415_milos10\nimx415_milos15\nimx335_milos12tweak\nimx335_greg15\nimx335_spike5\ngregspike05"
         ;;
     "values air telemetry serial")
         echo -n -e "ttyS0\nttyS1\nttyS2"
@@ -216,7 +216,7 @@ case "$@" in
         get_majestic_value '.isp.antiFlicker'
         ;;
     "get air camera sensor_file")
-        get_majestic_value '.isp.sensorConfig'
+        basename -s .bin $(basename $(get_majestic_value '.isp.sensorConfig'))
         ;;
     "get air camera fpv_enable")
         get_majestic_value '.fpv.enabled' | grep -q true && echo 1 || echo 0
@@ -343,7 +343,7 @@ case "$@" in
         $SSH "cli -s .isp.antiFlicker $5 && killall -1 majestic"
         ;;
     "set air camera sensor_file"*)
-        $SSH "cli -s .isp.sensorConfig $5 && killall -1 majestic"
+        $SSH "cli -s .isp.sensorConfig /etc/sensors/${5}.bin && killall -1 majestic"
         ;;
     "set air camera fpv_enable"*)
         if [ "$5" = "on" ]
