@@ -132,7 +132,7 @@ case "$@" in
         echo -n -e "imx307\nimx335\nimx335_fpv\nimx415_fpv\nimx415_fpv\nimx415_milos10\nimx415_milos15\nimx335_milos12tweak\nimx335_greg15\nimx335_spike5\ngregspike05"
         ;;
     "values air telemetry serial")
-        echo -n -e "ttyS0\nttyS1\nttyS2"
+        echo -n -e "ttyS0\nttyS1\nttyS2\nttyS3"
         ;;
     "values air telemetry router")
         echo -n -e "mavfwd\nmsposd"
