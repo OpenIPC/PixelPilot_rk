@@ -96,6 +96,9 @@ bool disable_vsync = false;
 uint32_t refresh_frequency_ms = 1000;
 
 VideoCodec codec = VideoCodec::H265;
+uint16_t listen_port = 5600;
+const char* unix_socket = NULL;
+char* dvr_template = NULL;
 Dvr *dvr = NULL;
 
 // Add global variables for plane id overrides
@@ -415,9 +418,43 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
     return true;
 }
 
+std::unique_ptr<GstRtpReceiver> receiver;
+void switch_pipeline_source(const char * source_type, const char * source_path) {
+    if (strcmp(source_type, "file") == 0) {
+        receiver->switch_to_file_playback(source_path);
+    } else if (strcmp(source_type, "stream") == 0) {
+        receiver->switch_to_stream();
+    } else {
+        spdlog::error("Unknown source type: {}", source_type);
+    }
+}
+
+void fast_forward(double rate){ 
+        receiver->fast_forward();
+}
+
+void fast_rewind(double rate){ 
+        receiver->fast_rewind();
+}
+
+void skip_duration(int64_t skip_ms){
+        receiver->skip_duration(skip_ms);
+}
+
+void normal_playback() { 
+        receiver->normal_playback();
+}
+
+void pause_playback() {
+        receiver->pause();
+}
+
+void resume_playback() {
+        receiver->resume();
+}
+
 uint64_t first_frame_ms=0;
 void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *sock ,const VideoCodec& codec){
-	std::unique_ptr<GstRtpReceiver> receiver;
 	if (sock) {
 		receiver = std::make_unique<GstRtpReceiver>(sock, codec);
 	} else {
@@ -441,6 +478,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         }
     };
     receiver->start_receiving(cb);
+	bool flag = true;
     while (!signal_flag){
         sleep(10);
     }
@@ -570,12 +608,9 @@ int main(int argc, char **argv)
 	int mavlink_thread = 0;
 	int dvr_autostart = 0;
 	int print_modelist = 0;
-	char* dvr_template = NULL;
 	int video_framerate = -1;
 	int mp4_fragmentation_mode = 0;
 	bool dvr_filenames_with_sequence = false;
-	uint16_t listen_port = 5600;
-	const char* unix_socket = NULL;
 	uint16_t wfb_port = 8003;
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;

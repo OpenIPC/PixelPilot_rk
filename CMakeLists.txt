@@ -43,6 +43,10 @@ set(SIMULATOR_SOURCES
         src/gsmenu/helper.c
         src/gsmenu/gs_main.c
         src/gsmenu/gs_main.h
+        src/gsmenu/gs_dvr.h
+        src/gsmenu/gs_dvr.c
+        src/gsmenu/gs_dvrplayer.h
+        src/gsmenu/gs_dvrplayer.c
         src/gsmenu/gs_wfbng.h
         src/gsmenu/gs_wfbng.c
         src/gsmenu/gs_system.h
@@ -84,6 +88,10 @@ set(SOURCE_FILES
         src/gsmenu/helper.c
         src/gsmenu/gs_main.c
         src/gsmenu/gs_main.h
+        src/gsmenu/gs_dvr.h
+        src/gsmenu/gs_dvr.c
+        src/gsmenu/gs_dvrplayer.h
+        src/gsmenu/gs_dvrplayer.c
         src/gsmenu/gs_wfbng.h
         src/gsmenu/gs_wfbng.c
         src/gsmenu/gs_system.h
