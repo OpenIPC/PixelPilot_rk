@@ -146,6 +146,8 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
 
     ipinfo = create_text(cont, LV_SYMBOL_SETTINGS, "Network", "IP", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_obj_t * ipinfo_label = lv_obj_get_child_by_type(ipinfo,0, &lv_label_class);
+    lv_group_add_obj(menu_page_data->indev_group,ipinfo_label);
 
 
     lv_group_set_default(default_group);
