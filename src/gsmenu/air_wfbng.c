@@ -42,11 +42,11 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
     driver_txpower_override = create_dropdown(cont,LV_SYMBOL_SETTINGS,"Power", "","power",menu_page_data,false);
     air_channel = create_dropdown(cont,LV_SYMBOL_SETTINGS,"Frequency", "","air_channel",menu_page_data,false);
     air_bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","width",menu_page_data,false);
-    mcs_index = create_slider(cont,LV_SYMBOL_SETTINGS, "MCS Index", 0 , 11, 1,"mcs_index",menu_page_data,false);
+    mcs_index = create_slider(cont,LV_SYMBOL_SETTINGS, "MCS Index","mcs_index",menu_page_data,false,0);
     stbc = create_switch(cont,LV_SYMBOL_SETTINGS,"STBC","stbc", menu_page_data,false);
     ldpc = create_switch(cont,LV_SYMBOL_SETTINGS,"LDPC","ldpc", menu_page_data,false);
-    fec_k = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_K", 0 , 12, 12,"fec_k",menu_page_data,false);
-    fec_n = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_N", 0 , 12, 8,"fec_n",menu_page_data,false);
+    fec_k = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_K","fec_k",menu_page_data,false,0);
+    fec_n = create_slider(cont,LV_SYMBOL_SETTINGS, "FEC_N","fec_n",menu_page_data,false,0);
     mlink = create_dropdown(cont,LV_SYMBOL_SETTINGS,"MLink", "","mlink",menu_page_data,false);
 
     create_text(parent, NULL, "Adaptive Link", NULL, NULL, false,  LV_MENU_ITEM_BUILDER_VARIANT_1);

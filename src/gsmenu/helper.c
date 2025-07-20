@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <pthread.h>
+#include <math.h>
 #include "../../lvgl/lvgl.h"
 #include "../input.h"
 #include "helper.h"
@@ -211,6 +212,7 @@ static void slider_event_cb(lv_event_t * e)
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * slider = lv_event_get_target(e);
     lv_obj_t * slider_label = lv_event_get_user_data(e);
+    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(slider);
 
     switch (code)
     {
@@ -247,8 +249,11 @@ static void slider_event_cb(lv_event_t * e)
             int32_t *start_value = lv_obj_get_user_data(slider_label);
             if (start_value) {
                 if (*start_value != lv_slider_get_value(slider)) {
-                    char buf[8];
-                    lv_snprintf(buf, sizeof(buf), "%d", (int)*start_value);
+                    char buf[32];
+                    char format[16];
+                    snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
+                    float value = *start_value / powf(10, param_user_data->precision);
+                    snprintf(buf, sizeof(buf), format, value);
                     lv_label_set_text(slider_label, buf);
                     lv_slider_set_value(slider, *start_value, LV_ANIM_OFF);
                 }
@@ -261,8 +266,11 @@ static void slider_event_cb(lv_event_t * e)
         }
     case LV_EVENT_VALUE_CHANGED:
         {
-            char buf[8];
-            lv_snprintf(buf, sizeof(buf), "%d", (int)lv_slider_get_value(slider));
+            char buf[32];
+            char format[16];
+            snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
+            float value = (float)lv_slider_get_value(slider) / powf(10, param_user_data->precision);
+            snprintf(buf, sizeof(buf), format, value);
             lv_label_set_text(slider_label, buf);
             break;
         }
@@ -271,7 +279,7 @@ static void slider_event_cb(lv_event_t * e)
     }
 }
 
-lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt, int32_t min, int32_t max, int32_t val,const char * parameter, menu_page_data_t* menu_page_data,bool blocking)
+lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data, bool blocking, int precision)
 {
     lv_obj_t * obj = lv_menu_cont_create(parent);
 
@@ -289,9 +297,13 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
         //lv_obj_set_flex_grow(label, 1);
     }    
 
+    // Create a buffer for the float value display
+    char format[16];
+    snprintf(format, sizeof(format), "%%.%df", precision);
+    
     lv_obj_t * slider_label = lv_label_create(obj);
-    char s[11]; 
-    sprintf(s,"%i", val);    
+    char s[32];
+    snprintf(s, sizeof(s), format, 0.0f); // Initialize with 0.0
     lv_label_set_text(slider_label, s);
 
     lv_obj_t * slider = lv_slider_create(obj);
@@ -311,6 +323,7 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     }
     data->menu_page_data = menu_page_data;
     data->blocking = blocking;
+    data->precision = precision;
     strcpy(data->parameter, parameter);
 
     lv_obj_set_user_data(slider,data);
@@ -685,9 +698,19 @@ void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * label = lv_obj_get_child_by_type(parameter,1,&lv_label_class);
     thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
     char * value = get_paramater(page,param_user_data->parameter);
+    float current_value;
+    if (sscanf(value, "%f", &current_value) != 1) {
+        return;
+    }
+    int32_t scaled_value = (int32_t)(current_value * powf(10, param_user_data->precision));
+    // Create a buffer for the float value display
+    char format[16];
+    snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
+    char s[32];
+    snprintf(s, sizeof(s), format, current_value);
     lv_lock();
-    lv_slider_set_value(obj,atoi(value),LV_ANIM_OFF);
-    lv_label_set_text(label,value);
+    lv_slider_set_value(obj,scaled_value,LV_ANIM_OFF);
+    lv_label_set_text(label,s);
     lv_unlock();
 }
 
@@ -706,11 +729,15 @@ void get_slider_value(lv_obj_t * parent) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parent,0,&lv_slider_class);
     thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
     char * value_line = get_values(param_user_data);
-    int min, max;
-    if (sscanf(value_line, "%d %d", &min, &max) != 2) {
+    float min, max;
+    if (sscanf(value_line, "%f %f", &min, &max) != 2) {
         return;
     }
-    lv_slider_set_range(obj,min,max);
+    
+    // Scale the min/max values by the precision
+    int32_t scaled_min = (int32_t)(min * powf(10, param_user_data->precision));
+    int32_t scaled_max = (int32_t)(max * powf(10, param_user_data->precision));
+    lv_slider_set_range(obj, scaled_min, scaled_max);
 }
 
 

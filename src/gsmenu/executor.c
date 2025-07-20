@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <lvgl.h>
+#include <math.h>
 #include "executor.h"
 #include "helper.h"
 #include "styles.h"
@@ -317,10 +318,14 @@ void generic_slider_event_cb(lv_event_t * e)
     strcat(final_command," ");
     strcat(final_command,user_data->parameter);
     strcat(final_command," ");
-    int value;
-    value = lv_slider_get_value(target);
+    // precision
+    char buf[32];
+    char format[16];
+    snprintf(format, sizeof(format), "%%.%df", user_data->precision);
+    float scaled_value = (float)lv_slider_get_value(target) / powf(10, user_data->precision);
+    snprintf(buf, sizeof(buf), format, scaled_value);
     user_data->argument_string = malloc(32);
-    sprintf(user_data->argument_string, "%i", value);
+    sprintf(user_data->argument_string, "%s", buf);
     strcat(final_command,user_data->argument_string);
     strcat(final_command," ");    
     printf("final_command: %s\n",final_command);
