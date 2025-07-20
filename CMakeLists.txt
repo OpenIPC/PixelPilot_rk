@@ -55,6 +55,8 @@ set(SIMULATOR_SOURCES
         src/gsmenu/gs_actions.c        
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
+        src/gsmenu/air_alink.h
+        src/gsmenu/air_alink.c
         src/gsmenu/ui.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
@@ -98,6 +100,8 @@ set(SOURCE_FILES
         src/gsmenu/gs_system.c
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
+        src/gsmenu/air_alink.h
+        src/gsmenu/air_alink.c
         src/gsmenu/gs_actions.h
         src/gsmenu/gs_actions.c        
         src/gsmenu/styles.h

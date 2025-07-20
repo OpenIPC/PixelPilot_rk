@@ -8,6 +8,7 @@ CACHE_DIR="/tmp/gsmenu_cache"
 CACHE_TTL=10 # seconds
 MAJESTIC_YAML="/etc/majestic.yaml"
 WFB_YAML="/etc/wfb.yaml"
+ALINK_CONF="/etc/alink.conf"
 PRESET_DIR="/etc/presets"
 
 # SSH command setup
@@ -25,7 +26,7 @@ refresh_cache() {
     # Check if we need to refresh
     if [[ ! -f "$CACHE_DIR/last_refresh" ]] || [[ $(cat "$CACHE_DIR/last_refresh") -lt $last_refresh ]]; then
         # Copy the YAML configuration files
-        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML $CACHE_DIR 2>/dev/null
+        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF $CACHE_DIR 2>/dev/null
 
         # Update refresh timestamp
         echo "$current_time" > "$CACHE_DIR/last_refresh"
@@ -42,6 +43,12 @@ get_majestic_value() {
 get_wfb_value() {
     local key="$1"
     yaml-cli -i "$CACHE_DIR/wfb.yaml" -g "$key" 2>/dev/null
+}
+
+# Function to get value from alink.conf
+get_alink_value() {
+    local key="$1"
+    grep $key= "$CACHE_DIR/alink.conf" | cut -d "=" -f 2 2>/dev/null
 }
 
 # Refresh cache for get
@@ -109,6 +116,45 @@ case "$@" in
         ;;
     "values air wfbng width")
         echo -n -e "20\n40"
+        ;;
+    "values air alink power_level_0_to_4")
+        echo -n -e "0\n1\n2\n3\n4"
+        ;;
+    "values air alink fallback_ms")
+        echo -n  1 2000
+        ;;
+    "values air alink hold_fallback_mode_s")
+        echo -n  1 10
+        ;;
+    "values air alink min_between_changes_ms")
+        echo -n 1 10000
+        ;;
+    "values air alink hold_modes_down_s")
+        echo -n 1 10
+        ;;
+    "values air alink hysteresis_percent")
+        echo -n 0 100
+        ;;
+    "values air alink hysteresis_percent_down")
+        echo -n 0 100
+        ;;
+    "values air alink exp_smoothing_factor")
+        echo -n 0 1.6
+        ;;
+    "values air alink exp_smoothing_factor_down")
+        echo -n 0 1.6
+        ;;
+    "values air alink check_xtx_period_ms")
+        echo -n 1 5000
+        ;;
+    "values air alink request_keyframe_interval_ms")
+        echo -n 1 5000
+        ;;
+    "values air alink osd_level")
+        echo -n -e "0\n1\n2\n3\n4\n5\n6"
+        ;;
+    "values air alink multiply_font_size_by")
+        echo -n 0 1.5
         ;;
     "values air camera size")
         echo -n -e "1280x720\n1456x816\n1920x1080\n1440x1080\n1920x1440\n2104x1184\n2208x1248\n2240x1264\n2312x1304\n2436x1828\n2512x1416\n2560x1440\n2560x1920\n2720x1528\n2944x1656\n3200x1800\n3840x2160"
@@ -487,6 +533,22 @@ case "$@" in
             $SSH 'sed -i "/alink_drone &/d" /etc/rc.local && sed -i -e "\$i alink_drone &" /etc/rc.local && cli -s .video0.qpDelta -12 && killall -1 majestic && (nohup alink_drone >/dev/null 2>&1 &)'
         else
             $SSH 'killall -q -9 alink_drone;  sed -i "/alink_drone &/d" /etc/rc.local  ; cli -d .video0.qpDelta && killall -1 majestic'
+        fi
+        ;;
+
+    "get air alink"*)
+        get_alink_value $4
+        ;;
+
+    "set air alink"*)
+        if [ "$5" = "off" ]
+        then
+            $SSH 'sed -i "s/'$4'=.*/'$4'=0/" /etc/alink.conf; killall -9 alink_drone ; alink_drone &'
+        elif [ "$5" = "on" ]
+        then
+            $SSH 'sed -i "s/'$4'=.*/'$4'=1/" /etc/alink.conf; killall -9 alink_drone ; alink_drone &'
+        else
+            $SSH 'sed -i "s/'$4'=.*/'$4'='$5'/" /etc/alink.conf; killall -9 alink_drone ; alink_drone &'
         fi
         ;;
 
