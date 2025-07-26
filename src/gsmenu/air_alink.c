@@ -5,8 +5,15 @@
 #include "styles.h"
 #include "lvgl/lvgl.h"
 #include "helper.h"
+#include "../input.h"
 
 extern lv_group_t * default_group;
+extern lv_indev_t * indev_drv;
+extern gsmenu_control_mode_t control_mode;
+
+extern lv_obj_t * txprofiles_screen;
+extern lv_group_t * tx_profile_group;
+lv_obj_t * txprofiles;
 
 #define ENTRIES 16
 // # set desired power output (0 pitmode, 4 highest power)(scales with MCS)
@@ -59,6 +66,14 @@ lv_obj_t * osd_level; // default 0
 // # make custom text smaller/bigger
 lv_obj_t * multiply_font_size_by; // default 1
 
+static void txprofiles_callback(lv_event_t * e)
+{
+    lv_screen_load(txprofiles_screen);
+    lv_indev_set_group(indev_drv,tx_profile_group);
+    lv_obj_t * first_obj = find_first_focusable_obj(txprofiles_screen);
+    lv_group_focus_obj(first_obj);
+}
+
 void create_air_alink_menu(lv_obj_t * parent) {
 
     menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
@@ -77,6 +92,9 @@ void create_air_alink_menu(lv_obj_t * parent) {
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    txprofiles = create_button(cont, "TX-Profiles");
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(txprofiles,0,&lv_button_class),txprofiles_callback,LV_EVENT_CLICKED,NULL);
 
     power_level_0_to_4 = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Desired power output (0 pitmode, 4 highest power)","","power_level_0_to_4",menu_page_data,false);
     fallback_ms = create_slider(cont,LV_SYMBOL_SETTINGS,"If GS heartbeat lost for x ms, set link low (fallback) (ms)","fallback_ms",menu_page_data,false,0);

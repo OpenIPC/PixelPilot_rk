@@ -9,6 +9,7 @@ CACHE_TTL=10 # seconds
 MAJESTIC_YAML="/etc/majestic.yaml"
 WFB_YAML="/etc/wfb.yaml"
 ALINK_CONF="/etc/alink.conf"
+TXPROFILES_CONF="/etc/txprofiles.conf"
 PRESET_DIR="/etc/presets"
 
 # SSH command setup
@@ -26,7 +27,7 @@ refresh_cache() {
     # Check if we need to refresh
     if [[ ! -f "$CACHE_DIR/last_refresh" ]] || [[ $(cat "$CACHE_DIR/last_refresh") -lt $last_refresh ]]; then
         # Copy the YAML configuration files
-        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF $CACHE_DIR 2>/dev/null
+        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF root@$REMOTE_IP:$TXPROFILES_CONF $CACHE_DIR 2>/dev/null
 
         # Update refresh timestamp
         echo "$current_time" > "$CACHE_DIR/last_refresh"
@@ -547,6 +548,10 @@ case "$@" in
         elif [ "$5" = "on" ]
         then
             $SSH 'sed -i "s/'$4'=.*/'$4'=1/" /etc/alink.conf; killall -9 alink_drone ; alink_drone &'
+        elif [ "$4" = "txprofiles" ]
+        then
+            $SCP $CACHE_DIR/txprofiles.conf root@$REMOTE_IP:$TXPROFILES_CONF
+            $SSH 'killall -9 alink_drone ; alink_drone &'
         else
             $SSH 'sed -i "s/'$4'=.*/'$4'='$5'/" /etc/alink.conf; killall -9 alink_drone ; alink_drone &'
         fi

@@ -6,6 +6,7 @@
 #include "gsmenu/ui.h"
 #include "gsmenu/styles.h"
 #include "gsmenu/gs_dvrplayer.h"
+#include "gsmenu/air_txprofiles.h"
 #include "lvosd.h"
 
 lv_obj_t * menu;
@@ -14,6 +15,7 @@ lv_group_t * default_group;
 lv_obj_t * pp_menu_screen; 
 lv_obj_t * pp_osd_screen;
 lv_obj_t * dvr_screen;
+lv_obj_t * txprofiles_screen;
 
 /**
  * PP Main Menu
@@ -53,6 +55,10 @@ void pp_menu_main(void)
     dvr_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_opa(dvr_screen, LV_OPA_TRANSP, LV_PART_MAIN);
     dvr_player_screen_init();
+
+    txprofiles_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_opa(txprofiles_screen, LV_OPA_TRANSP, LV_PART_MAIN);
+    create_table(txprofiles_screen);
 
     pp_osd_main();
 
