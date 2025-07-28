@@ -371,6 +371,12 @@ case "$@" in
         ;;
 
     "set air telemetry serial"*)
+        if [ "$5" = "ttyS0" ]
+        then
+          $SSH "sed -i 's/^console::respawn:\/sbin\/getty -L console 0 vt100/#console::respawn:\/sbin\/getty -L console 0 vt100/' /etc/inittab ; kill -HUP 1"
+        else
+          $SSH "sed -i 's/^#console::respawn:\/sbin\/getty -L console 0 vt100/console::respawn:\/sbin\/getty -L console 0 vt100/' /etc/inittab ; kill -HUP 1"
+        fi
         $SSH wifibroadcast cli -s .telemetry.serial $5
         $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
         ;;

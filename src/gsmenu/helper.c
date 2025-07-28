@@ -86,7 +86,7 @@ void* generic_page_load_thread(void *arg) {
     lv_bar_set_range(bar, 0, menu_page_data->entry_count);
     lv_obj_center(bar);
 
-    lv_obj_t * cancel_button =  lv_msgbox_add_footer_button(loader_msgbox, "Canel");
+    lv_obj_t * cancel_button =  lv_msgbox_add_footer_button(loader_msgbox, "Cancel");
     lv_group_add_obj(loader_group,cancel_button);
     lv_obj_add_style(cancel_button, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(cancel_button, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
