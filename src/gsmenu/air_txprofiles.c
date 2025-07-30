@@ -178,7 +178,7 @@ void load_table_data(lv_event_t * e) {
 }
 
 // Function to insert a new row at a specified position
-static void insert_table_row(uint32_t row, bool insert_above) {
+static void insert_table_row(uint32_t row) {
     uint16_t row_cnt = lv_table_get_row_cnt(table);
     
     // Don't exceed maximum rows
@@ -187,14 +187,8 @@ static void insert_table_row(uint32_t row, bool insert_above) {
         return;
     }
 
-    // Save current row
-    uint32_t current_row = row;
-
-    // Determine insert position
-    uint32_t insert_pos = insert_above ? row : row + 1;
-    
     // Shift rows down to make space
-    for (uint32_t r = row_cnt; r > insert_pos; r--) {
+    for (uint32_t r = row_cnt; r > row; r--) {
         for (uint32_t c = 0; c < TABLE_COLS + 1; c++) {
             const char *value = lv_table_get_cell_value(table, r - 1, c);
             lv_table_set_cell_value(table, r, c, value ? value : "");
@@ -202,9 +196,9 @@ static void insert_table_row(uint32_t row, bool insert_above) {
     }
     
     // Initialize new row with default values
-    lv_table_set_cell_value(table, insert_pos, 0, "..."); // Menu indicator
+    lv_table_set_cell_value(table, row + 1, 0, "..."); // Menu indicator
     for (int i = 1 ; i <= TABLE_COLS; i++) {
-        lv_table_set_cell_value(table, insert_pos, i, lv_table_get_cell_value(table,current_row,i)); // Default range min
+        lv_table_set_cell_value(table, row + 1, i, lv_table_get_cell_value(table,row,i)); // Default range min
     }
     
     // Update row count
@@ -259,17 +253,13 @@ static void line_edit_dropdown_callback(lv_event_t *e) {
         uint32_t row, col;
         lv_table_get_selected_cell(table, &row, &col);
         
-        if (strcmp(selection, "Insert above") == 0) {
+        if (strcmp(selection, "Duplicate Row") == 0) {
             printf("Insert above row %d\n", row);
-            insert_table_row(row, true);
+            insert_table_row(row);
         }
         else if (strcmp(selection, "Delete") == 0) {
             printf("Delete row %d\n", row);
             delete_table_row(row);
-        }
-        else if (strcmp(selection, "Insert Below") == 0) {
-            printf("Insert below row %d\n", row);
-            insert_table_row(row, false);
         }
         
         lv_obj_del_async(obj);  // Use async delete
@@ -308,7 +298,7 @@ static void table_event_cb(lv_event_t * e) {
                     lv_point_t * point = lv_table_get_cell_user_data(table,row,col);
                     lv_obj_set_pos(dropdown,point->x,point->y);
 
-                    lv_dropdown_set_options(dropdown,"\nInsert above\nDelete\nInsert Below");
+                    lv_dropdown_set_options(dropdown,"\nDuplicate Row\nDelete");
                     lv_dropdown_set_text(dropdown,"");
                     lv_obj_set_width(dropdown,0);
 
