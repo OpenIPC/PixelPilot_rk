@@ -232,40 +232,54 @@ static void delete_table_row(uint32_t row) {
     lv_table_set_row_cnt(table, row_cnt - 1);
 }
 
+lv_key_t last_key;
 static void line_edit_dropdown_callback(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * obj = lv_event_get_target(e);
+    lv_key_t key = lv_event_get_key(e);
     
     switch (code) {
     case LV_EVENT_CANCEL:
-        printf("Cancel\n");
+        if (last_key == LV_KEY_ENTER) {
+            char selection[100] = "";
+            lv_dropdown_get_selected_str(obj, selection, 99);
+            
+            // Get the current row
+            uint32_t row, col;
+            lv_table_get_selected_cell(table, &row, &col);
+            
+            if (strcmp(selection, "Duplicate Row") == 0) {
+                insert_table_row(row);
+            }
+            else if (strcmp(selection, "Delete") == 0) {
+                delete_table_row(row);
+            }
+        }
         control_mode = GSMENU_CONTROL_MODE_KEYBOARD;
         lv_obj_del_async(obj);  // Use async delete instead
         break;
-        
-    case LV_EVENT_VALUE_CHANGED: {
+    case LV_EVENT_KEY:
+            last_key = key;
+        break;
+    case LV_EVENT_VALUE_CHANGED: 
         control_mode = GSMENU_CONTROL_MODE_KEYBOARD;
         char selection[100] = "";
         lv_dropdown_get_selected_str(obj, selection, 99);
-        printf("Selection: %s\n", selection);
-        
+
         // Get the current row
         uint32_t row, col;
         lv_table_get_selected_cell(table, &row, &col);
         
         if (strcmp(selection, "Duplicate Row") == 0) {
-            printf("Insert above row %d\n", row);
             insert_table_row(row);
         }
         else if (strcmp(selection, "Delete") == 0) {
-            printf("Delete row %d\n", row);
             delete_table_row(row);
         }
         
         lv_obj_del_async(obj);  // Use async delete
         lv_group_focus_obj(table);  // Refocus the table
         break;
-    }
     default:
         break;
     }
@@ -283,7 +297,6 @@ static void table_event_cb(lv_event_t * e) {
     {
         case LV_EVENT_VALUE_CHANGED: {
             row_changed = true;
-            printf("Changed\n");
             break;
         }
 
@@ -306,12 +319,13 @@ static void table_event_cb(lv_event_t * e) {
             lv_table_get_selected_cell(table, &row, &col); // Get current cell for click action
 
             if (col == 0 ) { // Line edit mode
+                last_key = LV_KEY_ESC;
                 lv_obj_t * dropdown = lv_dropdown_create(lv_layer_top());
 
                 lv_point_t * point = lv_table_get_cell_user_data(table,row,col);
                 lv_obj_set_pos(dropdown,point->x,point->y);
 
-                lv_dropdown_set_options(dropdown,"\nDuplicate Row\nDelete");
+                lv_dropdown_set_options(dropdown,"Duplicate Row\nDelete");
                 lv_dropdown_set_text(dropdown,"");
                 lv_obj_set_width(dropdown,0);
 
