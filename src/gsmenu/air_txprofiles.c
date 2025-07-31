@@ -271,67 +271,82 @@ static void line_edit_dropdown_callback(lv_event_t *e) {
     }
 }
 
+// Add a static variable to track the confirmed selected row.
+static bool row_changed=false;
+
 // Callback for table edit events
 static void table_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
-    lv_key_t key = lv_event_get_key(e);
     lv_obj_t *target = lv_event_get_target(e);
-    uint32_t row, col;
-    lv_table_get_selected_cell(table, &row, &col);
 
     switch (code)
     {
-    case LV_EVENT_KEY:
-        if (key == LV_KEY_UP && row == 0) {
-            lv_group_focus_obj(air_txprofiles_save_button);
-            control_mode = GSMENU_CONTROL_MODE_NAV;
+        case LV_EVENT_VALUE_CHANGED: {
+            row_changed = true;
+            printf("Changed\n");
+            break;
         }
-        if (key == LV_KEY_DOWN && row == lv_table_get_row_count(table) -1 ) {
-            lv_group_focus_next(tx_profile_group);
-            control_mode = GSMENU_CONTROL_MODE_NAV;
+
+        case LV_EVENT_KEY: {
+            lv_key_t key = lv_event_get_key(e);
+            uint16_t row_count = lv_table_get_row_cnt(table);
+            if (key == LV_KEY_UP && !row_changed) {
+                lv_group_focus_obj(air_txprofiles_save_button);
+                control_mode = GSMENU_CONTROL_MODE_NAV;
+            } else if (key == LV_KEY_DOWN && !row_changed) {
+                lv_group_focus_next(tx_profile_group);
+                control_mode = GSMENU_CONTROL_MODE_NAV;
+            }
+            row_changed = false;
+            break;
         }
-        break;
-    case LV_EVENT_CLICKED:
-                if (col == 0 ) { // Line edit mode
-                    lv_obj_t * dropdown = lv_dropdown_create(lv_layer_top());
 
-                    lv_point_t * point = lv_table_get_cell_user_data(table,row,col);
-                    lv_obj_set_pos(dropdown,point->x,point->y);
+        case LV_EVENT_CLICKED: {
+            uint32_t row, col;
+            lv_table_get_selected_cell(table, &row, &col); // Get current cell for click action
 
-                    lv_dropdown_set_options(dropdown,"\nDuplicate Row\nDelete");
-                    lv_dropdown_set_text(dropdown,"");
-                    lv_obj_set_width(dropdown,0);
+            if (col == 0 ) { // Line edit mode
+                lv_obj_t * dropdown = lv_dropdown_create(lv_layer_top());
 
-                    lv_dropdown_set_dir(dropdown, LV_DIR_RIGHT);
-                    lv_dropdown_set_symbol(dropdown, LV_SYMBOL_RIGHT);
+                lv_point_t * point = lv_table_get_cell_user_data(table,row,col);
+                lv_obj_set_pos(dropdown,point->x,point->y);
 
-                    lv_obj_set_style_outline_width(dropdown,0,LV_PART_MAIN| LV_STATE_FOCUS_KEY);
-                    lv_obj_t * list = lv_dropdown_get_list(dropdown);
-                    lv_obj_add_style(list, &style_openipc, LV_PART_SELECTED | LV_STATE_CHECKED);
-                    lv_obj_add_style(list, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
-                    
-                    lv_group_add_obj(tx_profile_group,dropdown);
-                    lv_group_focus_obj(dropdown);
-                    
-                    lv_obj_add_event_cb(dropdown,line_edit_dropdown_callback,LV_EVENT_ALL,NULL);
-                    
-                    lv_dropdown_open(dropdown);
-                    control_mode = GSMENU_CONTROL_MODE_EDIT;
-                } else if (col == 3) { // GI only allows long or short
-                    const char * current = lv_table_get_cell_value(table, row, col);
-                    if (strcmp(current, "long") == 0) {
-                        lv_table_set_cell_value(table, row, col, "short");
-                    } else {
-                        lv_table_set_cell_value(table, row, col, "long");
-                    }
+                lv_dropdown_set_options(dropdown,"\nDuplicate Row\nDelete");
+                lv_dropdown_set_text(dropdown,"");
+                lv_obj_set_width(dropdown,0);
+
+                lv_dropdown_set_dir(dropdown, LV_DIR_RIGHT);
+                lv_dropdown_set_symbol(dropdown, LV_SYMBOL_RIGHT);
+
+                lv_obj_set_style_outline_width(dropdown,0,LV_PART_MAIN| LV_STATE_FOCUS_KEY);
+                lv_obj_t * list = lv_dropdown_get_list(dropdown);
+                lv_obj_add_style(list, &style_openipc, LV_PART_SELECTED | LV_STATE_CHECKED);
+                lv_obj_add_style(list, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+                
+                lv_group_add_obj(tx_profile_group,dropdown);
+                lv_group_focus_obj(dropdown);
+                
+                lv_obj_add_event_cb(dropdown,line_edit_dropdown_callback,LV_EVENT_ALL,NULL);
+                
+                lv_dropdown_open(dropdown);
+                control_mode = GSMENU_CONTROL_MODE_EDIT;
+            } else if (col == 3) { // GI only allows long or short
+                const char * current = lv_table_get_cell_value(table, row, col);
+                if (strcmp(current, "long") == 0) {
+                    lv_table_set_cell_value(table, row, col, "short");
                 } else {
-                    lv_textarea_set_text(input_textarea,lv_table_get_cell_value(table,row,col));
-                    lv_obj_remove_flag(input_box, LV_OBJ_FLAG_HIDDEN);
-                    lv_indev_wait_release(lv_event_get_param(e));
-                    lv_group_focus_obj(kb);
+                    lv_table_set_cell_value(table, row, col, "long");
                 }
-    default:
-        break;
+            } else {
+                lv_textarea_set_text(input_textarea,lv_table_get_cell_value(table,row,col));
+                lv_obj_remove_flag(input_box, LV_OBJ_FLAG_HIDDEN);
+                lv_indev_wait_release(lv_event_get_param(e));
+                lv_group_focus_obj(kb);
+            }
+            break; // Added missing break statement for clarity
+        }
+        default:
+            break;
     }
 }
 
