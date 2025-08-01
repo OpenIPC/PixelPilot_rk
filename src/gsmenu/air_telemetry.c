@@ -41,7 +41,7 @@ void create_air_telemetry_menu(lv_obj_t * parent) {
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    osd_fps = create_slider(cont,LV_SYMBOL_SETTINGS,"OSD FPS",1,60,1,"osd_fps",menu_page_data,false);
+    osd_fps = create_slider(cont,LV_SYMBOL_SETTINGS,"OSD FPS","osd_fps",menu_page_data,false,0);
     air_gs_rendering = create_switch(cont,LV_SYMBOL_SETTINGS,"GS Rendering","gs_rendering", menu_page_data,false);
 
     PageEntry entries[] = {

@@ -32,6 +32,8 @@ set(SIMULATOR_SOURCES
         src/gsmenu/air_presets.c
         src/gsmenu/air_telemetry.h
         src/gsmenu/air_telemetry.c
+        src/gsmenu/air_txprofiles.h
+        src/gsmenu/air_txprofiles.c
         src/gsmenu/air_camera.h
         src/gsmenu/air_camera.c
         src/gsmenu/air_actions.h
@@ -55,6 +57,8 @@ set(SIMULATOR_SOURCES
         src/gsmenu/gs_actions.c        
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
+        src/gsmenu/air_alink.h
+        src/gsmenu/air_alink.c
         src/gsmenu/ui.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
@@ -77,6 +81,8 @@ set(SOURCE_FILES
         src/gsmenu/air_presets.h
         src/gsmenu/air_presets.c
         src/gsmenu/air_telemetry.c
+        src/gsmenu/air_txprofiles.h
+        src/gsmenu/air_txprofiles.c
         src/gsmenu/air_camera.h
         src/gsmenu/air_camera.c
         src/gsmenu/air_actions.h
@@ -98,6 +104,8 @@ set(SOURCE_FILES
         src/gsmenu/gs_system.c
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
+        src/gsmenu/air_alink.h
+        src/gsmenu/air_alink.c
         src/gsmenu/gs_actions.h
         src/gsmenu/gs_actions.c        
         src/gsmenu/styles.h

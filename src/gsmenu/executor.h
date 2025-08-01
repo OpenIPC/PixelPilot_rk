@@ -17,6 +17,7 @@ typedef struct {
     lv_obj_t* arguments[MAX_CMD_ARGS];
     lv_obj_t* spinner;
     char parameter[100];
+    int precision;
     callback_fn callback_fn;
 } thread_data_t;
 

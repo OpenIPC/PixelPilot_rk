@@ -12,11 +12,13 @@ typedef enum {
     LV_MENU_ITEM_BUILDER_VARIANT_2
 } lv_menu_builder_variant_t;
 
+void on_focus(lv_event_t* e);
+
 void generic_page_load_callback(lv_obj_t * page);
 
 lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking,lv_menu_builder_variant_t builder_variant);
 
-lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt, int32_t min, int32_t max, int32_t val,const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
+lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt, const char * parameter, menu_page_data_t* menu_page_data, bool blocking, int precision);
 lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
 
 void dropdown_event_handler(lv_event_t * e);

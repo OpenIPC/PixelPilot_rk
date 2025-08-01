@@ -71,7 +71,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
 
     bitrate = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Bitrate","","bitrate",menu_page_data,false);
     video_codec = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Codec","","codec",menu_page_data,false);
-    gopsize = create_slider(cont,LV_SYMBOL_SETTINGS,"Gopsize",0,20,1,"gopsize",menu_page_data,false);
+    gopsize = create_slider(cont,LV_SYMBOL_SETTINGS,"Gopsize","gopsize",menu_page_data,false,0);
     rc_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "RC Mode","","rc_mode",menu_page_data,false);
 
     create_text(parent, NULL, "Image", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
@@ -82,10 +82,10 @@ void create_air_camera_menu(lv_obj_t * parent) {
     
     mirror = create_switch(cont,LV_SYMBOL_SETTINGS,"Mirror","mirror", menu_page_data,false);
     flip = create_switch(cont,LV_SYMBOL_SETTINGS,"Flip","flip", menu_page_data,false);
-    contrast = create_slider(cont,LV_SYMBOL_SETTINGS,"Contrast",0,100,11,"contrast",menu_page_data,false);
-    hue = create_slider(cont,LV_SYMBOL_SETTINGS,"Hue",0,100,11,"hue",menu_page_data,false);
-    saturation = create_slider(cont,LV_SYMBOL_SETTINGS,"Saturation",0,100,11,"saturation",menu_page_data,false);
-    luminace = create_slider(cont,LV_SYMBOL_SETTINGS,"Luminance",0,100,11,"luminace",menu_page_data,false);
+    contrast = create_slider(cont,LV_SYMBOL_SETTINGS,"Contrast","contrast",menu_page_data,false,0);
+    hue = create_slider(cont,LV_SYMBOL_SETTINGS,"Hue","hue",menu_page_data,false,0);
+    saturation = create_slider(cont,LV_SYMBOL_SETTINGS,"Saturation","saturation",menu_page_data,false,0);
+    luminace = create_slider(cont,LV_SYMBOL_SETTINGS,"Luminance","luminace",menu_page_data,false,0);
 
     create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
@@ -93,15 +93,15 @@ void create_air_camera_menu(lv_obj_t * parent) {
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
     rec_enable = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","rec_enable", menu_page_data,false);
-    rec_split = create_slider(cont,LV_SYMBOL_SETTINGS,"Split",0,50,25,"rec_split",menu_page_data,false);
-    rec_maxusage = create_slider(cont,LV_SYMBOL_SETTINGS,"Maxusage",0,99,90,"rec_maxusage",menu_page_data,false);
+    rec_split = create_slider(cont,LV_SYMBOL_SETTINGS,"Split","rec_split",menu_page_data,false,0);
+    rec_maxusage = create_slider(cont,LV_SYMBOL_SETTINGS,"Maxusage","rec_maxusage",menu_page_data,false,0);
 
     create_text(parent, NULL, "ISP", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    exposure = create_slider(cont,LV_SYMBOL_SETTINGS,"Exposure",5,55,11,"exposure",menu_page_data,false);
+    exposure = create_slider(cont,LV_SYMBOL_SETTINGS,"Exposure","exposure",menu_page_data,false,0);
     antiflicker = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Antiflicker","","antiflicker",menu_page_data,false);
     sensor_file = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Sensor File","","sensor_file",menu_page_data,false);
 
@@ -111,7 +111,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
     fpv_enable = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","fpv_enable", menu_page_data,false);
-    noiselevel = create_slider(cont,LV_SYMBOL_SETTINGS,"Noiselevel",0,1,0,"noiselevel",menu_page_data,false);
+    noiselevel = create_slider(cont,LV_SYMBOL_SETTINGS,"Noiselevel","noiselevel",menu_page_data,false,0);
 
 
     PageEntry entries[] = {
