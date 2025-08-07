@@ -638,7 +638,7 @@ case "$@" in
                 nmcli con up "$6"
             else
                 echo "Creating new "$6" connection..."
-                nmcli device wifi connect "$6" password "$7"
+                nmcli device wifi connect "$6" password "$7" ifname wlan0
                 echo "Starting Wlan..."
                 nmcli con up "$6"
             fi
