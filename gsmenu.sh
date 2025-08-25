@@ -571,7 +571,7 @@ case "$@" in
         ;;
 
     "get gs system gs_rendering")
-        [ "$(grep ^osd /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
+        [ "$(grep ^render /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
         ;;
     "get gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".crtcs[0].mode| .name + "@" + (.vrefresh|tostring)'
@@ -582,10 +582,10 @@ case "$@" in
     "set gs system gs_rendering"*)
         if [ "$5" = "off" ]
         then
-            sed -i 's/^osd =.*/osd = air/' /config/setup.txt
-            killall -q msposd_rockchip
+            sed -i 's/^render =.*/render = air/' /config/setup.txt
+            kill -9 $(pidof msposd_rockchip)
         else
-            sed -i 's/^osd =.*/osd = ground/' /config/setup.txt
+            sed -i 's/^render =.*/render = ground/' /config/setup.txt
             msposd_rockchip --osd --ahi 0 --matrix 11 -v -r 5 --master 0.0.0.0:14551 &
         fi
         ;;
