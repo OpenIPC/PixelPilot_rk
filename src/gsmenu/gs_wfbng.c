@@ -13,6 +13,7 @@ extern lv_group_t * default_group;
 lv_obj_t * gs_channel;
 lv_obj_t * gs_search;
 lv_obj_t * bandwidth;
+lv_obj_t * gs_txpower;
 lv_obj_t * adaptivelink;
 
 
@@ -20,6 +21,7 @@ void gs_wfbng_page_load_callback(lv_obj_t * page)
 {
     reload_dropdown_value(page,gs_channel);
     reload_dropdown_value(page,bandwidth);
+    reload_slider_value(page,gs_txpower);
     reload_switch_value(page,adaptivelink);
 }
 
@@ -53,6 +55,7 @@ void create_gs_wfbng_menu(lv_obj_t * parent) {
     gs_search = create_button(cont, "Search");
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_search,0,&lv_button_class),gs_wfbng_search_callback,LV_EVENT_CLICKED,menu_page_data);
     bandwidth = create_dropdown(cont,LV_SYMBOL_SETTINGS, "bandwidth", "","bandwidth",menu_page_data,false);
+    gs_txpower = create_slider(cont,LV_SYMBOL_SETTINGS,"TXPower (%)","txpower",menu_page_data,false,0);
 
     create_text(parent, NULL, "Adaptive Link", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
