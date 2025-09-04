@@ -563,6 +563,9 @@ case "$@" in
     "values gs wfbng bandwidth")
         echo -n -e "20\n40"
         ;;
+    "values gs wfbng txpower")
+        echo -n -e "1\n100"
+        ;;
     "values gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq  | sed -z '$ s/\n$//'
         ;;
@@ -679,6 +682,29 @@ case "$@" in
     "get gs wfbng bandwidth")
         grep ^bandwidth /etc/wifibroadcast.cfg | cut -d ' ' -f 3
         ;;
+    "get gs wfbng txpower")
+        wifi_txpower=$(grep ^wifi_txpower /etc/wifibroadcast.cfg)
+        [ -z "$wifi_txpower" ] && echo "50" && exit 0
+        read first_card first_card_power < <(
+            echo "$wifi_txpower" | cut -d = -f 2 | jq -r '"\(to_entries[0].key) \(to_entries[0].value)"'
+        )
+        first_card_type=$(udevadm info /sys/class/net/${first_card}/ | grep -E 'ID_NET_DRIVER=(rtl88xxau_wfb|rtl88x2eu)'| cut -d = -f2)
+        case "$first_card_type" in
+        "rtl88xxau_wfb")
+            min_phy_txpower=-1000
+            max_phy_txpower=-3000
+            ;;
+
+        "rtl88x2eu")
+            min_phy_txpower=1000
+            max_phy_txpower=2900
+            ;;
+        esac
+        range=$((max_phy_txpower - min_phy_txpower))
+        position=$((first_card_power - min_phy_txpower))
+        percentage=$(( (position * 100) / range ))
+        echo $percentage
+        ;;
 
     "set gs wfbng adaptivelink"*)
         if [ "$5" = "on" ]
@@ -701,6 +727,36 @@ case "$@" in
         ;;
     "set gs wfbng bandwidth"*)
         sed -i "s/^bandwidth = .*/bandwidth = $5/" /etc/wifibroadcast.cfg
+        systemctl restart wifibroadcast.service
+        ;;
+    "set gs wfbng txpower"*)
+        .  /etc/default/wifibroadcast
+        wifi_txpower=""
+        for nic in $WFB_NICS
+        do
+            card_type=$(udevadm info /sys/class/net/${nic}/ | grep -E 'ID_NET_DRIVER=(rtl88xxau_wfb|rtl88x2eu)'| cut -d = -f2)
+            case "$card_type" in
+            "rtl88xxau_wfb")
+                min_phy_txpower=-1000
+                max_phy_txpower=-3000
+                ;;
+
+            "rtl88x2eu")
+                min_phy_txpower=1000
+                max_phy_txpower=2900
+                ;;
+            esac
+            range=$((max_phy_txpower - min_phy_txpower))
+            percentage=$5
+            power_value=$(( min_phy_txpower + (percentage * range) / 100 ))
+            [ ! -z "$wifi_txpower" ] && wifi_txpower=$wifi_txpower,
+            wifi_txpower=$wifi_txpower" \"$nic\": $power_value"
+        done
+        if ! grep -A 20 "\[common\]" /etc/wifibroadcast.cfg | grep -q "^wifi_txpower = "; then
+            sed -i "/^\[common\]/a\wifi_txpower = {$wifi_txpower}" /etc/wifibroadcast.cfg
+        else
+            sed -i "s/^wifi_txpower = .*/wifi_txpower = {$wifi_txpower}/" /etc/wifibroadcast.cfg
+        fi
         systemctl restart wifibroadcast.service
         ;;
     "get gs main Channel")
