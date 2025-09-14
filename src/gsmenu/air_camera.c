@@ -8,13 +8,14 @@
 
 extern lv_group_t * default_group;
 
-#define ENTRIES 20
+#define ENTRIES 21
 lv_obj_t * mirror;
 lv_obj_t * flip;
 lv_obj_t * contrast;
 lv_obj_t * hue;
 lv_obj_t * saturation;
 lv_obj_t * luminace;
+lv_obj_t * video_mode;
 lv_obj_t * size;
 lv_obj_t * fps;
 lv_obj_t * bitrate;
@@ -64,6 +65,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
     size = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Size","","size",menu_page_data,false);
+    video_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Video Mode","","video_mode",menu_page_data,false);
 
     fps = create_dropdown(cont,LV_SYMBOL_SETTINGS, "FPS","","fps",menu_page_data,false);
     // change rec fps when changeing camera fps
@@ -122,6 +124,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
         { "Loading saturation ...", saturation, reload_slider_value },
         { "Loading luminace ...", luminace, reload_slider_value },
         { "Loading size ...", size, reload_dropdown_value },
+        { "Loading video_mode ...", video_mode, reload_dropdown_value },
         { "Loading fps ...", fps, reload_dropdown_value },
         { "Loading bitrate ...", bitrate, reload_dropdown_value },
         { "Loading video_codec ...", video_codec, reload_dropdown_value },
