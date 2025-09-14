@@ -15,6 +15,7 @@ extern lv_obj_t * sub_gs_main_page;
 
 extern lv_obj_t * air_presets_cont;
 extern lv_obj_t * air_wfbng_cont;
+extern lv_obj_t * air_alink_cont;
 extern lv_obj_t * air_camera_cont;
 extern lv_obj_t * air_telemetry_cont;
 extern lv_obj_t * air_actions_cont;
@@ -147,6 +148,7 @@ void generic_back_event_handler(lv_event_t * e) {
         lv_menu_set_page(menu,NULL);
         lv_obj_remove_state(air_presets_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_alink_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
