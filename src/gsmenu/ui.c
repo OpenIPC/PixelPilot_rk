@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include "../../lvgl/lvgl.h"
 
+#include "../main.h"
 #include "../input.h"
 #include "helper.h"
 #include "air_presets.h"
@@ -14,10 +15,14 @@
 #include "gs_dvr.h"
 #include "gs_main.h"
 #include "gs_wfbng.h"
+#include "gs_apfpv.h"
 #include "gs_system.h"
 #include "gs_wifi.h"
 #include "gs_actions.h"
 #include "styles.h"
+#include "gs_connection_checker.h"
+
+extern enum RXMode RXMODE;
 
 static void back_event_handler(lv_event_t * e);
 extern lv_obj_t * menu;
@@ -38,6 +43,7 @@ lv_obj_t * sub_air_telemetry_page;
 lv_obj_t * sub_air_actions_page;
 lv_obj_t * sub_gs_dvr_page;
 lv_obj_t * sub_gs_wfbng_page;
+lv_obj_t * sub_gs_apfpv_page;
 lv_obj_t * sub_gs_system_page;
 lv_obj_t * sub_wlan_page;
 lv_obj_t * sub_gs_actions_page;
@@ -50,9 +56,12 @@ lv_obj_t * air_telemetry_cont;
 lv_obj_t * air_actions_cont;
 lv_obj_t * gs_dvr_cont;
 lv_obj_t * gs_wfbng_cont;
+lv_obj_t * gs_apfpv_cont;
 lv_obj_t * gs_system_cont;
 lv_obj_t * gs_wlan_cont;
 lv_obj_t * gs_actions_cont;
+
+extern lv_obj_t * ap_fpv_channel;
 
 extern bool menu_active;
 extern uint64_t gtotal_tunnel_data; // global variable for easyer access in gsmenu
@@ -66,6 +75,11 @@ void recursive_state_set(lv_obj_t *obj, bool enable) {
     if (!obj) return;
 
     // Set state for the current object
+    const lv_obj_class_t * object_class = lv_obj_get_class(obj);
+    if(object_class == &lv_textarea_class) {
+        return;
+    }
+
     if (enable) {
         lv_obj_remove_state(obj, LV_STATE_DISABLED);
     } else {
@@ -85,6 +99,7 @@ void check_connection_timer(lv_timer_t * timer)
     static uint32_t last_value = 0;
     static uint32_t last_increase_time = 0;
 
+    if (RXMODE == APFPV) update_network_status();
     uint32_t current_value = (uint32_t)gtotal_tunnel_data;
     
     // Reset detection (either manual reset or wraparound)
@@ -122,6 +137,7 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(sub_air_camera_page, false);
             recursive_state_set(sub_air_telemetry_page, false);
             recursive_state_set(sub_air_actions_page, false);
+            lv_obj_add_state(lv_obj_get_child_by_type(ap_fpv_channel,0,&lv_dropdown_class),LV_STATE_DISABLED);
             setenv("GSMENU_VTX_DETECTED" , "0", 1);
             lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
             if (sub_air_presets_page == current_page ||
@@ -158,6 +174,7 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(sub_air_camera_page, true);
             recursive_state_set(sub_air_telemetry_page, true);
             recursive_state_set(sub_air_actions_page, true);
+            lv_obj_remove_state(lv_obj_get_child_by_type(ap_fpv_channel,0,&lv_dropdown_class), LV_STATE_DISABLED);
             setenv("GSMENU_VTX_DETECTED" , "1", 1);
 
             lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
@@ -197,6 +214,7 @@ void check_connection_timer(lv_timer_t * timer)
         recursive_state_set(sub_air_camera_page, false);
         recursive_state_set(sub_air_telemetry_page, false);
         recursive_state_set(sub_air_actions_page, false);
+        lv_obj_add_state(lv_obj_get_child_by_type(ap_fpv_channel,0,&lv_dropdown_class),LV_STATE_DISABLED);
         setenv("GSMENU_VTX_DETECTED" , "0", 1);
 
         lv_obj_t * current_page = lv_menu_get_cur_main_page(menu);
@@ -297,6 +315,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_separator_create(sub_gs_wfbng_page);
     create_gs_wfbng_menu(sub_gs_wfbng_page);
 
+    sub_gs_apfpv_page = lv_menu_page_create(menu, LV_SYMBOL_WIFI" APFPV");
+    lv_obj_set_style_pad_hor(sub_gs_apfpv_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_gs_apfpv_page);
+    create_apfpv_menu(sub_gs_apfpv_page);
+
     sub_gs_system_page = lv_menu_page_create(menu, LV_SYMBOL_SETTINGS" System");
     lv_obj_set_style_pad_hor(sub_gs_system_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     lv_menu_separator_create(sub_gs_system_page);
@@ -364,6 +387,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_set_load_page_event(menu, gs_wfbng_cont, sub_gs_wfbng_page);
     lv_obj_add_event_cb(gs_wfbng_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
+    gs_apfpv_cont = create_text(section, LV_SYMBOL_WIFI, "APFPV", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(main_group,gs_apfpv_cont);
+    lv_menu_set_load_page_event(menu, gs_apfpv_cont, sub_gs_apfpv_page);
+    lv_obj_add_event_cb(gs_apfpv_cont,back_event_handler,LV_EVENT_KEY,NULL);
+
     gs_system_cont = create_text(section, LV_SYMBOL_SETTINGS, "System Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_system_cont);
     lv_menu_set_load_page_event(menu, gs_system_cont, sub_gs_system_page);
@@ -387,6 +415,8 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     last_value = gtotal_tunnel_data;
     setenv("GSMENU_VTX_DETECTED" , "0", 1);
 
+    gsmenu_toggle_rxmode();
+
     lv_group_set_default(default_group);
     return menu;
 }
@@ -406,6 +436,7 @@ static void back_event_handler(lv_event_t * e)
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_dvr_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_apfpv_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);

@@ -1,6 +1,5 @@
 #pragma once
 
-
 void sig_handler(int signum);
 
 void switch_pipeline_source(const char * source_type, const char * source_path);

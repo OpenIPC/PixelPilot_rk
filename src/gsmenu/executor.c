@@ -293,6 +293,16 @@ void generic_dropdown_event_cb(lv_event_t * e)
     strcat(final_command,user_data->argument_string);
     strcat(final_command,"\"");
 
+    for(int i=0;i<MAX_CMD_ARGS;i++) {
+        if (user_data->arguments[i]) {
+            if (lv_obj_check_type(user_data->arguments[i],&lv_textarea_class)) {
+                strcat(final_command," \"");
+                strcat(final_command,lv_textarea_get_text(user_data->arguments[i]));
+                strcat(final_command,"\"");
+            }
+        }
+    }
+
     if (user_data->blocking)
         run_command(final_command);
     else

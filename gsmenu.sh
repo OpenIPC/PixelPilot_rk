@@ -2,7 +2,7 @@
 set -o pipefail
 
 # Configuration
-REMOTE_IP="10.5.0.10"
+REMOTE_IP="${REMOTE_IP:-10.5.0.10}"
 SSH_PASS="12345"
 CACHE_DIR="/tmp/gsmenu_cache"
 CACHE_TTL=10 # seconds
@@ -160,6 +160,9 @@ case "$@" in
     "values air camera size")
         echo -n -e "1280x720\n1456x816\n1920x1080\n1440x1080\n1920x1440\n2104x1184\n2208x1248\n2240x1264\n2312x1304\n2436x1828\n2512x1416\n2560x1440\n2560x1920\n2720x1528\n2944x1656\n3200x1800\n3840x2160"
         ;;
+    "values air camera video_mode")
+        echo -ne "16:9 720p 30\n\n16:9 720p 30 50HzAC\n16:9 1080p 30\n16:9 1080p 30 50HzAC\n16:9 1440p 30\n16:9 1440p 30 50HzAC\n16:9 4k 2160p 30\n16:9 4k 2160p 30 50HzAC\n16:9 540p 60\n16:9 540p 60 50HzAC\n16:9 720p 60\n16:9 720p 60 50HzAC\n16:9 1080p 60\n16:9 1080p 60 50HzAC\n16:9 1440p 60\n16:9 1440p 60 50HzAC\n16:9 1688p 60\n16:9 1688p 60 50HzAC\n16:9 540p 90\n16:9 540p 90 50HzAC\n16:9 720p 90\n16:9 720p 90 50HzAC\n16:9 1080p 90\n16:9 1080p 90 50HzAC\n16:9 540p 120\n16:9 720p 120\n16:9 816p 120\n4:3 720p 30\n4:3 720p 30 50HzAC\n4:3 960p 30\n4:3 960p 30 50HzAC\n4:3 1080p 30\n4:3 1080p 30 50HzAC\n4:3 1440p 30\n4:3 1440p 30 50HzAC\n4:3 2160p 30\n4:3 2160p 30 50HzAC\n4:3 720p 60\n4:3 720p 60 50HzAC\n4:3 960p 60\n4:3 960p 60 50HzAC\n4:3 1080p 60\n4:3 1080p 60 50HzAC\n4:3 1440p 60\n4:3 1440p 60 50HzAC\n4:3 1688p 60\n4:3 1688p 60 50HzAC\n4:3 720p 90\n4:3 720p 90 50HzAC\n4:3 960p 90\n4:3 960p 90 50HzAC\n4:3 1080p 90\n4:3 1080p 90 50HzAC\n4:3 540p 120\n4:3 720p 120\n4:3 816p 120"
+        ;;
     "values air camera fps")
         echo -n -e "60\n90\n120"
         ;;
@@ -231,6 +234,9 @@ case "$@" in
         ;;
     "get air camera size")
         get_majestic_value '.video0.size'
+        ;;
+    "get air camera video_mode")
+        echo get_current_video_mode | nc -w 11 $REMOTE_IP 12355
         ;;
     "get air camera fps")
         get_majestic_value '.video0.fps'
@@ -353,6 +359,9 @@ case "$@" in
         ;;
     "set air camera size"*)
         $SSH "cli -s .video0.size $5 && killall -1 majestic"
+        ;;
+    "set air camera video_mode"*)
+        echo set_simple_video_mode "$5" | nc -w 11 $REMOTE_IP 12355
         ;;
     "set air camera fps"*)
         $SSH "cli -s .video0.fps $5 && killall -1 majestic"
@@ -537,6 +546,51 @@ case "$@" in
         fi
         ;;
 
+    "get gs apfpv ssid")
+        nmcli  c show apfpv0 | grep "802-11-wireless.ssid" | cut -d : -f2 | awk ' {print $1}'
+        ;;
+    "get gs apfpv password")
+        nmcli -t connection show apfpv0 --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2
+        ;;
+    "get gs apfpv channel")
+        $SSH "fw_printenv -n wlanchan || echo 157"
+        ;;
+    "set gs apfpv ssid"*)
+        if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
+            $SSH 'fw_setenv wlanssid "'$5'"'
+            $SSH '(hostapd_cli -i wlan0 set ssid "'$5'"; hostapd_cli -i wlan0 reload)  >/dev/null 2>&1 &'
+        fi
+        WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+        INDEX=0
+        for IFACE in $WIFI_IFACES; do
+            CONN_NAME="apfpv$INDEX"
+            if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                nmcli connection modify "$CONN_NAME" ssid "$5"
+                nmcli -w 15 connection up "$CONN_NAME"
+            fi
+            INDEX=$((INDEX + 1))
+        done
+        ;;
+    "set gs apfpv password"*)
+        if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
+            $SSH 'fw_setenv wlanpass "'$5'"'
+            $SSH '(hostapd_cli -i wlan0 set wpa_passphrase "'$5'"; hostapd_cli -i wlan0 reload)  >/dev/null 2>&1 &'
+        fi
+        WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+        INDEX=0
+        for IFACE in $WIFI_IFACES; do
+            CONN_NAME="apfpv$INDEX"
+            if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                nmcli connection modify "$CONN_NAME" wifi-sec.psk "$5"
+                nmcli -w 15 connection up "$CONN_NAME"
+            fi
+            INDEX=$((INDEX + 1))
+        done
+        ;;
+    "set gs apfpv channel"*)
+        echo "set_ap_channel $5" | nc -w 11 $REMOTE_IP 12355
+        ;;
+
     "get air alink"*)
         get_alink_value $4
         ;;
@@ -569,6 +623,12 @@ case "$@" in
     "values gs system video_scale")
         echo -n 0.5 1.0
         ;;
+    "values gs apfpv channel")
+        echo -n -e "36\n40\n44\n48\n52\n56\n60\n64\n100\n104\n108\n112\n116\n120\n124\n128\n132\n136\n140\n144\n149\n153\n157\n161\n165\n36_40\n44_48\n52_56\n60_64\n100_104\n108_112\n116_120\n124_128\n132_136\n140_144\n149_153\n157_161"
+        ;;
+    "values gs system rx_mode")
+        echo -n -e "wfb\napfpv"
+        ;;
     "values gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq  | sed -z '$ s/\n$//'
         ;;
@@ -576,6 +636,13 @@ case "$@" in
         echo -n -e "60\n90\n120"
         ;;
 
+    "get gs system rx_mode")
+        if nmcli connection show apfpv0 &>/dev/null; then
+            nmcli -t connection show apfpv0 | grep connection.autoconnect: | grep -q yes && echo "apfpv" || echo "wfb"
+        else
+          echo wfb
+        fi
+    ;;
     "get gs system gs_rendering")
         [ "$(grep ^render /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
         ;;
@@ -584,6 +651,58 @@ case "$@" in
         ;;
     "get gs system rec_fps")
         grep ^rec_fps /config/setup.txt | cut -d ' ' -f 3 
+        ;;
+    "set gs system rx_mode"*)
+            EXCLUDE_IFACE="wlan0"
+            SSID="${6:-OpenIPC}"
+            PASSWORD="${7:-12345678}"
+            if [ "$5" = "apfpv" ]
+            then
+                systemctl stop alink_gs.service
+                systemctl stop wifibroadcast.service
+                systemctl stop wifibroadcast@gs.service
+                systemctl disable wifibroadcast.service
+                systemctl disable wifibroadcast@gs.service
+                systemctl disable alink_gs.service
+                # list every wifi interface wlx or wlan expect wlan0
+                WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+                INDEX=0
+                for IFACE in $WIFI_IFACES; do
+                    nmcli device set $IFACE managed yes
+                    CONN_NAME="apfpv$INDEX"
+                    if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                        nmcli connection modify "$CONN_NAME" connection.autoconnect yes
+                    else
+                        nmcli device wifi rescan ifname "$IFACE"
+                        sleep 2
+                        nmcli connection add type wifi ifname "$IFACE" con-name "$CONN_NAME" ssid "$SSID" \
+                            wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PASSWORD" \
+                            ipv4.method auto connection.autoconnect yes
+                    fi
+                    nmcli connection modify "$CONN_NAME" ipv4.route-metric $((100 * (INDEX + 1)))
+                    nmcli -w 15 connection up "$CONN_NAME"
+
+                    INDEX=$((INDEX + 1))
+                done
+        elif [ "$5" = "wfb" ]
+        then
+            WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+            INDEX=0
+            for IFACE in $WIFI_IFACES; do
+                CONN_NAME="apfpv$INDEX"
+                if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                    nmcli connection modify "$CONN_NAME" connection.autoconnect no
+                    nmcli connection down "$IFACE"
+                fi
+                INDEX=$((INDEX + 1))
+            done
+            systemctl start wifibroadcast.service
+            systemctl start wifibroadcast@gs.service
+            systemctl start alink_gs.service
+            systemctl enable wifibroadcast.service
+            systemctl enable wifibroadcast@gs.service
+            systemctl enable alink_gs.service
+        fi
         ;;
     "set gs system gs_rendering"*)
         if [ "$5" = "off" ]

@@ -2,11 +2,14 @@
 #include <pthread.h>
 #include <math.h>
 #include "../../lvgl/lvgl.h"
+#include "gs_system.h"
 #include "../input.h"
 #include "helper.h"
 #include "styles.h"
 #include "ui.h"
 #include "executor.h"
+
+extern enum RXMode RXMODE;
 
 extern gsmenu_control_mode_t control_mode;
 extern lv_obj_t * menu;
@@ -21,11 +24,17 @@ extern lv_obj_t * air_telemetry_cont;
 extern lv_obj_t * air_actions_cont;
 extern lv_obj_t * gs_dvr_cont;
 extern lv_obj_t * gs_wfbng_cont;
+extern lv_obj_t * gs_apfpv_cont;
 extern lv_obj_t * gs_system_cont;
 extern lv_obj_t * gs_wlan_cont;
 extern lv_obj_t * gs_actions_cont;
 extern lv_group_t *main_group;
 extern lv_group_t * error_group;
+extern lv_obj_t * size; // air camera size setting wfb-ng only
+extern lv_obj_t * fps; // air camera fps setting wfb-ng only
+extern lv_obj_t * bitrate; // air camera bitrate setting wfb-ng only
+extern lv_obj_t * video_mode; // air camera video_mode setting apfpv only
+
 
 extern lv_obj_t * msgbox;
 
@@ -154,6 +163,7 @@ void generic_back_event_handler(lv_event_t * e) {
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_dvr_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_apfpv_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
@@ -670,50 +680,58 @@ void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
 
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_switch_class);
-    thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
-    bool value = atoi(get_paramater(page,param_user_data->parameter));
-    lv_lock();
-    lv_obj_set_state(obj,LV_STATE_CHECKED,value);
-    lv_unlock();
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+        thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
+        bool value = atoi(get_paramater(page,param_user_data->parameter));
+        lv_lock();
+        lv_obj_set_state(obj,LV_STATE_CHECKED,value);
+        lv_unlock();
+    }
 }
 
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_dropdown_class);
-    thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
-    char * value = get_paramater(page, param_user_data->parameter);
-    lv_lock();
-    lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
-    lv_unlock();
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+        thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
+        char * value = get_paramater(page, param_user_data->parameter);
+        lv_lock();
+        lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
+        lv_unlock();
+    }
 }
 
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_textarea_class);
-    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    const char * value = get_paramater(page,param_user_data->parameter);
-    lv_lock();
-    lv_textarea_set_text(obj,value);
-    lv_unlock();
+    // if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) { // ToDo: This need rework
+        thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
+        const char * value = get_paramater(page,param_user_data->parameter);
+        lv_lock();
+        lv_textarea_set_text(obj,value);
+        lv_unlock();
+    // }
 }
 
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_slider_class);
     lv_obj_t * label = lv_obj_get_child_by_type(parameter,1,&lv_label_class);
-    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    char * value = get_paramater(page,param_user_data->parameter);
-    float current_value;
-    if (sscanf(value, "%f", &current_value) != 1) {
-        return;
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+        thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
+        char * value = get_paramater(page,param_user_data->parameter);
+        float current_value;
+        if (sscanf(value, "%f", &current_value) != 1) {
+            return;
+        }
+        int32_t scaled_value = (int32_t)(current_value * powf(10, param_user_data->precision));
+        // Create a buffer for the float value display
+        char format[16];
+        snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
+        char s[32];
+        snprintf(s, sizeof(s), format, current_value);
+        lv_lock();
+        lv_slider_set_value(obj,scaled_value,LV_ANIM_OFF);
+        lv_label_set_text(label,s);
+        lv_unlock();
     }
-    int32_t scaled_value = (int32_t)(current_value * powf(10, param_user_data->precision));
-    // Create a buffer for the float value display
-    char format[16];
-    snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
-    char s[32];
-    snprintf(s, sizeof(s), format, current_value);
-    lv_lock();
-    lv_slider_set_value(obj,scaled_value,LV_ANIM_OFF);
-    lv_label_set_text(label,s);
-    lv_unlock();
 }
 
 char* get_values(thread_data_t * data) {
@@ -812,4 +830,39 @@ const char* find_resource_file(const char* relative_path) {
     }
 
     return NULL; // Not found
+}
+
+void gsmenu_toggle_rxmode() {
+
+
+    switch (RXMODE)
+    {
+    case APFPV:
+        lv_obj_add_flag(air_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_telemetry_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_alink_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(gs_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(size, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(bitrate, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
+        setenv("REMOTE_IP" , "192.168.0.1", 1);
+        break;
+    case WFB:
+        lv_obj_remove_flag(air_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_telemetry_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_alink_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gs_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(size, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(bitrate, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
+        setenv("REMOTE_IP" , "10.5.0.10", 1);
+        break;
+
+    default:
+        break;
+    }
 }
