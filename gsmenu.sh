@@ -703,8 +703,10 @@ case "$@" in
 
                     INDEX=$((INDEX + 1))
                 done
+                ln -s /usr/local/bin/gsmenu.sh /etc/NetworkManager/dispatcher.d/
         elif [ "$5" = "wfb" ]
         then
+            rm /etc/NetworkManager/dispatcher.d/gsmenu.sh
             WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^wlx' | grep -v "^$EXCLUDE_IFACE$")
             INDEX=0
             for IFACE in $WIFI_IFACES; do
@@ -936,6 +938,19 @@ case "$@" in
         reboot
     ;;
 
+    "wlx"*"dhcp4-change")
+        eval $(udevadm info -x --query=property --path=/sys/class/net/$DEVICE_IFACE)
+        case "$ID_NET_DRIVER" in
+        "rtl88xxau_wfb")
+            iw dev "$DEVICE_IFACE" set txpower fixed -4000
+            ;;
+
+        "rtl88x2eu")
+            iw dev "$DEVICE_IFACE" set txpower fixed 2500
+            ;;
+        esac
+
+    ;;
     *)
         echo "Unknown $@"
         exit 1
