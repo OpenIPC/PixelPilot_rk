@@ -356,7 +356,7 @@ cmake -B build
 sudo cmake --build build --target install
 curl -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_arm64
 chmod +x /usr/local/bin/yq
-sudo apt install drm-info jq
+sudo apt install drm-info jq netcat
 ```
 
 ### Navigation
