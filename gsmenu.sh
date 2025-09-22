@@ -3,6 +3,7 @@ set -o pipefail
 
 # Configuration
 REMOTE_IP="${REMOTE_IP:-10.5.0.10}"
+AIR_FIRMWARE_TYPE="${AIR_FIRMWARE_TYPE:-wfb}"
 SSH_PASS="12345"
 CACHE_DIR="/tmp/gsmenu_cache"
 CACHE_TTL=10 # seconds
@@ -414,7 +415,19 @@ case "$@" in
         ;;
 
     "get air telemetry serial")
-        $SSH wifibroadcast cli -g .telemetry.serial
+        if [ $AIR_FIRMWARE_TYPE = "wfb" ]
+        then
+            $SSH wifibroadcast cli -g .telemetry.serial
+        elif [ $AIR_FIRMWARE_TYPE = "apfpv" ]
+        then
+            tty=$($SSH "fw_printenv -n msposd_tty")
+            if [ ! -z $tty ]
+            then
+                basename "$tty"
+            else
+                echo ttyS2
+            fi
+        fi
         ;;
     "get air telemetry router")
         $SSH wifibroadcast cli -g .telemetry.router
@@ -433,8 +446,14 @@ case "$@" in
         else
           $SSH "sed -i 's/^#console::respawn:\/sbin\/getty -L console 0 vt100/console::respawn:\/sbin\/getty -L console 0 vt100/' /etc/inittab ; kill -HUP 1"
         fi
-        $SSH wifibroadcast cli -s .telemetry.serial $5
-        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        if [ $AIR_FIRMWARE_TYPE = "wfb" ]
+        then
+            $SSH wifibroadcast cli -s .telemetry.serial $5
+            $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        elif [ $AIR_FIRMWARE_TYPE = "apfpv" ]
+        then
+            $SSH "fw_setenv msposd_tty /dev/$5; /etc/init.d/S99msposd stop ; /etc/init.d/S99msposd stop ; sleep 1; /etc/init.d/S99msposd start"
+        fi
         ;;
     "set air telemetry router"*)
         $SSH wifibroadcast cli -s .telemetry.router $5
