@@ -34,6 +34,11 @@ extern lv_obj_t * size; // air camera size setting wfb-ng only
 extern lv_obj_t * fps; // air camera fps setting wfb-ng only
 extern lv_obj_t * bitrate; // air camera bitrate setting wfb-ng only
 extern lv_obj_t * video_mode; // air camera video_mode setting apfpv only
+extern lv_obj_t * router;
+extern lv_obj_t * osd_fps;
+extern lv_obj_t * air_gs_rendering;
+extern lv_obj_t * air_telemetry_msposd_text;
+extern lv_obj_t * air_telemetry_msposd_section;
 
 
 extern lv_obj_t * msgbox;
@@ -680,7 +685,7 @@ void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
 
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_switch_class);
-    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
         thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
         bool value = atoi(get_paramater(page,param_user_data->parameter));
         lv_lock();
@@ -691,7 +696,7 @@ void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
 
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_dropdown_class);
-    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
         thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
         char * value = get_paramater(page, param_user_data->parameter);
         lv_lock();
@@ -702,7 +707,7 @@ void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
 
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_textarea_class);
-    // if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) { // ToDo: This need rework
+    // if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) { // ToDo: This need rework
         thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
         const char * value = get_paramater(page,param_user_data->parameter);
         lv_lock();
@@ -714,7 +719,7 @@ void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter) {
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_slider_class);
     lv_obj_t * label = lv_obj_get_child_by_type(parameter,1,&lv_label_class);
-    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED)) {
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
         thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
         char * value = get_paramater(page,param_user_data->parameter);
         float current_value;
@@ -839,7 +844,11 @@ void gsmenu_toggle_rxmode() {
     {
     case APFPV:
         lv_obj_add_flag(air_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(air_telemetry_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(router, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(osd_fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_gs_rendering, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_telemetry_msposd_text,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_telemetry_msposd_section,LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(air_alink_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(gs_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(size, LV_OBJ_FLAG_HIDDEN);
@@ -848,10 +857,15 @@ void gsmenu_toggle_rxmode() {
         lv_obj_remove_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
         setenv("REMOTE_IP" , "192.168.0.1", 1);
+        setenv("AIR_FIRMWARE_TYPE" , "apfpv", 1);
         break;
     case WFB:
         lv_obj_remove_flag(air_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(air_telemetry_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(router, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(osd_fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_gs_rendering, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_telemetry_msposd_text,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_telemetry_msposd_section,LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(air_alink_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(gs_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(size, LV_OBJ_FLAG_HIDDEN);
@@ -860,6 +874,7 @@ void gsmenu_toggle_rxmode() {
         lv_obj_add_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
         setenv("REMOTE_IP" , "10.5.0.10", 1);
+        setenv("AIR_FIRMWARE_TYPE" , "wfb", 1);
         break;
 
     default:
