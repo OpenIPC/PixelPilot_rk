@@ -19,6 +19,7 @@ extern lv_obj_t * sub_gs_main_page;
 extern lv_obj_t * air_presets_cont;
 extern lv_obj_t * air_wfbng_cont;
 extern lv_obj_t * air_alink_cont;
+extern lv_obj_t * air_aalink_cont;
 extern lv_obj_t * air_camera_cont;
 extern lv_obj_t * air_telemetry_cont;
 extern lv_obj_t * air_actions_cont;
@@ -163,6 +164,7 @@ void generic_back_event_handler(lv_event_t * e) {
         lv_obj_remove_state(air_presets_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_alink_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_aalink_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
@@ -856,6 +858,7 @@ void gsmenu_toggle_rxmode() {
         lv_obj_add_flag(bitrate, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_aalink_cont, LV_OBJ_FLAG_HIDDEN);
         setenv("REMOTE_IP" , "192.168.0.1", 1);
         setenv("AIR_FIRMWARE_TYPE" , "apfpv", 1);
         break;
@@ -873,6 +876,7 @@ void gsmenu_toggle_rxmode() {
         lv_obj_remove_flag(bitrate, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_aalink_cont, LV_OBJ_FLAG_HIDDEN);
         setenv("REMOTE_IP" , "10.5.0.10", 1);
         setenv("AIR_FIRMWARE_TYPE" , "wfb", 1);
         break;

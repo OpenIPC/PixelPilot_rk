@@ -10,6 +10,7 @@ CACHE_TTL=10 # seconds
 MAJESTIC_YAML="/etc/majestic.yaml"
 WFB_YAML="/etc/wfb.yaml"
 ALINK_CONF="/etc/alink.conf"
+AALINK_CONF="/etc/aalink.conf"
 TXPROFILES_CONF="/etc/txprofiles.conf"
 PRESET_DIR="/etc/presets"
 
@@ -28,7 +29,7 @@ refresh_cache() {
     # Check if we need to refresh
     if [[ ! -f "$CACHE_DIR/last_refresh" ]] || [[ $(cat "$CACHE_DIR/last_refresh") -lt $last_refresh ]]; then
         # Copy the YAML configuration files
-        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF root@$REMOTE_IP:$TXPROFILES_CONF $CACHE_DIR 2>/dev/null
+        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF root@$REMOTE_IP:$TXPROFILES_CONF root@$REMOTE_IP:$AALINK_CONF $CACHE_DIR 2>/dev/null
 
         # Update refresh timestamp
         echo "$current_time" > "$CACHE_DIR/last_refresh"
@@ -51,6 +52,12 @@ get_wfb_value() {
 get_alink_value() {
     local key="$1"
     grep $key= "$CACHE_DIR/alink.conf" | cut -d "=" -f 2 2>/dev/null
+}
+
+# Function to get value from alink.conf
+get_aalink_value() {
+    local key="$1"
+    grep ^$key= "$CACHE_DIR/aalink.conf" | cut -d "=" -f 2 2>/dev/null
 }
 
 # Refresh cache for get
@@ -157,6 +164,24 @@ case "$@" in
         ;;
     "values air alink multiply_font_size_by")
         echo -n 0 1.5
+        ;;
+    "values air aalink SCALE_TX_POWER")
+        echo -n 0.2 1.2
+        ;;
+    "values air aalink THRESH_SHIFT")
+        echo -n -50 50
+        ;;
+    "values air aalink OSD_SCALE")
+        echo -n 0.2 2
+        ;;
+    "values air aalink THROUGHPUT_PCT")
+        echo -n 0 100
+        ;;
+    "values air aalink HIGH_TEMP")
+        echo -n 70 100
+        ;;
+    "values air aalink MCS_SOURCE")
+        echo -n -e "lowest\ndownlink"
         ;;
     "values air camera size")
         echo -n -e "1280x720\n1456x816\n1920x1080\n1440x1080\n1920x1440\n2104x1184\n2208x1248\n2240x1264\n2312x1304\n2436x1828\n2512x1416\n2560x1440\n2560x1920\n2720x1528\n2944x1656\n3200x1800\n3840x2160"
@@ -614,6 +639,10 @@ case "$@" in
         get_alink_value $4
         ;;
 
+    "get air aalink"*)
+        get_aalink_value $4
+        ;;
+
     "set air alink"*)
         if [ "$5" = "off" ]
         then
@@ -628,6 +657,10 @@ case "$@" in
         else
             $SSH 'sed -i "s/'$4'=.*/'$4'='$5'/" /etc/alink.conf; killall -9 alink_drone ; alink_drone &'
         fi
+        ;;
+
+    "set air aalink"*)
+            $SSH 'sed -i "s/'$4'=.*/'$4'='$5'/" /etc/aalink.conf; kill -SIGHUP $(pidof aalink)'
         ;;
 
     "values gs wfbng gs_channel")

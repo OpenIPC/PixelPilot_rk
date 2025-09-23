@@ -9,6 +9,7 @@
 #include "air_presets.h"
 #include "air_wfbng.h"
 #include "air_alink.h"
+#include "air_aalink.h"
 #include "air_camera.h"
 #include "air_telemetry.h"
 #include "air_actions.h"
@@ -38,6 +39,7 @@ lv_obj_t * sub_gs_main_page;
 lv_obj_t * sub_air_presets_page;
 lv_obj_t * sub_air_wfbng_page;
 lv_obj_t * sub_air_alink_page;
+lv_obj_t * sub_air_aalink_page;
 lv_obj_t * sub_air_camera_page;
 lv_obj_t * sub_air_telemetry_page;
 lv_obj_t * sub_air_actions_page;
@@ -51,6 +53,7 @@ lv_obj_t * sub_gs_actions_page;
 lv_obj_t * air_presets_cont;
 lv_obj_t * air_wfbng_cont;
 lv_obj_t * air_alink_cont;
+lv_obj_t * air_aalink_cont;
 lv_obj_t * air_camera_cont;
 lv_obj_t * air_telemetry_cont;
 lv_obj_t * air_actions_cont;
@@ -128,12 +131,14 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(air_presets_cont, false);
             recursive_state_set(air_wfbng_cont, false);
             recursive_state_set(air_alink_cont, false);
+            recursive_state_set(air_aalink_cont, false);
             recursive_state_set(air_camera_cont, false);
             recursive_state_set(air_telemetry_cont, false);
             recursive_state_set(air_actions_cont, false);
             recursive_state_set(sub_air_presets_page, false);
             recursive_state_set(sub_air_wfbng_page, false);
             recursive_state_set(sub_air_alink_page, false);
+            recursive_state_set(sub_air_aalink_page, false);
             recursive_state_set(sub_air_camera_page, false);
             recursive_state_set(sub_air_telemetry_page, false);
             recursive_state_set(sub_air_actions_page, false);
@@ -143,6 +148,7 @@ void check_connection_timer(lv_timer_t * timer)
             if (sub_air_presets_page == current_page ||
                 sub_air_wfbng_page == current_page ||
                 sub_air_alink_page == current_page ||
+                sub_air_aalink_page == current_page ||
                 sub_air_camera_page == current_page ||
                 sub_air_telemetry_page == current_page ||
                 sub_air_actions_page == current_page
@@ -165,12 +171,14 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(air_presets_cont, true);
             recursive_state_set(air_wfbng_cont, true);
             recursive_state_set(air_alink_cont, true);
+            recursive_state_set(air_aalink_cont, true);
             recursive_state_set(air_camera_cont, true);
             recursive_state_set(air_telemetry_cont, true);
             recursive_state_set(air_actions_cont, true);
             recursive_state_set(sub_air_presets_page, true);
             recursive_state_set(sub_air_wfbng_page, true);
             recursive_state_set(sub_air_alink_page, true);
+            recursive_state_set(sub_air_aalink_page, true);
             recursive_state_set(sub_air_camera_page, true);
             recursive_state_set(sub_air_telemetry_page, true);
             recursive_state_set(sub_air_actions_page, true);
@@ -181,6 +189,7 @@ void check_connection_timer(lv_timer_t * timer)
             if (sub_air_presets_page == current_page ||
                 sub_air_wfbng_page == current_page ||
                 sub_air_alink_page == current_page ||
+                sub_air_aalink_page == current_page ||
                 sub_air_camera_page == current_page ||
                 sub_air_telemetry_page == current_page ||
                 sub_air_actions_page == current_page
@@ -205,12 +214,14 @@ void check_connection_timer(lv_timer_t * timer)
         recursive_state_set(air_presets_cont, false);
         recursive_state_set(air_wfbng_cont, false);
         recursive_state_set(air_alink_cont, false);
+        recursive_state_set(air_aalink_cont, false);
         recursive_state_set(air_camera_cont, false);
         recursive_state_set(air_telemetry_cont, false);
         recursive_state_set(air_actions_cont, false);
         recursive_state_set(sub_air_presets_page, false);
         recursive_state_set(sub_air_wfbng_page, false);
         recursive_state_set(sub_air_alink_page, false);
+        recursive_state_set(sub_air_aalink_page, false);
         recursive_state_set(sub_air_camera_page, false);
         recursive_state_set(sub_air_telemetry_page, false);
         recursive_state_set(sub_air_actions_page, false);
@@ -221,6 +232,7 @@ void check_connection_timer(lv_timer_t * timer)
         if (sub_air_presets_page == current_page ||
             sub_air_wfbng_page == current_page ||
             sub_air_alink_page == current_page ||
+            sub_air_aalink_page == current_page ||
             sub_air_camera_page == current_page ||
             sub_air_telemetry_page == current_page ||
             sub_air_actions_page == current_page
@@ -290,6 +302,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_separator_create(sub_air_alink_page);
     create_air_alink_menu(sub_air_alink_page);
 
+    sub_air_aalink_page = lv_menu_page_create(menu, LV_SYMBOL_WIFI" AALink");
+    lv_obj_set_style_pad_hor(sub_air_aalink_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_aalink_page);
+    create_air_aalink_menu(sub_air_aalink_page);
+
     sub_air_camera_page = lv_menu_page_create(menu, LV_SYMBOL_IMAGE" Camera");
     lv_obj_set_style_pad_hor(sub_air_camera_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     lv_menu_separator_create(sub_air_camera_page);
@@ -357,6 +374,11 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_group_add_obj(main_group,air_alink_cont);
     lv_menu_set_load_page_event(menu, air_alink_cont, sub_air_alink_page);
     lv_obj_add_event_cb(air_alink_cont,back_event_handler,LV_EVENT_KEY,NULL);
+
+    air_aalink_cont = create_text(section, LV_SYMBOL_WIFI, "AALink", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(main_group,air_aalink_cont);
+    lv_menu_set_load_page_event(menu, air_aalink_cont, sub_air_aalink_page);
+    lv_obj_add_event_cb(air_aalink_cont,back_event_handler,LV_EVENT_KEY,NULL);
 
     air_camera_cont = create_text(section, LV_SYMBOL_IMAGE, "Camera", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,air_camera_cont);
@@ -431,6 +453,7 @@ static void back_event_handler(lv_event_t * e)
         lv_obj_remove_state(air_presets_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_alink_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_aalink_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
