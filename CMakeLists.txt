@@ -63,6 +63,8 @@ set(SIMULATOR_SOURCES
         src/gsmenu/air_wfbng.c
         src/gsmenu/air_alink.h
         src/gsmenu/air_alink.c
+        src/gsmenu/air_aalink.h
+        src/gsmenu/air_aalink.c
         src/gsmenu/ui.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
@@ -112,6 +114,8 @@ set(SOURCE_FILES
         src/gsmenu/air_wfbng.c
         src/gsmenu/air_alink.h
         src/gsmenu/air_alink.c
+        src/gsmenu/air_aalink.h
+        src/gsmenu/air_aalink.c
         src/gsmenu/gs_actions.h
         src/gsmenu/gs_actions.c
         src/gsmenu/gs_connection_checker.h
