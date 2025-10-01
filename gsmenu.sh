@@ -165,6 +165,9 @@ case "$@" in
     "values air alink multiply_font_size_by")
         echo -n 0 1.5
         ;;
+    "values air aalink channel")
+        echo -n -e "36\n40\n44\n48\n52\n56\n60\n64\n100\n104\n108\n112\n116\n120\n124\n128\n132\n136\n140\n144\n149\n153\n157\n161\n165\n36_40\n44_48\n52_56\n60_64\n100_104\n108_112\n116_120\n124_128\n132_136\n140_144\n149_153\n157_161"
+        ;;
     "values air aalink SCALE_TX_POWER")
         echo -n 0.2 1.2
         ;;
@@ -596,9 +599,6 @@ case "$@" in
     "get gs apfpv password")
         nmcli -t connection show apfpv0 --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2
         ;;
-    "get gs apfpv channel")
-        $SSH "fw_printenv -n wlanchan || echo 157"
-        ;;
     "set gs apfpv ssid"*)
         if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
             $SSH 'fw_setenv wlanssid "'$5'"'
@@ -631,16 +631,21 @@ case "$@" in
             INDEX=$((INDEX + 1))
         done
         ;;
-    "set gs apfpv channel"*)
-        echo "set_ap_channel $5" | nc -w 11 $REMOTE_IP 12355
-        ;;
 
     "get air alink"*)
         get_alink_value $4
         ;;
 
+    "get air aalink channel")
+        $SSH "fw_printenv -n wlanchan || echo 157"
+        ;;
+
     "get air aalink"*)
         get_aalink_value $4
+        ;;
+
+    "set air aalink channel"*)
+        echo "set_ap_channel $5" | nc -w 11 $REMOTE_IP 12355
         ;;
 
     "set air alink"*)

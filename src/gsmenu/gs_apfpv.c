@@ -13,10 +13,9 @@ extern lv_obj_t * menu;
 extern gsmenu_control_mode_t control_mode;
 extern lv_group_t * default_group;
 
-#define ENTRIES 3
+#define ENTRIES 2
 lv_obj_t * ap_fpv_ssid;
 lv_obj_t * ap_fpv_password;
-lv_obj_t * ap_fpv_channel;
 
 static void btn_event_cb(lv_event_t * e)
 {
@@ -99,7 +98,6 @@ void create_apfpv_menu(lv_obj_t * parent) {
 
     ap_fpv_ssid = create_textarea(cont, "", "SSID", "ssid", menu_page_data, false);
     ap_fpv_password = create_textarea(cont, "", "Password", "password", menu_page_data, true);
-    ap_fpv_channel = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Channel","","channel",menu_page_data,false);
 
     lv_obj_t * kb = lv_keyboard_create(lv_obj_get_parent(section));
     lv_obj_add_flag(kb, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
@@ -118,7 +116,6 @@ void create_apfpv_menu(lv_obj_t * parent) {
     PageEntry entries[] = {
         { "Loading SSID ...", ap_fpv_ssid, reload_textarea_value },
         { "Loading Password ...", ap_fpv_password, reload_textarea_value },
-        { "Loading Channel ...", ap_fpv_channel, reload_dropdown_value },
     };
     memcpy(menu_page_data->page_entries, entries, sizeof(entries));
 
