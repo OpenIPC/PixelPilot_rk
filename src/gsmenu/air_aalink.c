@@ -11,7 +11,8 @@ extern lv_group_t * default_group;
 extern lv_indev_t * indev_drv;
 extern gsmenu_control_mode_t control_mode;
 
-#define ENTRIES 6
+#define ENTRIES 7
+lv_obj_t * ap_fpv_channel;
 lv_obj_t * txPower;
 lv_obj_t * mcsShift;
 lv_obj_t * temp;
@@ -33,6 +34,15 @@ void create_air_aalink_menu(lv_obj_t * parent) {
     lv_obj_t * cont;
     lv_obj_t * section;
 
+    create_text(parent, NULL, "WLAN Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    section = lv_menu_section_create(parent);
+    lv_obj_add_style(section, &style_openipc_section, 0);
+    cont = lv_menu_cont_create(section);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    ap_fpv_channel = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Channel","","channel",menu_page_data,false);
+
+    create_text(parent, NULL, "AALink Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
@@ -47,6 +57,7 @@ void create_air_aalink_menu(lv_obj_t * parent) {
     
 
     PageEntry entries[] = {
+        { "Loading Channel ...", ap_fpv_channel, reload_dropdown_value },
         { "Loading VTX Power Output ...", txPower, reload_slider_value},
         { "Loading Link resilience (dB) ...", mcsShift, reload_slider_value},
         { "Loading OSD Size ...", osdscale, reload_slider_value},
