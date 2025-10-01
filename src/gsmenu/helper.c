@@ -610,6 +610,7 @@ lv_obj_t * create_textarea(lv_obj_t * parent, char * text, const char * label_tx
 // Recursive function to find the first focusable object
 lv_obj_t * find_first_focusable_obj(lv_obj_t * parent) {
     // Iterate through all children of the parent
+    if (lv_obj_has_flag(parent, LV_OBJ_FLAG_HIDDEN)) return NULL;
     for (int i = 0; i < lv_obj_get_child_cnt(parent); i++) {
         lv_obj_t * child = lv_obj_get_child(parent, i);
 
