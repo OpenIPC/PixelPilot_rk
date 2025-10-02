@@ -50,3 +50,5 @@ void generic_back_event_handler(lv_event_t * e);
 const char* find_resource_file(const char* relative_path);
 
 void gsmenu_toggle_rxmode();
+
+void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, lv_obj_t* obj, ReloadFunc reload_func);

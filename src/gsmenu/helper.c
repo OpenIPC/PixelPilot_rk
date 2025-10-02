@@ -886,3 +886,23 @@ void gsmenu_toggle_rxmode() {
         break;
     }
 }
+
+void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, lv_obj_t* obj, ReloadFunc reload_func) {
+    // Increase entry count
+    menu_page_data->entry_count++;
+    
+    // Reallocate memory for entries
+    PageEntry *new_entries = realloc(menu_page_data->page_entries, 
+                                    sizeof(PageEntry) * menu_page_data->entry_count);
+    
+    if (new_entries) {
+        menu_page_data->page_entries = new_entries;
+        
+        // Add new entry at the end
+        menu_page_data->page_entries[menu_page_data->entry_count - 1] = 
+            (PageEntry){ text, obj, reload_func };
+    } else {
+        // Handle allocation failure
+        menu_page_data->entry_count--; // Revert count on failure
+    }
+}
