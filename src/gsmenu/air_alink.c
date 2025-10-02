@@ -15,7 +15,6 @@ extern lv_obj_t * txprofiles_screen;
 extern lv_group_t * tx_profile_group;
 lv_obj_t * txprofiles;
 
-#define ENTRIES 16
 // # set desired power output (0 pitmode, 4 highest power)(scales with MCS)
 lv_obj_t * power_level_0_to_4;
 // ### if gs heartbeat lost for x ms, set link low (fallback) default 1000
@@ -76,12 +75,13 @@ static void txprofiles_callback(lv_event_t * e)
 
 void create_air_alink_menu(lv_obj_t * parent) {
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "alink");
     menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
@@ -113,25 +113,22 @@ void create_air_alink_menu(lv_obj_t * parent) {
     osd_level = create_dropdown(cont,LV_SYMBOL_SETTINGS, "OSD Details 4 = all on one line. 6 = all on multiple lines","","osd_level",menu_page_data,false);
     multiply_font_size_by = create_slider(cont,LV_SYMBOL_SETTINGS, "Font Size","multiply_font_size_by",menu_page_data,false,1);
 
-    PageEntry entries[] = {
-        { "Loading power_level_0_to_4 ...", power_level_0_to_4, reload_dropdown_value},
-        { "Loading fallback_ms ...", fallback_ms, reload_slider_value},
-        { "Loading hold_fallback_mode_s ...", hold_fallback_mode_s, reload_slider_value},
-        { "Loading min_between_changes_ms ...", min_between_changes_ms, reload_slider_value},
-        { "Loading hold_modes_down_s ...", hold_modes_down_s, reload_slider_value},
-        { "Loading hysteresis_percent ...", hysteresis_percent, reload_slider_value},
-        { "Loading hysteresis_percent_down ...", hysteresis_percent_down, reload_slider_value},
-        { "Loading exp_smoothing_factor ...", exp_smoothing_factor, reload_slider_value},
-        { "Loading exp_smoothing_factor_down ...", exp_smoothing_factor_down, reload_slider_value},
-        { "Loading allow_request_keyframe ...", allow_request_keyframe, reload_switch_value},
-        { "Loading allow_rq_kf_by_tx_d ...", allow_rq_kf_by_tx_d, reload_switch_value},
-        { "Loading check_xtx_period_ms ...", check_xtx_period_ms, reload_slider_value},
-        { "Loading request_keyframe_interval_ms ...", request_keyframe_interval_ms, reload_slider_value},
-        { "Loading idr_every_change ...", idr_every_change, reload_switch_value},
-        { "Loading osd_level ...", osd_level, reload_dropdown_value},
-        { "Loading multiply_font_size_by ...", multiply_font_size_by, reload_slider_value},
-    };
-    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
+    add_entry_to_menu_page(menu_page_data,"Loading power_level_0_to_4 ...", power_level_0_to_4, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading fallback_ms ...", fallback_ms, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading hold_fallback_mode_s ...", hold_fallback_mode_s, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading min_between_changes_ms ...", min_between_changes_ms, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading hold_modes_down_s ...", hold_modes_down_s, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading hysteresis_percent ...", hysteresis_percent, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading hysteresis_percent_down ...", hysteresis_percent_down, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading exp_smoothing_factor ...", exp_smoothing_factor, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading exp_smoothing_factor_down ...", exp_smoothing_factor_down, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading allow_request_keyframe ...", allow_request_keyframe, reload_switch_value);
+    add_entry_to_menu_page(menu_page_data,"Loading allow_rq_kf_by_tx_d ...", allow_rq_kf_by_tx_d, reload_switch_value);
+    add_entry_to_menu_page(menu_page_data,"Loading check_xtx_period_ms ...", check_xtx_period_ms, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading request_keyframe_interval_ms ...", request_keyframe_interval_ms, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading idr_every_change ...", idr_every_change, reload_switch_value);
+    add_entry_to_menu_page(menu_page_data,"Loading osd_level ...", osd_level, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading multiply_font_size_by ...", multiply_font_size_by, reload_slider_value);
 
     lv_group_set_default(default_group);
 }

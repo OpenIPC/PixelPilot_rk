@@ -13,7 +13,6 @@ extern lv_obj_t * menu;
 extern gsmenu_control_mode_t control_mode;
 extern lv_group_t * default_group;
 
-#define ENTRIES 2
 lv_obj_t * ap_fpv_ssid;
 lv_obj_t * ap_fpv_password;
 
@@ -81,12 +80,13 @@ static void kb_event_cb(lv_event_t * e)
 
 void create_apfpv_menu(lv_obj_t * parent) {
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "apfpv");
     menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
@@ -113,11 +113,8 @@ void create_apfpv_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_ALL,kb);
     lv_keyboard_set_textarea(kb, NULL);
 
-    PageEntry entries[] = {
-        { "Loading SSID ...", ap_fpv_ssid, reload_textarea_value },
-        { "Loading Password ...", ap_fpv_password, reload_textarea_value },
-    };
-    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
+    add_entry_to_menu_page(menu_page_data,"Loading SSID ...", ap_fpv_ssid, reload_textarea_value );
+    add_entry_to_menu_page(menu_page_data,"Loading Password ...", ap_fpv_password, reload_textarea_value );
 
     lv_group_set_default(default_group);
 }

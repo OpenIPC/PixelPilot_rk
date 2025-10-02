@@ -11,7 +11,6 @@ extern lv_group_t * default_group;
 extern lv_indev_t * indev_drv;
 extern gsmenu_control_mode_t control_mode;
 
-#define ENTRIES 7
 lv_obj_t * ap_fpv_channel;
 lv_obj_t * txPower;
 lv_obj_t * mcsShift;
@@ -22,12 +21,13 @@ lv_obj_t * mcssource;
 
 void create_air_aalink_menu(lv_obj_t * parent) {
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "aalink");
     menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
@@ -56,16 +56,13 @@ void create_air_aalink_menu(lv_obj_t * parent) {
     mcssource = create_dropdown(cont,LV_SYMBOL_SETTINGS, "LQ Consideration","","MCS_SOURCE",menu_page_data,false);
     
 
-    PageEntry entries[] = {
-        { "Loading Channel ...", ap_fpv_channel, reload_dropdown_value },
-        { "Loading VTX Power Output ...", txPower, reload_slider_value},
-        { "Loading Link resilience (dB) ...", mcsShift, reload_slider_value},
-        { "Loading OSD Size ...", osdscale, reload_slider_value},
-        { "Loading Maximum Throughput ...", throughput, reload_slider_value},
-        { "Loading Temp Throttle Threshold (°C)", temp, reload_slider_value},
-        { "Loading LQ Consideration ...", mcssource, reload_dropdown_value},
-    };
-    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
+    add_entry_to_menu_page(menu_page_data,"Loading Channel ...", ap_fpv_channel, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading VTX Power Output ...", txPower, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading Link resilience (dB) ...", mcsShift, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading OSD Size ...", osdscale, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading Maximum Throughput ...", throughput, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading Temp Throttle Threshold (°C)", temp, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading LQ Consideration ...", mcssource, reload_dropdown_value);
 
     lv_group_set_default(default_group);
 }

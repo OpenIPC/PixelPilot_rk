@@ -9,7 +9,6 @@
 
 extern lv_group_t * default_group;
 
-#define ENTRIES 1
 lv_obj_t * preset;
 lv_obj_t * apply;
 lv_obj_t * update;
@@ -56,12 +55,13 @@ void air_presets_page_load_callback(lv_obj_t *page) {
 
 void create_air_presets_menu(lv_obj_t * parent) {
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "presets");
     menu_page_data->page_load_callback = air_presets_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
