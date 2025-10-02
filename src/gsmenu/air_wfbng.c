@@ -10,7 +10,6 @@
 
 extern lv_group_t * default_group;
 
-#define ENTRIES 10
 lv_obj_t * driver_txpower_override;
 lv_obj_t * air_channel;
 lv_obj_t * air_bandwidth;
@@ -24,12 +23,13 @@ lv_obj_t * air_adaptivelink;
 
 void create_air_wfbng_menu(lv_obj_t * parent) {
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "wfbng");
     menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);    
 
@@ -57,19 +57,16 @@ void create_air_wfbng_menu(lv_obj_t * parent) {
 
     air_adaptivelink = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","adaptivelink", menu_page_data,false);
 
-    PageEntry entries[] = {
-        { "Loading driver_txpower_override ...", driver_txpower_override, reload_dropdown_value },
-        { "Loading air_channel ...", air_channel, reload_dropdown_value },
-        { "Loading air_bandwidth ...", air_bandwidth, reload_dropdown_value },
-        { "Loading mcs_index ...", mcs_index, reload_slider_value },
-        { "Loading stbc ...", stbc, reload_switch_value },
-        { "Loading ldpc ...", ldpc, reload_switch_value },
-        { "Loading fec_k ...", fec_k, reload_slider_value },
-        { "Loading fec_n ...", fec_n, reload_slider_value },
-        { "Loading mlink ...", mlink, reload_dropdown_value },
-        { "Loading air_adaptivelink ...", air_adaptivelink, reload_switch_value },
-    };
-    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
-
+    add_entry_to_menu_page(menu_page_data,"Loading driver_txpower_override ...", driver_txpower_override, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading air_channel ...", air_channel, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading air_bandwidth ...", air_bandwidth, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading mcs_index ...", mcs_index, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading stbc ...", stbc, reload_switch_value);
+    add_entry_to_menu_page(menu_page_data,"Loading ldpc ...", ldpc, reload_switch_value);
+    add_entry_to_menu_page(menu_page_data,"Loading fec_k ...", fec_k, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading fec_n ...", fec_n, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading mlink ...", mlink, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading air_adaptivelink ...", air_adaptivelink, reload_switch_value);
+ 
     lv_group_set_default(default_group);
 }

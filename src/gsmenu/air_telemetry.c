@@ -25,7 +25,8 @@ void create_air_telemetry_menu(lv_obj_t * parent) {
     strcpy(menu_page_data->page, "telemetry");
     menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
@@ -47,13 +48,10 @@ void create_air_telemetry_menu(lv_obj_t * parent) {
     osd_fps = create_slider(cont,LV_SYMBOL_SETTINGS,"OSD FPS","osd_fps",menu_page_data,false,0);
     air_gs_rendering = create_switch(cont,LV_SYMBOL_SETTINGS,"GS Rendering","gs_rendering", menu_page_data,false);
 
-    PageEntry entries[] = {
-        { "Loading serial ...", serial, reload_dropdown_value },
-        { "Loading router ...", router, reload_dropdown_value },
-        { "Loading osd_fps ...", osd_fps, reload_slider_value },
-        { "Loading air_gs_rendering ...", air_gs_rendering, reload_switch_value },
-    };
-    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
+    add_entry_to_menu_page(menu_page_data,"Loading serial ...", serial, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading router ...", router, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data,"Loading osd_fps ...", osd_fps, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading air_gs_rendering ...", air_gs_rendering, reload_switch_value);
 
     lv_group_set_default(default_group);
 }
