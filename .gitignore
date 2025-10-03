@@ -55,7 +55,6 @@ dkms.conf
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
-Makefile
 pixelpilot_config.h
 
 .vscode/
