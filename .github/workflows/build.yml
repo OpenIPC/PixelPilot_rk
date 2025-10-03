@@ -19,21 +19,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build
+      - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user-static
 
-          # https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-arm64.tar.xz
-          # https://github.com/OpenIPC/sbc-groundstations/releases/download/zero3w-v1.7.0/radxaZero3wrev2.img.xz
+      - name: Build
+        run: make qemu_build
 
-          make qemu_build
+      - name: Build deb package
+        run: make qemu_build_deb
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           path: |
               pixelpilot
+              pixelpilot-rk_*_arm64.deb
+              pixelpilot-rk-dbgsym_*_arm64.deb
               config_osd.json
               pixelpilot.yaml
               gsmenu.sh
@@ -44,6 +47,8 @@ jobs:
         with:
           files: |
             pixelpilot
+            pixelpilot-rk_*_arm64.deb
+            pixelpilot-rk-dbgsym_*_arm64.deb
             config_osd.json
             pixelpilot.yaml
             gsmenu.sh
