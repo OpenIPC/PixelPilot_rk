@@ -549,6 +549,43 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
     return obj;
 }
 
+
+lv_obj_t * create_checkbox(lv_obj_t * parent, const char * icon, const char * label_txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking)
+{
+
+    lv_obj_t * obj = lv_menu_cont_create(parent);
+
+    lv_obj_t * img = NULL;
+
+    if(icon) {
+        img = lv_image_create(obj);
+        lv_image_set_src(img, icon);
+    }    
+
+    lv_obj_t * cb;
+    cb = lv_checkbox_create(obj);
+    lv_checkbox_set_text(cb, label_txt);
+
+    lv_obj_add_style(cb, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_border_color(cb, lv_color_hex(0xff4c60d8), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(cb, lv_color_hex(0xff4c60d8), LV_PART_INDICATOR | LV_STATE_CHECKED);
+
+    thread_data_t* data = malloc(sizeof(thread_data_t));
+    if (data) {
+        memset(data, 0, sizeof(thread_data_t));
+    }
+    data->menu_page_data = menu_page_data;
+    data->blocking = blocking;
+    strcpy(data->parameter, parameter);
+
+    lv_obj_set_user_data(cb,data);
+
+    lv_obj_add_event_cb(cb, generic_checkbox_event_cb, LV_EVENT_VALUE_CHANGED,data);
+    lv_obj_add_event_cb(cb, generic_back_event_handler, LV_EVENT_KEY,NULL);
+
+    return obj;
+}
+
 lv_obj_t * create_backbutton(lv_obj_t * parent, const char * icon, const char * label_txt)
 {
 
@@ -704,6 +741,17 @@ void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
         char * value = get_paramater(page, param_user_data->parameter);
         lv_lock();
         lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
+        lv_unlock();
+    }
+}
+
+void reload_checkbox_value(lv_obj_t * page,lv_obj_t * parameter) {
+    lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_checkbox_class);
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
+        thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
+        bool value = atoi(get_paramater(page,param_user_data->parameter));
+        lv_lock();
+        lv_obj_set_state(obj,LV_STATE_CHECKED,value);
         lv_unlock();
     }
 }
