@@ -599,6 +599,12 @@ case "$@" in
     "get gs apfpv password")
         nmcli -t connection show apfpv0 --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2
         ;;
+    "get gs apfpv wlx"*)
+        grep -q autoconnect=false $(grep -l $4 /etc/NetworkManager/system-connections/apfpv*.nmconnection) && echo 0 || echo 1
+        ;;
+    "get gs apfpv status wlx"*)
+        nmcli -t device status | grep $5 | grep -q :connected: && echo Connected || echo Disconnected
+        ;;
     "set gs apfpv ssid"*)
         if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
             $SSH 'fw_setenv wlanssid "'$5'"'
@@ -610,7 +616,10 @@ case "$@" in
             CONN_NAME="apfpv$INDEX"
             if nmcli connection show "$CONN_NAME" &>/dev/null; then
                 nmcli connection modify "$CONN_NAME" ssid "$5"
-                nmcli -w 15 connection up "$CONN_NAME"
+                if [ $($0 get gs apfpv $IFACE) = 1 ]
+                then
+                    nmcli -w 0 connection up "$CONN_NAME"
+                fi
             fi
             INDEX=$((INDEX + 1))
         done
@@ -626,12 +635,35 @@ case "$@" in
             CONN_NAME="apfpv$INDEX"
             if nmcli connection show "$CONN_NAME" &>/dev/null; then
                 nmcli connection modify "$CONN_NAME" wifi-sec.psk "$5"
-                nmcli -w 15 connection up "$CONN_NAME"
+                if [ $($0 get gs apfpv $IFACE) = 1 ]
+                then
+                    nmcli -w 0 connection up "$CONN_NAME"
+                fi
             fi
             INDEX=$((INDEX + 1))
         done
         ;;
 
+    "set gs apfpv wlx"*)
+        conn=$(basename -s .nmconnection $(grep -l $4 /etc/NetworkManager/system-connections/apfpv*.nmconnection))
+        if [ $5 = "on" ]
+        then
+            nmcli connection modify "$conn" connection.autoconnect yes
+            nmcli connection up "$conn"
+        else
+            nmcli connection modify "$conn" connection.autoconnect no
+            nmcli connection down "$conn"
+        fi
+        ;;
+    "set gs apfpv reset")
+            CONNECTIONS=$(nmcli -t c show  | grep ^apfpv | cut -d : -f1)
+            for CONN_NAME in $CONNECTIONS; do
+                if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                    nmcli connection down "$CONN_NAME"
+                    nmcli connection delete "$CONN_NAME"
+                fi
+            done
+        ;;
     "get air alink"*)
         get_alink_value $4
         ;;
@@ -694,11 +726,7 @@ case "$@" in
         ;;
 
     "get gs system rx_mode")
-        if nmcli connection show apfpv0 &>/dev/null; then
-            nmcli -t connection show apfpv0 | grep connection.autoconnect: | grep -q yes && echo "apfpv" || echo "wfb"
-        else
-          echo wfb
-        fi
+        systemctl is-enabled --quiet wifibroadcast && echo wfb || echo apfpv
     ;;
     "get gs system gs_rendering")
         [ "$(grep ^render /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
@@ -721,6 +749,10 @@ case "$@" in
                 systemctl disable wifibroadcast.service
                 systemctl disable wifibroadcast@gs.service
                 systemctl disable alink_gs.service
+                rmmod 8812eu
+                rmmod 88XXau_wfb
+                modprobe 8812eu
+                modprobe 88XXau_wfb
                 # list every wifi interface wlx or wlan expect wlan0
                 WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
                 INDEX=0
@@ -728,20 +760,19 @@ case "$@" in
                     nmcli device set $IFACE managed yes
                     CONN_NAME="apfpv$INDEX"
                     if nmcli connection show "$CONN_NAME" &>/dev/null; then
-                        nmcli connection modify "$CONN_NAME" connection.autoconnect yes
+                        nmcli connection modify "$CONN_NAME" connection.autoconnect $([ "$INDEX" -eq 0 ] && echo "yes" || echo "no")
                     else
                         nmcli device wifi rescan ifname "$IFACE"
                         sleep 2
                         nmcli connection add type wifi ifname "$IFACE" con-name "$CONN_NAME" ssid "$SSID" \
                             wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PASSWORD" \
-                            ipv4.method auto connection.autoconnect yes
+                            ipv4.method auto connection.autoconnect $([ "$INDEX" -eq 0 ] && echo "yes" || echo "no")
                     fi
                     nmcli connection modify "$CONN_NAME" ipv4.route-metric $((100 * (INDEX + 1)))
-                    nmcli -w 15 connection up "$CONN_NAME"
-
                     INDEX=$((INDEX + 1))
                 done
                 ln -s /usr/local/bin/gsmenu.sh /etc/NetworkManager/dispatcher.d/
+                nmcli -w 0 connection up apfpv0
         elif [ "$5" = "wfb" ]
         then
             rm /etc/NetworkManager/dispatcher.d/gsmenu.sh
@@ -755,6 +786,10 @@ case "$@" in
                 fi
                 INDEX=$((INDEX + 1))
             done
+            rmmod 8812eu
+            rmmod 88XXau_wfb
+            modprobe 8812eu
+            modprobe 88XXau_wfb
             systemctl start wifibroadcast.service
             systemctl start wifibroadcast@gs.service
             systemctl start alink_gs.service
