@@ -196,6 +196,7 @@ lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, c
         lv_label_set_text(label, txt);
         // lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
         lv_obj_set_flex_grow(label, 1);
+        lv_obj_set_user_data(obj,(void *)txt); // ugly but where else to store
     }
 
     if(builder_variant == LV_MENU_ITEM_BUILDER_VARIANT_2 && icon && txt) {
@@ -714,10 +715,13 @@ void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
     
     // Get the parameter value
     const char *param_value = get_paramater(page, param_user_data->parameter);
+
+    // Original label
+    const char *org_txt = (const char*)lv_obj_get_user_data(parameter);
     
     // Create the combined string
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "%s: %s", param_user_data->parameter, param_value);
+    snprintf(buffer, sizeof(buffer), "%s: %s", org_txt, param_value);
     
     // Set the label text
     lv_label_set_text(obj, buffer);
