@@ -946,11 +946,55 @@ void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, 
     if (new_entries) {
         menu_page_data->page_entries = new_entries;
         
-        // Add new entry at the end
+        // Add new entry at the end with string copy
         menu_page_data->page_entries[menu_page_data->entry_count - 1] = 
-            (PageEntry){ text, obj, reload_func };
+            (PageEntry){ strdup(text), obj, reload_func };
     } else {
         // Handle allocation failure
         menu_page_data->entry_count--; // Revert count on failure
+    }
+}
+
+void delete_menu_page_entry_by_obj(menu_page_data_t *menu_page_data, lv_obj_t* obj) {
+    if (!menu_page_data || !menu_page_data->page_entries || menu_page_data->entry_count == 0) {
+        return;
+    }
+    
+    // Find the index of the entry with matching object
+    int found_index = -1;
+    for (size_t i = 0; i < menu_page_data->entry_count; i++) {
+        if (menu_page_data->page_entries[i].target == obj) {
+            found_index = i;
+            break;
+        }
+    }
+    
+    if (found_index == -1) {
+        return;
+    }
+    
+    // Free the duplicated string
+    if (menu_page_data->page_entries[found_index].caption) {
+        free((void*)menu_page_data->page_entries[found_index].caption);
+    }
+    
+    // Shift entries
+    for (size_t i = found_index; i < menu_page_data->entry_count - 1; i++) {
+        menu_page_data->page_entries[i] = menu_page_data->page_entries[i + 1];
+    }
+    
+    menu_page_data->entry_count--;
+    
+    // Only reallocate if we have entries left
+    if (menu_page_data->entry_count > 0) {
+        PageEntry *new_entries = realloc(menu_page_data->page_entries, 
+                                        sizeof(PageEntry) * menu_page_data->entry_count);
+        // If realloc succeeds, use the new pointer. If it fails, keep the old one.
+        if (new_entries) {
+            menu_page_data->page_entries = new_entries;
+        }
+    } else {
+        free(menu_page_data->page_entries);
+        menu_page_data->page_entries = NULL;
     }
 }
