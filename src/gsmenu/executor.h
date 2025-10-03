@@ -25,5 +25,6 @@ typedef struct {
 char* run_command(const char* command);
 void run_command_and_block(lv_event_t* e,const char * command, callback_fn callback);
 void generic_switch_event_cb(lv_event_t * e);
+void generic_checkbox_event_cb(lv_event_t * e);
 void generic_dropdown_event_cb(lv_event_t * e);
 void generic_slider_event_cb(lv_event_t * e);
