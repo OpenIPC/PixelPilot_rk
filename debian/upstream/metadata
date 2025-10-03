@@ -1,0 +1,6 @@
+# See https://wiki.debian.org/UpstreamMetadata for more info/fields.
+
+Bug-Database: https://github.com/OpenIPC/PixelPilot_rk/issues
+Bug-Submit: https://github.com/OpenIPC/PixelPilot_rk/issues/new
+Repository-Browse: https://github.com/OpenIPC/PixelPilot_rk
+Repository: https://github.com/OpenIPC/PixelPilot_rk.git

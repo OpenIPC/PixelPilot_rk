@@ -1,6 +1,6 @@
 {
     "format": "0.0.1",
-    "assets_dir": "/usr/local/share/pixelpilot/",
+    "assets_dir": "/usr/share/pixelpilot/",
     "widgets": [
         {
             "type": "IconSelectorWidget",

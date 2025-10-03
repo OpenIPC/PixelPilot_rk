@@ -1,0 +1,16 @@
+[Unit]
+Description="OpenIPC Pixelpilot Server"
+StartLimitInterval=10s
+StartLimitBurst=2
+Requires=wifibroadcast.service
+After=wifibroadcast.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/pixelpilot
+ExecStart=/usr/bin/pixelpilot --osd --osd-custom-message --osd-config $OSD_PATH --screen-mode $SCREEN_MODE --dvr-framerate $DVR_FPS --dvr-fmp4 --dvr-sequenced-files --dvr-template $DVR_PATH/$DVR_TEMPLATE --config $CONFIG $EXTRA_OPTS
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

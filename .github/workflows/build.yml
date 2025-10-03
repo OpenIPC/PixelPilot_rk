@@ -27,57 +27,7 @@ jobs:
           # https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-arm64.tar.xz
           # https://github.com/OpenIPC/sbc-groundstations/releases/download/zero3w-v1.7.0/radxaZero3wrev2.img.xz
 
-          host=https://cloud.debian.org/images/cloud/bullseye
-          release=latest
-          system=debian-11-generic-arm64.tar
-          
-          wget -nv ${host}/${release}/${system}.xz
-          # unxz -T4 ${system}.xz
-          tar -xf ${system}.xz
-
-          output=output
-          mkdir -p $output
-          # device=$(sudo losetup -P --show -f ${system})
-          # sudo mount ${device}p3 $output
-
-          device=$(sudo losetup -P --show -f disk.raw)
-          sudo mount ${device}p1 $output
-          sudo mkdir -p $output/usr/src/PixelPilot_rk
-          sudo mount -o bind $PWD $output/usr/src/PixelPilot_rk
-
-          cat > $output/usr/src/PixelPilot_rk/build.sh << EOL
-          #!/bin/bash
-          cd /usr/src/PixelPilot_rk
-          # install radxa APT repo, see https://radxa-repo.github.io/bullseye/
-          keyring="/usr/src/PixelPilot_rk/keyring.deb"
-          version="\$(curl -L https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/VERSION)"
-          curl -L --output "\$keyring" "https://github.com/radxa-pkg/radxa-archive-keyring/releases/download/\${version}/radxa-archive-keyring_\${version}_all.deb"
-          dpkg -i \$keyring
-          tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye/ bullseye main"
-          tee /etc/apt/sources.list.d/80-rockchip.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye rockchip-bullseye main"
-
-          rm -r /boot/* #save space
-          apt-get update
-          apt clean
-          apt-get install -y cmake g++ git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
-          apt clean
-
-          cmake -B build
-          cmake --build build -j4 --target install
-          EOL
-
-          cat > $output/usr/src/PixelPilot_rk/run.sh <<EOL
-          #!/bin/bash
-          LD_LIBRARY_PATH=/usr/local/lib/ /usr/local/bin/pixelpilot \$@
-          EOL
-
-          chmod 755 build.sh run.sh
-          sudo cp -r build.sh run.sh CMakeLists.txt pixelpilot_config.h.in src lvgl lv_conf.h $output/home
-          sudo rm $output/etc/resolv.conf
-          echo nameserver 1.1.1.1 | sudo tee -a $output/etc/resolv.conf
-          sudo chroot $output /usr/src/PixelPilot_rk/build.sh
-          sudo chroot $output /usr/src/PixelPilot_rk/run.sh --version
-          sudo cp $output/usr/src/PixelPilot_rk/build/pixelpilot .
+          make qemu_build
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
