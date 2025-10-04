@@ -13,11 +13,47 @@ This project is based on a unique frozen development [FPVue_rk](https://github.c
 
 Tested on RK3566 (Radxa Zero 3W) and RK3588s (Orange Pi 5).
 
-## Compilation
+## Installation
+
+It can be installed as a binary DEB package or built from source.
+
+### DEB package
+
+Currently we have packages for Debian Bookworm (12).
+First you need to add a repository that contains `wfb-ng` dependency
+
+```
+curl -s https://apt.wfb-ng.org/public.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/wfb-ng.gpg
+echo "deb [signed-by=/usr/share/keyrings/wfb-ng.gpg] https://apt.wfb-ng.org/ $(lsb_release -cs) master" | sudo tee /etc/apt/sources.list.d/wfb-ng.list
+sudo apt update
+```
+Also make sure Radxa's repositories are enabled
+
+```
+$ ls /etc/apt/sources.list.d/*radxa*.list
+/etc/apt/sources.list.d/70-radxa.list  /etc/apt/sources.list.d/80-radxa-rk3566.list
+$ cat /etc/apt/sources.list.d/*radxa*.list
+deb [signed-by="/usr/share/keyrings/radxa-archive-keyring.gpg"] https://radxa-repo.github.io/bookworm bookworm main
+deb [signed-by="/usr/share/keyrings/radxa-archive-keyring.gpg"] https://radxa-repo.github.io/rk3566-bookworm rk3566-bookworm main
+```
+
+Then download the latest `.deb` package from "releases" section on Github and install it:
+
+```
+sudo apt install ./pixelpilot-rk_*_arm64.deb
+```
+
+Configuration files are:
+
+* `/etc/pixelpilot/pixelpilot.yaml` - GPIO settings etc
+* `/etc/pixelpilot/osd_config.json` - OSD configuration
+* `/etc/default/pixelpilot` - systemd overrides / command line parameters
+
+### Build from source
 
 Build on the Rockchip linux system directly.
 
-## Install dependencies
+#### Install dependencies
 
 - drm, cairo, mpp, logging, json, msgpack, gpiod, yaml-cpp
 
@@ -31,7 +67,7 @@ sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohm
 sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev
 ```
 
-## Build Instructions
+#### Build Instructions
 
 Build and run application in production environment:
 
@@ -63,6 +99,27 @@ Build and run gsmenu SDL simulator locally
 Simulator has w,a,s,d,Enter input.
 Press t to toggle drone detection.
 
+### Build from source for arm64
+
+To build it on a non-ARM host machine, it is possible to build with QEMU emulator.
+
+```
+sudo apt-get install qemu-user-static
+```
+and then either build the binary:
+
+```
+make qemu_build
+ls -l pixelpilot
+```
+
+or build .deb package:
+
+```
+make qemu_build_deb
+ls -l pixelpilot-rk_*.deb
+```
+
 ## Usage
 
 Show command line options:
@@ -73,7 +130,7 @@ pixelpilot --help
 ### OSD config
 
 OSD is set-up declaratively in `/etc/pixelpilot/config_osd.json` file (or whatever is set via `--osd-config`
-command line key.
+command line key).
 
 OSD is described as an array of widgets which may subscribe to fact updates (they receive each fact
 update they subscribe to) and those widgets are periodically rendered on the screen (in the order they
@@ -285,7 +342,8 @@ Pixelpilot starts several threads:
 
 ## Release
 
-* update project version in `CMakeList.txt`, `project(pixelpilot, VERSION <X.Y.Z>)`, commit
+* update project version in `CMakeList.txt`: `project(pixelpilot, VERSION <X.Y.Z>)`, in
+  `Makefile`: `DEB_VERSION`, and update `debian/changelog` (with `dch -v <X.Y.Z>`). Commit
 * push that commit to master (either directly or with PR)
 * tag the tip of the master branch with the same `<X.Y.Z>` version
-* run `git push --tags`; it will publish a new GitHub release
+* run `git push --tags`; it will trigger a build job that would publish a new GitHub release
