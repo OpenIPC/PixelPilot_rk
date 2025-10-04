@@ -25,7 +25,9 @@ jobs:
           sudo apt-get install -y qemu-user-static
 
       - name: Build
-        run: make qemu_build
+        run: |
+          make qemu_build
+          rm -f disk.raw  # for some reason reusing the disc causes `pgpconf` to hang
 
       - name: Build deb package
         run: make qemu_build_deb
