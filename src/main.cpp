@@ -453,6 +453,38 @@ void resume_playback() {
         receiver->resume();
 }
 
+void check_custom_msg() {
+	char custom_msg[80];
+	//check custom message
+	if (osd_custom_message) {
+		std::string filename = "/run/pixelpilot.msg";
+		FILE *file = fopen(filename.c_str(), "r");
+		osd_tag tags[1];
+		if (file != NULL) {
+
+			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
+				perror("Error reading from file");
+				fclose(file);
+			}
+			fclose(file);
+			if (unlink(filename.c_str()) != 0) {
+				perror("Error deleting the file");
+			}
+			// Ensure null termination at the 80th position to prevent overflow
+			custom_msg[79] = '\0';
+
+			// Find the first newline character, if it exists
+			char *newline_pos = strchr(custom_msg, '\n');
+			if (newline_pos != NULL) {
+				*newline_pos = '\0';  // Null-terminate at the newline
+			}
+            strcpy(tags[0].key, "file");
+            strcpy(tags[0].val, filename.c_str());
+			osd_publish_str_fact("osd.custom_message", tags, 1, custom_msg);
+		}
+	}
+}
+
 uint64_t first_frame_ms=0;
 void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *sock ,const VideoCodec& codec){
 	if (sock) {
@@ -479,7 +511,10 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
     };
     receiver->start_receiving(cb);
 	bool flag = true;
-    while (!signal_flag){
+    while (!signal_flag) {
+      // TODO: put gsmenu main loop here
+      // TODO: put "/run/pixelpilot.msg" reader here, use mkfifo(3)
+		check_custom_msg();
         sleep(10);
     }
     receiver->stop_receiving();

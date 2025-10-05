@@ -45,8 +45,6 @@ uint32_t stats_rx_bytes = 0;
 struct timespec last_timestamp = {0, 0};
 float rx_rate = 0;
 int hours = 0, minutes = 0, seconds = 0, milliseconds = 0;
-char custom_msg[80];
-u_int custom_msg_refresh_count = 0;
 extern pthread_mutex_t video_mutex;
 extern pthread_cond_t video_cond;
 bool osd_update_ready = false;
@@ -1356,37 +1354,6 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	cairo_surface_t *surface;
 	char msg[80];
 	memset(msg, 0x00, sizeof(msg));
-
-	//check custom message
-	//TODO: move this code to the main thread's main loop (read_gstreamerpipe_stream, sleep(10))
-	if (osd_custom_message) {
-		std::string filename = "/run/pixelpilot.msg";
-		FILE *file = fopen(filename.c_str(), "r");
-		osd_tag tag;
-		if (file != NULL) {
-
-			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
-				perror("Error reading from file");
-				fclose(file);
-			}
-			fclose(file);
-			if (unlink(filename.c_str()) != 0) {
-				perror("Error deleting the file");
-			}
-			// Ensure null termination at the 80th position to prevent overflow
-			custom_msg[79] = '\0';
-
-			// Find the first newline character, if it exists
-			char *newline_pos = strchr(custom_msg, '\n');
-			if (newline_pos != NULL) {
-				*newline_pos = '\0';  // Null-terminate at the newline
-			}
-			FactTags fact_tags = { {"file", filename} };
-			osd->setFact(Fact(FactMeta("osd.custom_message", fact_tags), std::string(custom_msg)));
-			//osd_publish_str_fact("osd.custom_message", &tag, 1, std::string(custom_msg))
-			custom_msg_refresh_count = 1;
-		}
-	}
 
 	int osd_x = buf->width - 300;
 	surface = cairo_image_surface_create_for_data(buf->map, CAIRO_FORMAT_ARGB32, buf->width, buf->height, buf->stride);
