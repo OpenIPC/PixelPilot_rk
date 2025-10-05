@@ -62,7 +62,6 @@ extern "C" {
 #define CODEC_ALIGN(x, a)   (((x)+(a)-1)&~((a)-1))
 
 #define DEFAULT_CONFIG_PATH "/etc/pixelpilot.yaml"
-const char * config_file_path;
 YAML::Node config;
 
 struct {
@@ -650,6 +649,7 @@ int main(int argc, char **argv)
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
+	char * config_file_path;
 	std::string osd_config_path;
 	auto log_level = spdlog::level::info;
 	
@@ -657,38 +657,6 @@ int main(int argc, char **argv)
     std::ofstream pidFile(pidFilePath);
     pidFile << getpid();
     pidFile.close();
-
-	// Load yaml config
-    try {
-
-		// First just check for --config argument
-		for (int i = 1; i < argc; i++) {
-			if (!strcmp(argv[i], "--config") && i+1 < argc) {
-				config_file_path = strdup(argv[i+1]);
-				break;
-			}
-		}
-
-		// Set default config path if none specified
-		if (config_file_path == NULL) {
-			config_file_path = strdup(DEFAULT_CONFIG_PATH);
-		}
-        config = YAML::LoadFile(config_file_path);
-
-		// GSMENU settings
-		if (config["gsmenu"]) {
-            if (config["gsmenu"]["enabled"]) {
-                gsmenu_enabled = config["gsmenu"]["enabled"].as<bool>();
-            }
-        }
-
-	} catch (const YAML::BadFile& e) {
-		std::cout << "Configuration file " << config_file_path << " not found." << std::endl;
-	} catch (const YAML::ParserException& e) {
-		std::cerr << "Error parsing configuration: " << e.what() << std::endl;
-	} catch (const YAML::Exception& e) {
-		std::cerr << "Configuration error: " << e.what() << std::endl;
-	}
 
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
@@ -705,7 +673,7 @@ int main(int argc, char **argv)
 
 	__OnArgument("--config") {
 		// Already handled above, just skip
-		const char* dummy = __ArgValue;  // Skip the filename
+		config_file_path = const_cast<char*>(__ArgValue);
 		continue;
 	}	
 
@@ -858,6 +826,30 @@ int main(int argc, char **argv)
 
 	printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 
+	// Load yaml config
+	try {
+
+		// Set default config path if none specified
+		if (config_file_path == NULL) {
+			config_file_path = strdup(DEFAULT_CONFIG_PATH);
+		}
+        config = YAML::LoadFile(config_file_path);
+
+		// GSMENU settings
+		if (config["gsmenu"]) {
+            if (config["gsmenu"]["enabled"]) {
+                gsmenu_enabled = config["gsmenu"]["enabled"].as<bool>();
+            }
+        }
+
+	} catch (const YAML::BadFile& e) {
+		std::cout << "Configuration file " << config_file_path << " not found." << std::endl;
+	} catch (const YAML::ParserException& e) {
+		std::cerr << "Error parsing configuration: " << e.what() << std::endl;
+	} catch (const YAML::Exception& e) {
+		std::cerr << "Configuration error: " << e.what() << std::endl;
+	}
+
 	spdlog::info("disable_vsync: {}", disable_vsync);
 
 	if (enable_osd == 0 ) {
@@ -999,10 +991,12 @@ int main(int argc, char **argv)
 	if (mavlink_thread) {
 		ret = pthread_join(tid_mavlink, NULL);
 		assert(!ret);
-	}
+        }
 	if (enable_osd) {
-		ret = pthread_join(tid_wfbcli, NULL);
-		assert(!ret);
+		if (wfb_port) {
+			ret = pthread_join(tid_wfbcli, NULL);
+			assert(!ret);
+		}
 		ret = pthread_join(tid_osd, NULL);
 		assert(!ret);
 	}
