@@ -64,6 +64,8 @@ extern "C" {
 #define DEFAULT_CONFIG_PATH "/etc/pixelpilot.yaml"
 YAML::Node config;
 
+#define MSG_FIFO_NAME "/run/pixelpilot.msg"
+
 struct {
 	MppCtx		  ctx;
 	MppApi		  *mpi;
@@ -452,36 +454,54 @@ void resume_playback() {
         receiver->resume();
 }
 
-void check_custom_msg() {
-	char custom_msg[80];
-	//check custom message
-	if (osd_custom_message) {
-		std::string filename = "/run/pixelpilot.msg";
-		FILE *file = fopen(filename.c_str(), "r");
-		osd_tag tags[1];
-		if (file != NULL) {
-
-			if (fgets(custom_msg, sizeof(custom_msg), file) == NULL) {
-				perror("Error reading from file");
-				fclose(file);
-			}
-			fclose(file);
-			if (unlink(filename.c_str()) != 0) {
-				perror("Error deleting the file");
-			}
-			// Ensure null termination at the 80th position to prevent overflow
-			custom_msg[79] = '\0';
-
-			// Find the first newline character, if it exists
-			char *newline_pos = strchr(custom_msg, '\n');
-			if (newline_pos != NULL) {
-				*newline_pos = '\0';  // Null-terminate at the newline
-			}
+void check_custom_msg(int fd) {
+    //check custom message
+    if (osd_custom_message) {
+        // fd is non-blocking
+        char custom_msg[120];
+        osd_tag tags[1];
+        ssize_t bytes_read = read(fd, custom_msg, sizeof(custom_msg) - 1);
+        if (bytes_read > 0) {
+            // If the last char is `\n`, then drop it
+            if (bytes_read > 1 && custom_msg[bytes_read - 1] == '\n') {
+                custom_msg[bytes_read - 1] = '\0';
+            } else {
+                custom_msg[bytes_read] = '\0';
+            }
             strcpy(tags[0].key, "file");
-            strcpy(tags[0].val, filename.c_str());
-			osd_publish_str_fact("osd.custom_message", tags, 1, custom_msg);
-		}
-	}
+            strcpy(tags[0].val, MSG_FIFO_NAME);
+            osd_publish_str_fact("osd.custom_message", tags, 1, custom_msg);
+        }
+    }
+}
+
+void main_loop() {
+    // Step 1: Create the named pipe
+    if (mkfifo(MSG_FIFO_NAME, 0622) == -1) {
+        spdlog::error("Failed to create FIFO {}: {}", MSG_FIFO_NAME,  strerror(errno));
+        return;
+    }
+    // Step 2: Change the permissions to allow read/write for all users
+    if (chmod(MSG_FIFO_NAME, 0622) == -1) {
+        spdlog::error("Failed to change permissions {}: {}",MSG_FIFO_NAME, strerror(errno));
+        return;
+    }
+    // Step 2: Open the pipe for reading
+    int fd = open(MSG_FIFO_NAME, O_RDONLY | O_NONBLOCK);
+    if (fd == -1) {
+        spdlog::error("Failed to open FIFO {}: {}", MSG_FIFO_NAME, strerror(errno));
+        return;
+    }
+
+    while (!signal_flag) {
+        // TODO: put gsmenu main loop here
+        check_custom_msg(fd);
+        sleep(1);
+    }
+    // Close and unlink the FIFO
+    close(fd);
+    unlink(MSG_FIFO_NAME);
+    return;
 }
 
 uint64_t first_frame_ms=0;
@@ -509,13 +529,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         }
     };
     receiver->start_receiving(cb);
-	bool flag = true;
-    while (!signal_flag) {
-      // TODO: put gsmenu main loop here
-      // TODO: put "/run/pixelpilot.msg" reader here, use mkfifo(3)
-		check_custom_msg();
-        sleep(10);
-    }
+    main_loop();
     receiver->stop_receiving();
     spdlog::info("Feeding eos");
     mpp_packet_set_eos(packet);
@@ -526,6 +540,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         usleep(10000);
     }
 };
+
 
 void set_control_verbose(MppApi * mpi,  MppCtx ctx,MpiCmd control,RK_U32 enable){
     RK_U32 res = mpi->control(ctx, control, &enable);
