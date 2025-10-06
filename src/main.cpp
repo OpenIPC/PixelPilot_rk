@@ -701,7 +701,7 @@ int main(int argc, char **argv)
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
-	char * config_file_path;
+	char * config_file_path = NULL;
 	std::string osd_config_path;
 	auto log_level = spdlog::level::info;
 	
