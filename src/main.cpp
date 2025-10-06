@@ -454,9 +454,48 @@ void resume_playback() {
         receiver->resume();
 }
 
-void check_custom_msg(int fd) {
-    //check custom message
-    if (osd_custom_message) {
+class CustomMsgManager {
+public:
+    CustomMsgManager(const char* fifoName, bool enabled) : fifoName(fifoName), fd(-1), enabled(enabled) {}
+
+    int open_fifo() {
+        if (!enabled) {
+            return 0;
+        }
+        // Kill FIFO if already exists
+        if (access(fifoName, F_OK) == 0) {
+            unlink(fifoName);
+        }
+
+        if (mkfifo(fifoName, 0622) == -1) {
+            spdlog::error("Failed to create FIFO {}: {}", fifoName,  strerror(errno));
+            return -1;
+        }
+
+        // Change permissions to allow write for everyone
+        if (chmod(fifoName, 0622) == -1) {
+            spdlog::error("Failed to change permissions {}: {}", fifoName, strerror(errno));
+            return -2;
+        }
+
+        // Open the FIFO for reading
+        fd = open(fifoName, O_RDONLY | O_NONBLOCK);
+        if (fd == -1) {
+            spdlog::error("Failed to open FIFO {}: {}", fifoName, strerror(errno));
+            return -3;
+        }
+
+        return 0;
+    }
+
+    void check_message() {
+        if (!enabled) {
+            return;
+        } else if (fd == -1) {
+            spdlog::error("FIFO is not initialized.");
+            return; // Avoid reading if FIFO is not initialized
+        }
+
         // fd is non-blocking
         char custom_msg[120];
         osd_tag tags[1];
@@ -469,38 +508,36 @@ void check_custom_msg(int fd) {
                 custom_msg[bytes_read] = '\0';
             }
             strcpy(tags[0].key, "file");
-            strcpy(tags[0].val, MSG_FIFO_NAME);
+            strcpy(tags[0].val, fifoName);
             osd_publish_str_fact("osd.custom_message", tags, 1, custom_msg);
         }
     }
-}
+
+    ~CustomMsgManager() {
+        if (fd != -1) {
+            close(fd);
+        }
+        unlink(fifoName);
+    }
+
+private:
+    const char* fifoName;
+    int fd; // File descriptor for the FIFO
+    bool enabled;
+};
 
 void main_loop() {
-    // Step 1: Create the named pipe
-    if (mkfifo(MSG_FIFO_NAME, 0622) == -1) {
-        spdlog::error("Failed to create FIFO {}: {}", MSG_FIFO_NAME,  strerror(errno));
-        return;
-    }
-    // Step 2: Change the permissions to allow read/write for all users
-    if (chmod(MSG_FIFO_NAME, 0622) == -1) {
-        spdlog::error("Failed to change permissions {}: {}",MSG_FIFO_NAME, strerror(errno));
-        return;
-    }
-    // Step 2: Open the pipe for reading
-    int fd = open(MSG_FIFO_NAME, O_RDONLY | O_NONBLOCK);
-    if (fd == -1) {
-        spdlog::error("Failed to open FIFO {}: {}", MSG_FIFO_NAME, strerror(errno));
+    CustomMsgManager msg_manager(MSG_FIFO_NAME, osd_custom_message);
+
+    if (msg_manager.open_fifo() != 0) {
         return;
     }
 
     while (!signal_flag) {
         // TODO: put gsmenu main loop here
-        check_custom_msg(fd);
+        msg_manager.check_message();
         sleep(1);
     }
-    // Close and unlink the FIFO
-    close(fd);
-    unlink(MSG_FIFO_NAME);
     return;
 }
 
