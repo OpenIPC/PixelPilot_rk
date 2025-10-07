@@ -6,7 +6,7 @@ set -x
 
 ROOTDIR=/usr/src/PixelPilot_rk
 BUILD_TYPE="deb"
-
+DEBIAN_CODENAME=bookworm
 
 print_help() {
     echo "$0 --wipe-boot --pkg-version X.Y.Z --root-dir /path/to/surces --build-type <deb|bin|debug> --help"
@@ -31,6 +31,10 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE=$2
             shift 2
             ;;
+        --debian-codename)
+            DEBIAN_CODENAME=$2
+            shift 2
+            ;;
         --help)
             print_help
             exit 0
@@ -44,19 +48,31 @@ while [[ $# -gt 0 ]]; do
 done
 
 # needed for GPG tools to work
-mknod /dev/null c 1 3
-chmod 666 /dev/null
+if [ ! -e /dev/null ]; then
+    mknod /dev/null c 1 3
+    chmod 666 /dev/null
+fi
 
-# install radxa APT repo, see https://radxa-repo.github.io/bookworm/
+# install radxa APT repo, see:
+# * https://radxa-repo.github.io/bookworm/
+# * https://radxa-repo.github.io/bullseye/
+# * https://radxa-repo.github.io/rk3566-bookworm/
 keyring="${ROOTDIR}/keyring.deb"
 version="$(curl -L https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/VERSION)"
-
 curl -L --output "$keyring" "https://github.com/radxa-pkg/radxa-archive-keyring/releases/download/${version}/radxa-archive-keyring_${version}_all.deb"
 dpkg -i $keyring
 rm $keyring
-tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bookworm/ bookworm main"
-tee /etc/apt/sources.list.d/80-radxa-rk3566.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/rk3566-bookworm rk3566-bookworm main"
 
+case $DEBIAN_CODENAME in
+    bookworm)
+        tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bookworm/ bookworm main"
+        tee /etc/apt/sources.list.d/80-radxa-rk3566.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/rk3566-bookworm rk3566-bookworm main"
+        ;;
+    bullseye)
+        tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye/ bullseye main"
+        tee /etc/apt/sources.list.d/80-rockchip.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye rockchip-bullseye main"
+        ;;
+esac
 apt-get update
 
 case $BUILD_TYPE in

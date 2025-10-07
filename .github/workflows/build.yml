@@ -12,6 +12,12 @@ on:
 
 jobs:
   build:
+    name: Build for ${{matrix.debian_codename}}
+    strategy:
+      matrix:
+        debian_codename:
+          - bullseye
+          - bookworm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,19 +32,23 @@ jobs:
 
       - name: Build
         run: |
-          make qemu_build
+          make qemu_build DEBIAN_CODENAME=${{matrix.debian_codename}}
+          mv pixelpilot pixelpilot_${{matrix.debian_codename}}
           rm -f disk.raw  # for some reason reusing the disc causes `pgpconf` to hang
 
       - name: Build deb package
-        run: make qemu_build_deb
+        run: |
+          make qemu_build_deb DEBIAN_CODENAME=${{matrix.debian_codename}}
+          for f in `ls pixelpilot-rk*_arm64.deb`; do mv $f "${{matrix.debian_codename}}_${f}"; done
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
+          name: ${{matrix.debian_codename}}
           path: |
-              pixelpilot
-              pixelpilot-rk_*_arm64.deb
-              pixelpilot-rk-dbgsym_*_arm64.deb
+              pixelpilot_${{matrix.debian_codename}}
+              ${{matrix.debian_codename}}_pixelpilot-rk_*_arm64.deb
+              ${{matrix.debian_codename}}_pixelpilot-rk-dbgsym_*_arm64.deb
               config_osd.json
               pixelpilot.yaml
               gsmenu.sh
@@ -48,9 +58,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            pixelpilot
-            pixelpilot-rk_*_arm64.deb
-            pixelpilot-rk-dbgsym_*_arm64.deb
+            pixelpilot_${{matrix.debian_codename}}
+            ${{matrix.debian_codename}}_pixelpilot-rk_*_arm64.deb
+            ${{matrix.debian_codename}}_pixelpilot-rk-dbgsym_*_arm64.deb
             config_osd.json
             pixelpilot.yaml
             gsmenu.sh
@@ -61,7 +71,9 @@ jobs:
         with:
           tag_name: latest
           files: |
-            pixelpilot
+            pixelpilot_${{matrix.debian_codename}}
+            ${{matrix.debian_codename}}_pixelpilot-rk_*_arm64.deb
+            ${{matrix.debian_codename}}_pixelpilot-rk-dbgsym_*_arm64.deb
             config_osd.json
             pixelpilot.yaml
             gsmenu.sh

@@ -1,6 +1,14 @@
-DEBIAN_HOST=https://cloud.debian.org/images/cloud/bookworm
+# DEBIAN_CODENAME=bookworm | bullseye
+DEBIAN_CODENAME=bookworm
+DEBIAN_HOST=https://cloud.debian.org/images/cloud/$(DEBIAN_CODENAME)
 DEBIAN_RELEASE=latest
+
+ifeq ($(DEBIAN_CODENAME),bookworm)
 DEBIAN_SYSTEM=debian-12-generic-arm64.tar
+else
+DEBIAN_SYSTEM=debian-11-generic-arm64.tar
+endif
+
 OUTPUT=output
 DEB_VERSION=1.3.0
 
@@ -22,7 +30,7 @@ qemu_build:
 
 	sudo rm $(OUTPUT)/etc/resolv.conf
 	echo nameserver 1.1.1.1 | sudo tee -a $(OUTPUT)/etc/resolv.conf
-	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --build-type bin
+	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --debian-codename $(DEBIAN_CODENAME) --build-type bin
 	sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_run.sh --version
 	sudo cp $(OUTPUT)/usr/src/PixelPilot_rk/build/pixelpilot .
 	make umount
@@ -34,7 +42,7 @@ qemu_build_deb:
 
 	sudo rm $(OUTPUT)/etc/resolv.conf
 	echo nameserver 1.1.1.1 | sudo tee -a $(OUTPUT)/etc/resolv.conf
-	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --pkg-version $(DEB_VERSION) --build-type deb
+	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --pkg-version $(DEB_VERSION) --debian-codename $(DEBIAN_CODENAME) --build-type deb
 	make umount
 
 .PHONY: mount
