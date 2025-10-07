@@ -2,6 +2,7 @@
 DEBIAN_CODENAME=bookworm
 DEBIAN_HOST=https://cloud.debian.org/images/cloud/$(DEBIAN_CODENAME)
 DEBIAN_RELEASE=latest
+SKIP_SETUP=0
 
 ifeq ($(DEBIAN_CODENAME),bookworm)
 DEBIAN_SYSTEM=debian-12-generic-arm64.tar
@@ -30,7 +31,7 @@ qemu_build:
 
 	sudo rm $(OUTPUT)/etc/resolv.conf
 	echo nameserver 1.1.1.1 | sudo tee -a $(OUTPUT)/etc/resolv.conf
-	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --debian-codename $(DEBIAN_CODENAME) --build-type bin
+	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --debian-codename $(DEBIAN_CODENAME) --build-type bin $(if $(filter 1,$(SKIP_SETUP)),--skip-setup,)
 	sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_run.sh --version
 	sudo cp $(OUTPUT)/usr/src/PixelPilot_rk/build/pixelpilot .
 	make umount
