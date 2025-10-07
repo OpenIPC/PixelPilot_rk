@@ -60,3 +60,8 @@ pixelpilot_config.h
 .vscode/
 build/
 build_sim/
+.apt_cache/
+output/
+debian-*-generic-arm64.tar.xz
+disk.raw
+pixelpilot
