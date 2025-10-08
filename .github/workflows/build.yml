@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    name: Build for ${{matrix.debian_codename}}
+    name: Build for ${{ matrix.debian_codename }}
     strategy:
       matrix:
         debian_codename:
@@ -32,35 +32,51 @@ jobs:
 
       - name: Build
         run: |
-          make qemu_build DEBIAN_CODENAME=${{matrix.debian_codename}}
-          mv pixelpilot pixelpilot_${{matrix.debian_codename}}
+          make qemu_build DEBIAN_CODENAME=${{ matrix.debian_codename }}
+          mv pixelpilot ${{ matrix.debian_codename }}_pixelpilot
           rm -f disk.raw  # for some reason reusing the disc causes `pgpconf` to hang
 
       - name: Build deb package
         run: |
-          make qemu_build_deb DEBIAN_CODENAME=${{matrix.debian_codename}}
-          for f in `ls pixelpilot-rk*_arm64.deb`; do mv $f "${{matrix.debian_codename}}_${f}"; done
+          make qemu_build_deb DEBIAN_CODENAME=${{ matrix.debian_codename }}
+          for f in `ls pixelpilot-rk*_arm64.deb`; do
+              mv $f "${{ matrix.debian_codename }}_${f}";
+          done
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{matrix.debian_codename}}
+          name: ${{ matrix.debian_codename }}
           path: |
-              pixelpilot_${{matrix.debian_codename}}
-              ${{matrix.debian_codename}}_pixelpilot-rk_*_arm64.deb
-              ${{matrix.debian_codename}}_pixelpilot-rk-dbgsym_*_arm64.deb
-              config_osd.json
-              pixelpilot.yaml
-              gsmenu.sh
+            ${{ matrix.debian_codename }}_pixelpilot  # Changed to prefix
+            ${{ matrix.debian_codename }}_pixelpilot-rk_*_arm64.deb
+            ${{ matrix.debian_codename }}_pixelpilot-rk-dbgsym_*_arm64.deb
+
+  release:
+    name: Release Artifacts
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Binaries
+        uses: actions/download-artifact@v5
+        with:
+          run-id: ${{ github.run_id }}  # Download all artifacts
+          merge-multiple: true
 
       - name: Versioned release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            pixelpilot_${{matrix.debian_codename}}
-            ${{matrix.debian_codename}}_pixelpilot-rk_*_arm64.deb
-            ${{matrix.debian_codename}}_pixelpilot-rk-dbgsym_*_arm64.deb
+            bullseye_pixelpilot
+            bullseye_pixelpilot-rk_*_arm64.deb
+            bullseye_pixelpilot-rk-dbgsym_*_arm64.deb
+            bookworm_pixelpilot
+            bookworm_pixelpilot-rk_*_arm64.deb
+            bookworm_pixelpilot-rk-dbgsym_*_arm64.deb
             config_osd.json
             pixelpilot.yaml
             gsmenu.sh
@@ -71,9 +87,12 @@ jobs:
         with:
           tag_name: latest
           files: |
-            pixelpilot_${{matrix.debian_codename}}
-            ${{matrix.debian_codename}}_pixelpilot-rk_*_arm64.deb
-            ${{matrix.debian_codename}}_pixelpilot-rk-dbgsym_*_arm64.deb
+            bullseye_pixelpilot
+            bullseye_pixelpilot-rk_*_arm64.deb
+            bullseye_pixelpilot-rk-dbgsym_*_arm64.deb
+            bookworm_pixelpilot
+            bookworm_pixelpilot-rk_*_arm64.deb
+            bookworm_pixelpilot-rk-dbgsym_*_arm64.deb
             config_osd.json
             pixelpilot.yaml
             gsmenu.sh
