@@ -653,6 +653,14 @@ case "$@" in
         else
             nmcli connection modify "$conn" connection.autoconnect no
             nmcli connection down "$conn"
+            DRV_PATH=$(readlink -f /sys/class/net/$4/device/driver 2>/dev/null || true)
+            DEV_PATH=$(readlink -f /sys/class/net/$4/device 2>/dev/null || true)
+            DRV_NAME=$(basename "$DRV_PATH")
+            DEV_NAME=$(basename "$DEV_PATH")
+            echo -n "$DEV_NAME" | sudo tee /sys/bus/usb/drivers/$DRV_NAME/unbind >/dev/null
+            sleep 1
+            echo -n "$DEV_NAME" | sudo tee /sys/bus/usb/drivers/$DRV_NAME/bind >/dev/null
+            sleep 1
         fi
         ;;
     "set gs apfpv reset")
