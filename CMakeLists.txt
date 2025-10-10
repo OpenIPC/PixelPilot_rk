@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(pixelpilot VERSION 1.2.0)
+project(pixelpilot VERSION 1.3.0)
 find_package(PkgConfig REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)

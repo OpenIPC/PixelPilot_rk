@@ -1,5 +1,14 @@
-pixelpilot-rk (1.3.0-1) UNRELEASED; urgency=medium
+pixelpilot-rk (1.3.0-1) unstable; urgency=medium
 
-  * Initial DEB release.
+  * Configurable OSD
+  * Integration with MSP OSD rendering on ground-station
+  * Add pidfile
+  * Fix OSD flickering
+  * Integration with wfb-ng API to show on OSD
+  * Support reading video from UNIX socket
+  * Add gsmenu - ground station menu UI controlled via UART buttons
+  * Add DVR player to gsmenu
+  * "custom message" is now a named pipe
+  * We now build DEB packages
 
- -- Sergey Prokhorov <seriy.pr@gmail.com>  Wed, 01 Oct 2025 22:29:01 +0200
+ -- Sergey Prokhorov <seriy.pr@gmail.com>  Fri, 10 Oct 2025 19:54:08 +0200
