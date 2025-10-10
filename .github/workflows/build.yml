@@ -32,12 +32,15 @@ jobs:
 
       - name: Build
         run: |
+          set -x
           make qemu_build DEBIAN_CODENAME=${{ matrix.debian_codename }}
-          mv pixelpilot ${{ matrix.debian_codename }}_pixelpilot
+          ls -lh
+          sudo mv pixelpilot ${{ matrix.debian_codename }}_pixelpilot
           rm -f disk.raw  # for some reason reusing the disc causes `pgpconf` to hang
 
       - name: Build deb package
         run: |
+          set -x
           make qemu_build_deb DEBIAN_CODENAME=${{ matrix.debian_codename }}
           for f in `ls pixelpilot-rk*_arm64.deb`; do
               mv $f "${{ matrix.debian_codename }}_${f}";
@@ -48,7 +51,7 @@ jobs:
         with:
           name: ${{ matrix.debian_codename }}
           path: |
-            ${{ matrix.debian_codename }}_pixelpilot  # Changed to prefix
+            ${{ matrix.debian_codename }}_pixelpilot
             ${{ matrix.debian_codename }}_pixelpilot-rk_*_arm64.deb
             ${{ matrix.debian_codename }}_pixelpilot-rk-dbgsym_*_arm64.deb
 
