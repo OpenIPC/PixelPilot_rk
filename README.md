@@ -19,7 +19,7 @@ It can be installed as a binary DEB package or built from source.
 
 ### DEB package
 
-Currently we have packages for Debian Bookworm (12).
+Currently we have packages for Debian Bullseye (11) and Bookworm (12).
 First you need to add a repository that contains `wfb-ng` dependency
 
 ```
@@ -27,20 +27,37 @@ curl -s https://apt.wfb-ng.org/public.asc | sudo gpg --dearmor --yes -o /usr/sha
 echo "deb [signed-by=/usr/share/keyrings/wfb-ng.gpg] https://apt.wfb-ng.org/ $(lsb_release -cs) master" | sudo tee /etc/apt/sources.list.d/wfb-ng.list
 sudo apt update
 ```
-Also make sure Radxa's repositories are enabled
+
+Also make sure Radxa's repositories are enabled:
 
 ```
-$ ls /etc/apt/sources.list.d/*radxa*.list
-/etc/apt/sources.list.d/70-radxa.list  /etc/apt/sources.list.d/80-radxa-rk3566.list
-$ cat /etc/apt/sources.list.d/*radxa*.list
-deb [signed-by="/usr/share/keyrings/radxa-archive-keyring.gpg"] https://radxa-repo.github.io/bookworm bookworm main
-deb [signed-by="/usr/share/keyrings/radxa-archive-keyring.gpg"] https://radxa-repo.github.io/rk3566-bookworm rk3566-bookworm main
+keyring="keyring.deb"
+version="$(curl -L https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/VERSION)"
+curl -L --output "$keyring" "https://github.com/radxa-pkg/radxa-archive-keyring/releases/download/${version}/radxa-archive-keyring_${version}_all.deb"
+dpkg -i $keyring
+```
+
+Bookworm:
+* https://radxa-repo.github.io/bookworm/
+* https://radxa-repo.github.io/rk3566-bookworm
+
+```
+tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bookworm/ bookworm main"
+tee /etc/apt/sources.list.d/80-radxa-rk3566.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/rk3566-bookworm rk3566-bookworm main"
+```
+
+Bullseye:
+* https://radxa-repo.github.io/bullseye/ (bullseye and rockchip-bullseye)
+
+```
+tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye/ bullseye main"
+tee /etc/apt/sources.list.d/80-rockchip.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye rockchip-bullseye main"
 ```
 
 Then download the latest `.deb` package from "releases" section on Github and install it:
 
 ```
-sudo apt install ./pixelpilot-rk_*_arm64.deb
+sudo apt install ./bookworm_pixelpilot-rk_*_arm64.deb
 ```
 
 Configuration files are:
@@ -109,14 +126,14 @@ sudo apt-get install qemu-user-static
 and then either build the binary:
 
 ```
-make qemu_build
+make qemu_build DEBIAN_CODENAME=bullseye
 ls -l pixelpilot
 ```
 
 or build .deb package:
 
 ```
-make qemu_build_deb
+make qemu_build_deb DEBIAN_CODENAME=bookworm
 ls -l pixelpilot-rk_*.deb
 ```
 
