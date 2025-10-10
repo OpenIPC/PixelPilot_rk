@@ -25,6 +25,8 @@ void dropdown_event_handler(lv_event_t * e);
 
 lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * label_txt, const char * txt,const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
 
+lv_obj_t * create_checkbox(lv_obj_t * parent, const char * icon, const char * label_txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking);
+
 void generic_button_callback(lv_event_t * e);
 lv_obj_t * create_button(lv_obj_t * parent, const char * txt);
 
@@ -41,6 +43,7 @@ char* get_paramater(lv_obj_t * page, char * param);
 void reload_label_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter);
+void reload_checkbox_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter);
 void get_slider_value(lv_obj_t * parent);
@@ -48,3 +51,8 @@ void get_dropdown_value(lv_obj_t * parent);
 void generic_back_event_handler(lv_event_t * e);
 
 const char* find_resource_file(const char* relative_path);
+
+void gsmenu_toggle_rxmode();
+
+void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, lv_obj_t* obj, ReloadFunc reload_func);
+void delete_menu_page_entry_by_obj(menu_page_data_t *menu_page_data, lv_obj_t* obj);

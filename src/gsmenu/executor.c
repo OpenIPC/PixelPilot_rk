@@ -275,6 +275,45 @@ void generic_switch_event_cb(lv_event_t * e)
         run_command_and_block(e,final_command,NULL);
 }
 
+void generic_checkbox_event_cb(lv_event_t * e)
+{
+    lv_key_t key = lv_indev_get_key(indev_drv);
+    if (key == LV_KEY_HOME) {
+        printf("skipping change as user wants to go back");
+        return;
+    }
+    lv_obj_t * target = lv_event_get_target(e);
+    thread_data_t * user_data = (thread_data_t *) lv_event_get_user_data(e);
+    char final_command[200] = "gsmenu.sh set ";
+    strcat(final_command,user_data->menu_page_data->type);
+    strcat(final_command," ");
+    strcat(final_command,user_data->menu_page_data->page);
+    strcat(final_command," ");
+    strcat(final_command,user_data->parameter);
+    strcat(final_command," ");
+
+    if(lv_obj_has_state(target, LV_STATE_CHECKED)) {
+        strcat(final_command,"on");
+    } else {
+        strcat(final_command,"off");
+    }
+
+    for(int i=0;i<MAX_CMD_ARGS;i++) {
+        if (user_data->arguments[i]) {
+            if (lv_obj_check_type(user_data->arguments[i],&lv_checkbox_class)) {
+                strcat(final_command," \"");
+                strcat(final_command,lv_checkbox_get_text(user_data->arguments[i]));
+                strcat(final_command,"\"");
+            }
+        }
+    }
+
+    if (user_data->blocking)
+        run_command(final_command);
+    else
+        run_command_and_block(e,final_command,user_data->callback_fn);
+}
+
 void generic_dropdown_event_cb(lv_event_t * e)
 {
     lv_obj_t * target = lv_event_get_target(e);
@@ -292,6 +331,16 @@ void generic_dropdown_event_cb(lv_event_t * e)
     strcat(final_command,"\"");
     strcat(final_command,user_data->argument_string);
     strcat(final_command,"\"");
+
+    for(int i=0;i<MAX_CMD_ARGS;i++) {
+        if (user_data->arguments[i]) {
+            if (lv_obj_check_type(user_data->arguments[i],&lv_textarea_class)) {
+                strcat(final_command," \"");
+                strcat(final_command,lv_textarea_get_text(user_data->arguments[i]));
+                strcat(final_command,"\"");
+            }
+        }
+    }
 
     if (user_data->blocking)
         run_command(final_command);
