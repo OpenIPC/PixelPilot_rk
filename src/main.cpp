@@ -52,6 +52,7 @@ extern "C" {
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"
 #include "time_util.h"
+#include "os_mon.hpp"
 #include "pixelpilot_config.h"
 #include <iostream>
 
@@ -101,6 +102,8 @@ uint16_t listen_port = 5600;
 const char* unix_socket = NULL;
 char* dvr_template = NULL;
 Dvr *dvr = NULL;
+OsSensors os_sensors; // TODO: pass as argument to `main_loop`
+
 
 // Add global variables for plane id overrides
 uint32_t video_plane_id_override = 0;
@@ -536,6 +539,7 @@ void main_loop() {
     while (!signal_flag) {
         // TODO: put gsmenu main loop here
         msg_manager.check_message();
+		os_sensors.run();
         sleep(1);
     }
     return;
@@ -892,7 +896,26 @@ int main(int argc, char **argv)
             if (config["gsmenu"]["enabled"]) {
                 gsmenu_enabled = config["gsmenu"]["enabled"].as<bool>();
             }
-        }
+		}
+
+		if (config["os_sensors"]) {
+			if (config["os_sensors"]["cpu"]) {
+				os_sensors.addCPU();
+			}
+			if (config["os_sensors"]["power"]) {
+				for (const auto& power_sensor : config["os_sensors"]["power"]) {
+					std::string type = power_sensor["type"].as<std::string>();
+					std::string hwmon_id = power_sensor["hwmon_id"].as<std::string>();
+					os_sensors.addPower(type, hwmon_id);
+				}
+			}
+			if (config["os_sensors"]["temperature"]) {
+				for (const auto& temp_sensor : config["os_sensors"]["temperature"]) {
+					std::string thermal_zone = temp_sensor["thermal_zone"].as<std::string>();
+					os_sensors.addTemperature(thermal_zone);
+				}
+			}
+		}
 
 	} catch (const YAML::BadFile& e) {
 		std::cout << "Configuration file " << config_file_path << " not found." << std::endl;
