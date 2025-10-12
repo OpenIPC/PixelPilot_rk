@@ -120,6 +120,8 @@ set(SOURCE_FILES
         src/osd.h
         src/osd.hpp
         src/osd.cpp
+        src/os_mon.hpp
+        src/os_mon.cpp
         src/dvr.h
         src/dvr.cpp
         src/mavlink.h
