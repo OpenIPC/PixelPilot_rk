@@ -19,6 +19,7 @@
 #include <msgpack.hpp>
 #include "spdlog/spdlog.h"
 
+#include "gsmenu/gs_system.h"
 #include "wfbcli.hpp"
 extern "C" {
 #include "osd.h"
@@ -30,6 +31,7 @@ extern "C" {
 int wfb_thread_signal = 0;
 
 uint64_t gtotal_tunnel_data = 0; // global variable for easyer access in gsmenu
+extern enum RXMode RXMODE;
 
 int process_rx(const msgpack::object& packet) {
 
@@ -291,31 +293,45 @@ void handle_server_connection(int sock) {
 
 int reconnect_to_server(int port) {
 	while (!wfb_thread_signal) {
-		SPDLOG_DEBUG("Attempting to connect to WFB API server...");
+        switch (RXMODE)
+        {
+        case APFPV:
+            SPDLOG_DEBUG("rxMode is apfpv, idle WFB thread");
+            break;
 
-		int sock = socket(AF_INET, SOCK_STREAM, 0);
-		if (sock < 0) {
-			perror("Socket creation failed");
-		} else {
-			struct sockaddr_in server_address;
-			server_address.sin_family = AF_INET;
-			server_address.sin_port = htons(port);
+        case WFB:
+            {
+                SPDLOG_DEBUG("Attempting to connect to WFB API server...");
 
-			if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) > 0) {
-				if (connect(sock, (struct sockaddr *)&server_address, sizeof(server_address)) == 0) {
-					SPDLOG_DEBUG("Successfully connected to WFB API server.");
-					return sock;
-				} else {
-					SPDLOG_ERROR("Connection failed");
-				}
-			} else {
-				SPDLOG_ERROR("Invalid address/Address not supported");
-			}
+                int sock = socket(AF_INET, SOCK_STREAM, 0);
+                if (sock < 0) {
+                    perror("Socket creation failed");
+                } else {
+                    struct sockaddr_in server_address;
+                    server_address.sin_family = AF_INET;
+                    server_address.sin_port = htons(port);
 
-			close(sock); // Clean up the socket if connection fails
-		}
+                    if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) > 0) {
+                        if (connect(sock, (struct sockaddr *)&server_address, sizeof(server_address)) == 0) {
+                            SPDLOG_DEBUG("Successfully connected to WFB API server.");
+                            return sock;
+                        } else {
+                            SPDLOG_ERROR("Connection failed");
+                        }
+                    } else {
+                        SPDLOG_ERROR("Invalid address/Address not supported");
+                    }
 
-		SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
+                    close(sock); // Clean up the socket if connection fails
+                }
+
+                SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
+            }
+            break;
+        
+        default:
+            break;
+        }
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 	}
 	return -1;
