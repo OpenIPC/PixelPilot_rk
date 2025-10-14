@@ -209,6 +209,7 @@ lot of facts to which widgets can subscribe to:
 | `video.decoder_feed_time_ms`   | uint | Time to feed the video packet to hardware decoder                         |
 | `gstreamer.received_bytes`     | uint | Number of bytes received from gstreamer (published for each packet)       |
 | `osd.custom_message`           | str  | The custom message passed via `--osd-custom-message` feature              |
+| `os_mon.wifi.rssi`             | uint | rssi as reported from /proc/net/rtl88x2eu/<interface>/trx_info_debug      |
 
 There are many facts based on Mavlink telemetry, see `mavlink.c`. All of them have tags "sysid" and
 "compid", but some have extra tags.
