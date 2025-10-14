@@ -142,6 +142,8 @@ set(SOURCE_FILES
         src/main.h
         src/wfbcli.hpp
         src/wfbcli.cpp
+        src/WiFiRSSIMonitor.hpp
+        src/WiFiRSSIMonitor.cpp
         src/scheduling_helper.hpp
         src/gstrtpreceiver.cpp
         src/gstrtpreceiver.h)
