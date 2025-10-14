@@ -8,6 +8,7 @@
 #include "styles.h"
 #include "ui.h"
 #include "executor.h"
+#include "../WiFiRSSIMonitor.h"
 
 extern enum RXMode RXMODE;
 
@@ -932,6 +933,7 @@ void gsmenu_toggle_rxmode() {
         lv_obj_add_flag(air_aalink_cont, LV_OBJ_FLAG_HIDDEN);
         setenv("REMOTE_IP" , "10.5.0.10", 1);
         setenv("AIR_FIRMWARE_TYPE" , "wfb", 1);
+        wifi_rssi_monitor_reset();
         break;
 
     default:
