@@ -905,7 +905,7 @@ int main(int argc, char **argv)
 					os_sensors.discoverCPU();
 				} else {
 					os_sensors.addCPU();
-                                }
+				}
 			}
 			if (config["os_sensors"]["power"]) {
 				auto power = config["os_sensors"]["power"];

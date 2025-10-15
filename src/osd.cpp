@@ -1510,7 +1510,7 @@ void *__OSD_THREAD__(void *param) {
 			// thread woke up because we got a new fact(s)
 			// copy all the facts to the temporary buffer to unlock the queue ASAP
 			for(; !fact_queue.empty(); fact_queue.pop()) {
-				SPDLOG_DEBUG("got fact {}({})", fact_queue.front().getName(), fact_queue.front().getTags());
+				SPDLOG_DEBUG("got fact {}", fact_queue.front().getName());
 				fact_buf.push_back(fact_queue.front());
 			}
 			lock.unlock();
