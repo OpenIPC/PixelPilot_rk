@@ -242,6 +242,25 @@ RF chip temperature, tagged with `ant_id`:
 | `wfbcli.rf_temperature`  | uint | Temperature of RX chip per-antenna |
 
 
+Pixelpilot can collect some of the ground station OS metrics: CPU load, CPU and GPU temperature,
+(external) power supply voltage and current meter. They should be explicitly enabled
+in `--config pixelpilot.yaml` configuration file as `os_sensors` section.
+When enabled, following facts become available:
+
+| Fact                     | Type   | Description                                                     |
+|:-------------------------|:-------|:----------------------------------------------------------------|
+| `os_mon.cpu.load_total`  | uint   | CPU load percentage                                             |
+| `os_mon.cpu.load_iowait` | uint   | Percentage of CPU IO-WAIT (if too high - maybe SD card is bad?) |
+| `os_mon.temperature`     | double | Chipset temperature, millidegrees C                             |
+| `os_mon.power.voltage`   | double | Power supply voltage, mV                                        |
+| `os_mon.power.current`   | double | Current measurement, mA                                         |
+| `os_mon.power.power`     | double | Power (roughly `voltage * current`), uW (microwatt)             |
+
+* temperature facts are tagged with `name` and `sensor` of the sensor/chipset
+* power facts are tagged with `sensor` - ID of the sensor (`hwmonN`, see `/sys/class/hwmon/`)
+
+NOTE: power sensor (ina226) should be installed and configured separately!
+
 #### Widgets
 
 Currently we have generic widgets and more ad-hoc specific ones. Generic widgets normally can be used

@@ -906,23 +906,40 @@ int main(int argc, char **argv)
             }
 		}
 
-		if (config["os_sensors"]) {
+		if (config["os_sensors"] && config["os_sensors"].IsMap()) {
 			if (config["os_sensors"]["cpu"]) {
-				os_sensors.addCPU();
+				auto cpu = config["os_sensors"]["cpu"];
+				if(cpu.IsScalar() && cpu.as<std::string>() == "auto") {
+					os_sensors.discoverCPU();
+				} else {
+					os_sensors.addCPU();
+                                }
 			}
 			if (config["os_sensors"]["power"]) {
-				for (const auto& power_sensor : config["os_sensors"]["power"]) {
-					std::string type = power_sensor["type"].as<std::string>();
-					std::string hwmon_id = power_sensor["hwmon_id"].as<std::string>();
-					os_sensors.addPower(type, hwmon_id);
+				auto power = config["os_sensors"]["power"];
+				if(power.IsScalar() && power.as<std::string>() == "auto") {
+					os_sensors.discoverPower();
+				} else {
+					for (const auto& power_sensor : power) {
+						std::string type = power_sensor["type"].as<std::string>();
+						std::string hwmon_id = power_sensor["hwmon_id"].as<std::string>();
+						os_sensors.addPower(type, hwmon_id);
+					}
 				}
 			}
 			if (config["os_sensors"]["temperature"]) {
-				for (const auto& temp_sensor : config["os_sensors"]["temperature"]) {
-					std::string thermal_zone = temp_sensor["thermal_zone"].as<std::string>();
-					os_sensors.addTemperature(thermal_zone);
+				auto temperature = config["os_sensors"]["temperature"];
+				if(temperature.IsScalar() && temperature.as<std::string>() == "auto") {
+					os_sensors.discoverTemperature();
+				} else {
+					for (const auto& temp_sensor : temperature) {
+						std::string thermal_zone = temp_sensor["thermal_zone"].as<std::string>();
+						os_sensors.addTemperature(thermal_zone);
+					}
 				}
 			}
+		} else {
+			spdlog::error("Unexpected format of config file 'os_sensors'!");
 		}
 
 	} catch (const YAML::BadFile& e) {

@@ -23,10 +23,17 @@ extern "C" {
  *
  * It reads data from the 1st line of /proc/stat (see `man proc_stat`)
  */
-class CPU : public ISensor {
+class CPUSensor : public ISensor {
 public:
-    explicit CPU() = default;
-    virtual ~CPU() = default;
+    explicit CPUSensor() = default;
+    virtual ~CPUSensor() = default;
+
+    static void detect(std::vector<std::shared_ptr<ISensor>> sensors) {
+		if (std::filesystem::exists(std::filesystem::path("/proc/stat"))) {
+			spdlog::debug("Detected CPU load sensor");
+			sensors.push_back(std::make_shared<CPUSensor>());
+		}
+	}
 
     void run() override {
         std::ifstream stat_file("/proc/stat");
@@ -37,14 +44,16 @@ public:
             return;
         }
 
-        // Read the first line for aggregate CPU data
+        // Read the first line only, because it contains the aggregate CPU data
+        // We can read load per-core, but I doubt anyone cares; if you care, then keep reading
+        // line-by-line as long as line starts with `cpuN`. I guess add CPU number as tag then?
         std::getline(stat_file, line);
         std::optional<CpuLoad> cpu_load = calculate_cpu_load(line);
         if (cpu_load.has_value()) {
             void *batch = osd_batch_init(3);
-            osd_add_double_fact(batch, "os_mon.cpu.load_total", NULL, 0,
+            osd_add_uint_fact(batch, "os_mon.cpu.load_total", NULL, 0,
                                 cpu_load->total_load);
-            osd_add_double_fact(batch, "os_mon.cpu.load_iowait", NULL, 0,
+            osd_add_uint_fact(batch, "os_mon.cpu.load_iowait", NULL, 0,
                                 cpu_load->io_wait_load);
             osd_publish_batch(batch);
         }
@@ -119,15 +128,15 @@ protected:
  *
  * All 3 published as 3 separate facts tagged with hwmon_id.
  */
-class PowerMeter : public ISensor {
+class PowerSensor : public ISensor {
 public:
     enum Sensor { SENSOR_INA226 };
 
-    explicit PowerMeter(const std::string &sensor_name,
-                        const std::string &hwmon_id)
+    explicit PowerSensor(const std::string &sensor_type,
+						 const std::string &hwmon_id)
         : is_valid_sensor(false), hwmon_id(hwmon_id) {
         hwmon_path = std::filesystem::path("/sys/class/hwmon/") / hwmon_id / ""; // Construct the full path
-        if (sensor_name == "ina226") {
+        if (sensor_type == "ina226") {
             sensor = Sensor::SENSOR_INA226;
             is_valid_sensor = validate_sensor();
             if (!is_valid_sensor) {
@@ -138,7 +147,31 @@ public:
             is_valid_sensor = false;
         }
     };
-    virtual ~PowerMeter() = default;
+    virtual ~PowerSensor() = default;
+
+	static void detect(std::vector<std::shared_ptr<ISensor>> sensors) {
+		// list all /sys/class/hwmon/hwmonN, make sure they have `name` file that contains
+		// the name of one of the supported sensors
+		std::string path = "/sys/class/hwmon";
+		std::string prefix = "hwmon";
+		for (const auto& entry : std::filesystem::directory_iterator(path)) {
+			std::string filename = entry.path().filename().string();
+			if (entry.is_directory() &&
+				filename.compare(0, prefix.size(), prefix) == 0 &&
+				std::filesystem::exists(entry.path() / "name")) {
+				// Check if the "name" file contains known sensor name
+				std::ifstream name_file(entry.path() / "name");
+				std::string content;
+
+				std::getline(name_file, content);
+
+				if (content == "ina226") {
+					spdlog::debug("Detected power sensor {}", content);
+					sensors.push_back(std::make_shared<PowerSensor>(filename, "ina226"));
+				}
+			}
+		}
+	}
 
     void run() override {
         if (!is_valid_sensor) {
@@ -235,9 +268,9 @@ protected:
  * - temp - temperature in millidegrees C (published as value)
  * - type - the name of the sensor (added as `name` tag)
  */
-class Temperature : public ISensor {
+class TemperatureSensor : public ISensor {
 public:
-    explicit Temperature(const std::string &thermal_zone)
+    explicit TemperatureSensor(const std::string &thermal_zone)
         : thermal_zone(thermal_zone), is_valid_sensor(false) {
         thermal_path = std::filesystem::path("/sys/class/thermal/") / thermal_zone / "temp";
         is_valid_sensor = read_sensor_name();
@@ -246,6 +279,22 @@ public:
                         thermal_zone);
         }
     }
+
+    static void detect(std::vector<std::shared_ptr<ISensor>> sensors) {
+		// list all /sys/class/thermal/thermal_zoneN, make sure they have `temp` and `type` files
+		std::string path = "/sys/class/thermal";
+		std::string prefix = "thermal_zone";
+		for (const auto& entry : std::filesystem::directory_iterator(path)) {
+			std::string filename = entry.path().filename().string();
+			if (entry.is_directory() &&
+				filename.compare(0, prefix.size(), prefix) == 0 &&
+				std::filesystem::exists(entry.path() / "temp") &&
+				std::filesystem::exists(entry.path() / "type")) {
+				spdlog::debug("Detected temperature sensor {}", filename);
+				sensors.push_back(std::make_shared<TemperatureSensor>(filename));
+			}
+		}
+	}
 
     void run() override {
         if (!is_valid_sensor) {
@@ -308,17 +357,38 @@ private:
 };
 
 
-// Implement OsSensors methods
 void OsSensors::addCPU() {
-    sensors.push_back(std::make_shared<CPU>());
+    sensors.push_back(std::make_shared<CPUSensor>());
+}
+
+std::size_t OsSensors::discoverCPU() {
+	std::size_t before = sensors.size();
+	CPUSensor::detect(sensors);
+	return sensors.size() - before;
 }
 
 void OsSensors::addPower(const std::string &sensor_name, const std::string &hwmon_id) {
-    sensors.push_back(std::make_shared<PowerMeter>(sensor_name, hwmon_id));
+    sensors.push_back(std::make_shared<PowerSensor>(sensor_name, hwmon_id));
+}
+
+std::size_t OsSensors::discoverPower() {
+	std::size_t before = sensors.size();
+	PowerSensor::detect(sensors);
+	return sensors.size() - before;
 }
 
 void OsSensors::addTemperature(const std::string &thermal_zone) {
-    sensors.push_back(std::make_shared<Temperature>(thermal_zone));
+    sensors.push_back(std::make_shared<TemperatureSensor>(thermal_zone));
+}
+
+std::size_t OsSensors::discoverTemperature() {
+	std::size_t before = sensors.size();
+	TemperatureSensor::detect(sensors);
+	return sensors.size() - before;
+}
+
+std::size_t OsSensors::autodiscover() {
+	return discoverCPU() + discoverPower() + discoverTemperature();
 }
 
 void OsSensors::run() {
