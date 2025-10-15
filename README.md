@@ -123,7 +123,7 @@ To build it on a non-ARM host machine, it is possible to build with QEMU emulato
 ```
 sudo apt-get install qemu-user-static
 ```
-and then either build the binary:
+and then either build the binary (use `BUILD_TYPE=debug` to build debug version):
 
 ```
 make qemu_build DEBIAN_CODENAME=bullseye
