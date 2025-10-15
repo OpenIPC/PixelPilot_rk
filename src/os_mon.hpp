@@ -7,7 +7,7 @@
 class ISensor {
 public:
     virtual ~ISensor() = default;
-    static void detect(std::vector<std::shared_ptr<ISensor>>);
+    static void detect(std::vector<std::shared_ptr<ISensor>>& sensors);
     virtual void run() = 0;
     virtual bool is_valid() = 0;
 };

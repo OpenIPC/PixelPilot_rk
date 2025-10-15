@@ -28,7 +28,7 @@ public:
     explicit CPUSensor() = default;
     virtual ~CPUSensor() = default;
 
-    static void detect(std::vector<std::shared_ptr<ISensor>> sensors) {
+    static void detect(std::vector<std::shared_ptr<ISensor>> &sensors) {
 		if (std::filesystem::exists(std::filesystem::path("/proc/stat"))) {
 			spdlog::debug("Detected CPU load sensor");
 			sensors.push_back(std::make_shared<CPUSensor>());
@@ -68,8 +68,37 @@ protected:
         double total_load;  // Overall CPU load percentage
         double io_wait_load; // I/O wait percentage
     };
+    struct Reading {
+		long utime;
+		long nice;
+		long stime;
+		long idle;
+		long iowait;
+	};
+	std::optional<Reading> prev;
 
-    std::optional<CpuLoad> calculate_cpu_load(const std::string &line) {
+	std::optional<CpuLoad> calculate_cpu_load(const std::string &line) {
+		auto curr = read_cpu_load(line);
+		if (prev.has_value() && curr.has_value()) {
+			long iowait_time = (curr->iowait - prev->iowait);
+			long active_time = (curr->utime - prev->utime) +
+				(curr->nice - prev->nice) +
+				(curr->stime - prev->stime);
+			long idle_time = (curr->idle - prev->idle);
+			long total_time = (active_time + iowait_time + idle_time);
+
+			// Calculate CPU load percentage
+			double total_load = (active_time * 100.0) / total_time;
+			double io_wait_load = (iowait_time * 100.0) / total_time;
+			prev = curr;
+			return CpuLoad{ total_load, io_wait_load };
+		} else if (curr.has_value()) {
+			prev = curr;
+		}
+		return std::nullopt;
+	}
+
+    std::optional<Reading> read_cpu_load(const std::string &line) {
         // line looks like
         // cpu  7018539 25772 1876671 98010101 163631 0 72991 0 0 0
         //      ^ user  ^ nice
@@ -94,21 +123,13 @@ protected:
             return std::nullopt;
         }
 
-        utime = times[0];
-        nice = times[1];
-        stime = times[2];
-        idle = times[3];
-        iowait = times[4];
-
-        long total_time = utime + nice + stime + idle + iowait;
-        long active_time = utime + nice + stime;
-
-        // Calculate CPU load percentage
-        double total_load = (active_time * 100.0) / total_time;
-        double io_wait_load = (iowait * 100.0) / total_time;
-
-        return CpuLoad{ total_load, io_wait_load };
-    }
+        return Reading {
+			.utime = times[0],
+			.nice = times[1],
+			.stime = times[2],
+			.idle = times[3],
+			.iowait = times[4]};
+	}
 };
 
 
@@ -149,7 +170,7 @@ public:
     };
     virtual ~PowerSensor() = default;
 
-	static void detect(std::vector<std::shared_ptr<ISensor>> sensors) {
+	static void detect(std::vector<std::shared_ptr<ISensor>> &sensors) {
 		// list all /sys/class/hwmon/hwmonN, make sure they have `name` file that contains
 		// the name of one of the supported sensors
 		std::string path = "/sys/class/hwmon";
@@ -166,8 +187,8 @@ public:
 				std::getline(name_file, content);
 
 				if (content == "ina226") {
-					spdlog::debug("Detected power sensor {}", content);
-					sensors.push_back(std::make_shared<PowerSensor>(filename, "ina226"));
+					spdlog::debug("Detected power sensor {} {}", filename, content);
+					sensors.push_back(std::make_shared<PowerSensor>("ina226", filename));
 				}
 			}
 		}
@@ -280,7 +301,7 @@ public:
         }
     }
 
-    static void detect(std::vector<std::shared_ptr<ISensor>> sensors) {
+    static void detect(std::vector<std::shared_ptr<ISensor>> &sensors) {
 		// list all /sys/class/thermal/thermal_zoneN, make sure they have `temp` and `type` files
 		std::string path = "/sys/class/thermal";
 		std::string prefix = "thermal_zone";
