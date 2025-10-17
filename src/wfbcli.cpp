@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netdb.h>
 #include <pthread.h>
 #include <string>
 #include <sys/socket.h>
@@ -24,7 +25,6 @@ extern "C" {
 #include "osd.h"
 }
 
-#define SERVER_IP "127.0.0.1"
 #define BUFFER_SIZE 10 * 1024
 
 int wfb_thread_signal = 0;
@@ -289,36 +289,53 @@ void handle_server_connection(int sock) {
 	}
 }
 
-int reconnect_to_server(int port) {
-	while (!wfb_thread_signal) {
-		SPDLOG_DEBUG("Attempting to connect to WFB API server...");
+int reconnect_to_server(const char *host, int port) {
+    struct addrinfo hints, *res = nullptr, *p;
+    int status, sock;
+    // Clear hints structure
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
 
-		int sock = socket(AF_INET, SOCK_STREAM, 0);
-		if (sock < 0) {
-			perror("Socket creation failed");
-		} else {
-			struct sockaddr_in server_address;
-			server_address.sin_family = AF_INET;
-			server_address.sin_port = htons(port);
-
-			if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) > 0) {
-				if (connect(sock, (struct sockaddr *)&server_address, sizeof(server_address)) == 0) {
-					SPDLOG_DEBUG("Successfully connected to WFB API server.");
-					return sock;
-				} else {
-					SPDLOG_ERROR("Connection failed");
-				}
-			} else {
-				SPDLOG_ERROR("Invalid address/Address not supported");
-			}
-
-			close(sock); // Clean up the socket if connection fails
-		}
-
-		SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
-		std::this_thread::sleep_for(std::chrono::seconds(1));
-	}
-	return -1;
+    while (!wfb_thread_signal) {
+        SPDLOG_DEBUG("wfb-cli attempting to connect to API server...");
+        // Get address info
+        if ((status = getaddrinfo(host, std::to_string(port).c_str(), &hints, &res)) != 0) {
+            SPDLOG_ERROR("wfb-cli incorrect host {} or port {}. Error: {}",
+                         host, port, gai_strerror(status));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+        // Loop through results and try to connect
+        for (p = res; p != nullptr; p = p->ai_next) {
+            sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+            if (sock < 0) {
+                SPDLOG_ERROR("wfb-cli socket creation failed");
+                continue;
+            }
+            if (connect(sock, p->ai_addr, p->ai_addrlen) < 0) {
+                char ip_str[INET6_ADDRSTRLEN];
+                if (p->ai_family == AF_INET) {
+                    struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
+                    inet_ntop(AF_INET, &ipv4->sin_addr, ip_str, sizeof(ip_str));
+                } else {
+                    struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)p->ai_addr;
+                    inet_ntop(AF_INET6, &ipv6->sin6_addr, ip_str, sizeof(ip_str));
+                }
+                SPDLOG_ERROR("wfb-cli connection to {}:{} ({}) failed", host, port, ip_str);
+                close(sock); // Clean up the socket if connection fails
+                continue;
+            }
+            SPDLOG_DEBUG("wfb-cli successfully connected to API server.");
+            freeaddrinfo(res);
+            return sock; // success
+        }
+        freeaddrinfo(res);
+        res = nullptr;
+        SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    return -1;
 }
 
 void *__WFB_CLI_THREAD__(void *param) {
@@ -326,7 +343,7 @@ void *__WFB_CLI_THREAD__(void *param) {
 	pthread_setname_np(pthread_self(), "__WFB_CLI");
 
 	while (!wfb_thread_signal) {
-		int sock = reconnect_to_server(p->port);
+		int sock = reconnect_to_server(p->host, p->port);
 		handle_server_connection(sock);
 		// If we return from handle_server_connection, the server is disconnected
 	}
