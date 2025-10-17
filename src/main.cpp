@@ -680,6 +680,8 @@ void printHelp() {
     "    --wfb-api-port         - Port of wfb-server for cli statistics. (Default: 8003)\n"
     "                             Use \"0\" to disable this stats\n"
     "\n"
+    "    --wfb-api-host         - Host or IP of wfb-server for cli statistics. (Default: 127.0.0.1)\n"
+    "\n"
     "    --version              - Show program version\n"
     "\n", APP_VERSION_MAJOR, APP_VERSION_MINOR
   );
@@ -692,12 +694,13 @@ int main(int argc, char **argv)
 	int ret;	
 	int i, j;
 	int mavlink_thread = 0;
-	int dvr_autostart = 0;
 	int print_modelist = 0;
+	int dvr_autostart = 0;
+	bool dvr_filenames_with_sequence = false;
 	int video_framerate = -1;
 	int mp4_fragmentation_mode = 0;
-	bool dvr_filenames_with_sequence = false;
 	uint16_t wfb_port = 8003;
+	const char *wfb_api_host = "127.0.0.1";
 	uint16_t mode_width = 0;
 	uint16_t mode_height = 0;
 	uint32_t mode_vrefresh = 0;
@@ -853,6 +856,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--wfb-api-host") {
+		wfb_api_host = const_cast<char *>(__ArgValue);
+		continue;
+	}
+
 	__OnArgument("--version") {
 		printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 		return 0;
@@ -1005,6 +1013,7 @@ int main(int argc, char **argv)
 		if (wfb_port) {
 			wfb_thread_params *wfb_args = (wfb_thread_params *)malloc(sizeof *wfb_args);
 			wfb_args->port = wfb_port;
+			wfb_args->host = wfb_api_host;
 			ret = pthread_create(&tid_wfbcli, NULL, __WFB_CLI_THREAD__, wfb_args);
 			assert(!ret);
 		}
