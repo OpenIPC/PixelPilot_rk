@@ -308,8 +308,8 @@ public:
 	FactMeta(std::string name, FactTags tags): name(name), tags(tags) {};
 	
 
-	std::string getName() { return name; }
-	FactTags getTags() { return tags; }
+	std::string getName() const { return name; }
+	FactTags getTags() const { return tags; }
 
 private:
 	std::string name;
@@ -340,48 +340,48 @@ public:
 	}
 
 	// TODO: try to cast instead of crash
-	bool getBoolValue() {
+	bool getBoolValue() const {
 		assertType(T_BOOL);
 		return std::get<bool>(value);
 	}
 
-	long getIntValue() {
+	long getIntValue() const {
 		assertType(T_INT);
 		return std::get<long>(value);
 	}
 
-	ulong getUintValue() {
+	ulong getUintValue() const {
 		assertType(T_UINT);
 		return std::get<ulong>(value);
 	}
 
-	double getDoubleValue() {
+	double getDoubleValue() const {
 		assertType(T_DOUBLE);
 		return std::get<double>(value);
 	}
 
-	std::string getStrValue() {
+	std::string getStrValue() const {
 		assertType(T_STRING);
 		return std::get<std::string>(value);
 	}
 
-	std::string getTypeName() {
+	std::string getTypeName() const {
 		return typeName(type);
 	}
 
-	Type getType() {
+	Type getType() const {
 		return type;
 	}
 
-	std::string getName() {
+	std::string getName() const {
 		return meta.getName();
 	}
 
-	FactTags getTags() {
+	FactTags getTags() const {
 		return meta.getTags();
 	}
 
-	std::string asString() {
+	std::string asString() const {
 		switch(type) {
 		case T_UNDEF:
 			return "(undefined)";
@@ -419,7 +419,7 @@ public:
 	
 private:
 	Type type = T_UNDEF;
-	std::string typeName(Type t) {
+	std::string typeName(Type t) const {
 		switch(t) {
 		case T_UNDEF:
 			return "UNDEF";
@@ -437,7 +437,7 @@ private:
 		return "UNKNOWN";
 	}
 
-	void assertType(Type t) {
+	void assertType(Type t) const {
 		if (t != type) {
 			spdlog::error("'{}': requested type of {}, but the actual type is {}",
 						  meta.getName(), typeName(t), typeName(type));
@@ -515,7 +515,7 @@ public:
 				spdlog::warn("Attempt to apply 'convert' to unexpected datatype. Ignoring");
 				return fact_in;
 			}
-			return Fact(new_meta, val); //converter->evaluate(val));
+			return Fact(new_meta, converter->evaluate(val));
 		} else {
 			return fact_in;
 		}
@@ -766,85 +766,88 @@ protected:
 
 class TplTextWidget: public Widget {
 public:
-	TplTextWidget(int pos_x, int pos_y, std::string tpl, uint num_args):
-		Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {};
+    TplTextWidget(int pos_x, int pos_y, std::string tpl, uint num_args):
+        Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {};
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		std::unique_ptr<std::string> msg = render_tpl();
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x, y);
-		cairo_show_text(cr, msg->c_str());
-	}
+    virtual void draw(cairo_t *cr) {
+        auto [x, y] = xy(cr);
+        std::unique_ptr<std::string> msg = render_tpl();
+        cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+        cairo_move_to(cr, x, y);
+        cairo_show_text(cr, msg->c_str());
+    }
 
-protected:
-	std::unique_ptr<std::string> render_tpl() {
-		return render_tpl(tpl, args);
-	}
-	std::unique_ptr<std::string> render_tpl(std::string tpl, std::vector<Fact> args) {
-		bool at_placeholder = false;
-		int fact_i = 0;
-		Fact *fact;
-		std::unique_ptr<std::string> msg(new std::string);
-		for(char& c : tpl) {
-			if (c == '%') {
-				at_placeholder = true;
-			} else if (!at_placeholder) {
-				msg->push_back(c);
-			} else if (at_placeholder && c == '%') {
-				msg->push_back('%');
-				at_placeholder = false;
-			} else if (at_placeholder) {
-				at_placeholder = false;
-				fact = &args[fact_i];
-				if (!fact->isDefined()) {
-					msg->push_back('?');
-					fact_i++;
-					continue;
-				}
-				switch (c) {
-				case 'b':
-					{
-						msg->push_back(fact->getBoolValue() ? 't' : 'f');
-						break;
-					}
-				case 'd':
-				case 'i':
-					{
-						msg->append(std::to_string(fact->getIntValue()));
-						break;
-					}
-				case 'u':
-					{
-						msg->append(std::to_string(fact->getUintValue()));
-						break;
-					}
-				case 'f':
-					{
-						char buf[32];
-						std::snprintf(buf, sizeof(buf), "%.2f", fact->getDoubleValue());
-						msg->append(std::string(buf));
-						break;
-					}
-				case 's':
-					{
-						msg->append(fact->getStrValue());
-						break;
-					}
-				default:
-					{
-						msg->push_back('?');
-					}
-				}
-				fact_i++;
-			}
-		}
-		return msg;
-	}
+    uint default_precision = 2;
 
 protected:
-	std::string tpl;
-	uint num_args;
+    std::unique_ptr<std::string> render_tpl() {
+        return render_tpl(tpl, args);
+    }
+    std::unique_ptr<std::string> render_tpl(std::string tpl, const std::vector<Fact>& args) {
+        bool at_placeholder = false;
+        bool at_precision = false;
+        uint precision = default_precision;
+        int fact_i = 0;
+        std::ostringstream msg;
+        std::string precision_str;
+        for(char& c : tpl) {
+            if (c == '%') {
+                at_placeholder = true;
+            } else if (!at_placeholder) {
+                msg << c;
+            } else if (at_placeholder && c == '%') {
+                msg << '%';
+                at_placeholder = false;
+            } else if (at_placeholder) {
+                if (at_precision && std::isdigit(c)) {
+                    precision = precision * 10 + (c - '0');
+                    continue; // exit early
+                }
+                at_precision = false;
+                if (fact_i >= args.size()) {
+                    msg << '?'; // Handle out-of-bounds fact access
+                    break;
+                }
+                const Fact& fact = args[fact_i];
+                switch (c) {
+                case 'b':
+                    msg << (fact.getBoolValue() ? 't' : 'f');
+                    fact_i++;
+                    break;
+                case 'd':
+                case 'i':
+                    msg << fact.getIntValue();
+                    fact_i++;
+                    break;
+                case 'u':
+                    msg << fact.getUintValue();
+                    fact_i++;
+                    break;
+                case 'f':
+                    msg << std::fixed << std::setprecision(precision) << fact.getDoubleValue();
+                    fact_i++;
+                    break;
+                case 's':
+                    msg << fact.getStrValue();
+                    fact_i++;
+                    break;
+                case '.':
+                    // beginning of float precision specifier `%.3f` / `%.123f` / `%.0f`
+                    at_precision = true;
+                    precision = 0;
+                    continue; // exit earlier to not reset `at_placeholder`
+                default:
+                    msg << '?';
+                }
+                at_placeholder = false;
+            }
+        }
+        return std::make_unique<std::string>(msg.str());
+    }
+
+protected:
+    std::string tpl;
+    uint num_args;
 };
 
 
@@ -1221,64 +1224,6 @@ public:
 	}
 };
 
-/**
- * Basic power widget
- *
- * It expects strictly the following list of facts in that specific order as input:
- *  [
- *   {"name": "os_mon.power.voltage"},
- *   {"name": "os_mon.power.current"},
- *   {"name": "os_mon.power.power"}
- *  ]
- */
-class PowerWidget : public IconTplTextWidget {
-public:
-	PowerWidget(int pos_x, int pos_y, cairo_surface_t *icon, uint num_args)
-		: IconTplTextWidget(pos_x, pos_y, icon, "Power: %fV, %fA, %fW", num_args) {
-		assert(num_args == 3);
-	};
-
-	virtual void setFact(uint idx, Fact fact) {
-		switch (idx) {
-		case 0: // voltage
-			args[0] = Fact(FactMeta("voltage"), fact.getIntValue() / 1000.0);
-			break;
-		case 1: // current
-			args[1] = Fact(FactMeta("current"), fact.getIntValue() / 1000.0);
-			break;
-		case 2: // power
-			args[2] = Fact(FactMeta("power"), fact.getIntValue() / 1000000.0);
-			break;
-		}
-	}
-};
-
-/**
- * Basic temperature widget.
- *
- * It expects os_mon.temperature fact as input.
- * If you need to display several sensors:
- *
- * {
- *  "type": "TemperatureWidget",
- *  ...
- *  "template": "CPU: %i⁰C, GPU: %i⁰C",
- *  "facts": [
- *    {"name": "os_mon.temperature", "tags": {"name": "soc-thermal"}},
- *    {"name": "os_mon.temperature", "tags": {"name": "gpu-thermal"}}
- *  ]
- * }
- */
-class TemperatureWidget : public IconTplTextWidget {
-public:
-	TemperatureWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string tpl, uint num_args)
-		: IconTplTextWidget(pos_x, pos_y, icon, tpl, num_args) {};
-
-	virtual void setFact(uint idx, Fact fact) {
-		args[idx] = Fact(FactMeta("temperature"), fact.getIntValue() / 1000);
-	}
-};
-
 class DebugWidget: public Widget {
 public:
 	DebugWidget(int pos_x, int pos_y, uint num_args) :
@@ -1615,17 +1560,6 @@ public:
 						  matchers);
 			} else if (type == "GPSWidget") {
 				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
-			} else if (type == "PowerWidget") {
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
-				addWidget(new PowerWidget(x, y, icon, (uint)matchers.size()), matchers);
-			} else if (type == "TemperatureWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
-				addWidget(new TemperatureWidget(x, y, icon, tpl, (uint)matchers.size()), matchers);
 			} else if(type == "PopupWidget") {
 				auto timeout_ms = widget_j.at("timeout_ms").template get<uint>();
 				addWidget(new PopupWidget(x, y, timeout_ms, (uint)matchers.size()),
