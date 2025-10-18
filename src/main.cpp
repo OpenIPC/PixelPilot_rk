@@ -536,6 +536,9 @@ void main_loop() {
     while (!signal_flag) {
         // TODO: put gsmenu main loop here
         msg_manager.check_message();
+        if (receiver) {
+            receiver->poll_bus();
+        }
         sleep(1);
     }
     return;
