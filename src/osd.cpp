@@ -21,6 +21,8 @@ extern "C" {
 #include <deque>
 #include <cstdlib> //KILLME
 #include <string>
+#include <optional>
+#include <utility>
 #include <filesystem>
 #include <cairo.h>
 #include <time.h>
@@ -59,6 +61,239 @@ double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansur
        (timestamp->tv_nsec - last_meansure_timestamp->tv_nsec) / 1000000000.;
 }
 
+
+//
+// Evaluation of `convert` expressions on numerical facts
+//
+
+class ExpressionException : public std::exception {
+public:
+    enum ErrorType {
+        MISMATCHED_PARENTHESES,
+        DIVISION_BY_ZERO,
+        UNKNOWN_OPERATOR,
+        INVALID_EXPRESSION
+    };
+
+    ExpressionException(ErrorType type, const std::string& message)
+        : type_(type), msg_(message) {}
+
+    virtual const char* what() const noexcept override {
+        return msg_.c_str();
+    }
+
+    ErrorType type() const { return type_; }
+
+private:
+    ErrorType type_;
+    std::string msg_;
+};
+
+/**
+ * This class can parse and evaluate basic math expressions.
+ * It understands the following operators and tokens:
+ * - '123', '12.34' - integer and simple float numbers (negative not supported yet)
+ * - '+', '-', '/', '*' - standard math operators with respect to precedence
+ * - '(', ')' - parentheses to alter the precedence
+ * - 'x' - the variable that is goig to be passed to `evaluate` function
+ *
+ * It always evaluates float math and returns float.
+ */
+class ExpressionTree {
+public:
+	ExpressionTree() : root(nullptr) {}
+	ExpressionTree(const std::string &expression) : root(nullptr) {
+		parse(expression);
+	}
+    // Move constructor
+    ExpressionTree(ExpressionTree&& other) noexcept : root(std::move(other.root)) {}
+    
+    // Copy constructor
+    ExpressionTree(const ExpressionTree& other) {
+        if (other.root) {
+            root = std::make_unique<Node>(*other.root); // Make a deep copy
+        } else {
+            root = nullptr;
+        }
+    }
+
+	// Tokenize the expression string, return vector of tokens
+	std::vector<std::string> tokenize(const std::string& expression) {
+		std::vector<std::string> tokens;
+		std::string currentToken;
+
+		for (size_t i = 0; i < expression.length(); ++i) {
+			char c = expression[i];
+
+			// Handling digits and decimal point for numbers
+			if (std::isdigit(c) || c == '.') {
+				currentToken += c;
+			} 
+			// Handling 'x' variable
+			else if (c == 'x') {
+				if (!currentToken.empty()) {
+					tokens.push_back(currentToken);
+					currentToken.clear();
+				}
+				tokens.push_back("x");
+			}
+			// Handling operators and parentheses
+			else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')') {
+				if (!currentToken.empty()) {
+					tokens.push_back(currentToken);
+					currentToken.clear();
+				}
+				tokens.push_back(std::string(1, c)); // Add the operator or parenthesis as a token
+			} else if (std::isspace(c)) {
+				// Ignore whitespace
+				if (!currentToken.empty()) {
+					tokens.push_back(currentToken);
+					currentToken.clear();
+				}
+			} else {
+				throw ExpressionException(
+    					  ExpressionException::INVALID_EXPRESSION,
+						  "Unexpected symbol at " + std::to_string(i) + ": '" + c + "'");
+			}
+		}
+    
+		if (!currentToken.empty()) {
+			tokens.push_back(currentToken); // Add any remaining token
+		}
+
+		return tokens;
+	}
+	
+    void parseTokens(const std::vector<std::string>& tokens) {
+        std::vector<Node*> output;
+        std::vector<Node*> operators;
+
+        for (const auto& token : tokens) {
+            if (isNumber(token)) {
+                output.push_back(new Node(std::stod(token)));
+            } else if (token == "x") {
+                output.push_back(new Node('x'));
+            } else if (token == "(") {
+                operators.push_back(new Node('(')); // Push a dummy node for '('
+            } else if (token == ")") {
+                while (!operators.empty() && operators.back()->op != '(') {
+                    processOperator(output, operators);
+                }
+                if (operators.empty()) {
+                  throw ExpressionException(
+                      ExpressionException::MISMATCHED_PARENTHESES,
+                      "Mismatched parentheses");
+                }
+                operators.pop_back(); // Remove the '('
+            } else {
+                while (!operators.empty() && precedence(operators.back()->op) >= precedence(token[0])) {
+                    processOperator(output, operators);
+                }
+                operators.push_back(new Node(token[0]));
+            }
+        }
+
+        while (!operators.empty()) {
+            processOperator(output, operators);
+        }
+
+        root.reset(output.back());
+    }
+
+	// Tokenize and parse the expression
+    void parse(const std::string &expression) {
+		parseTokens(tokenize(expression));
+	}
+
+    double evaluate(double xValue) {
+        return evaluateNode(root.get(), xValue);
+    }
+
+	std::string treeToString() const {
+		if (!root.get()) return "null";
+
+		return nodeToString(root.get());
+	}
+
+private:
+    struct Node {
+        char op; // Operator: +, -, *, /, 'x' variable
+        double value; // Used for numeric values
+        std::unique_ptr<Node> left, right; // Left and right children
+
+        Node(double val) : op(0), value(val), left(nullptr), right(nullptr) {}
+        Node(char operation) : op(operation), value(0), left(nullptr), right(nullptr) {}
+        // Copy constructor for Node
+        Node(const Node& other) 
+            : op(other.op), value(other.value), 
+              left(other.left ? std::make_unique<Node>(*other.left) : nullptr), 
+              right(other.right ? std::make_unique<Node>(*other.right) : nullptr) {}
+
+        // Move constructor for Node
+        Node(Node&& other) noexcept 
+            : op(other.op), value(other.value), 
+              left(std::move(other.left)), right(std::move(other.right)) {}
+	};
+
+    std::unique_ptr<Node> root;
+
+    bool isNumber(const std::string& s) {
+        char* p;
+        std::strtod(s.c_str(), &p);
+        return *p == 0; // Verify if p points to the end of the string
+    }
+
+    int precedence(char op) {
+        if (op == '+' || op == '-') return 1;
+        if (op == '*' || op == '/') return 2;
+        return 0;
+    }
+
+    void processOperator(std::vector<Node*>& output, std::vector<Node*>& operators) {
+        Node* right = output.back(); output.pop_back();
+        Node* left = output.back(); output.pop_back();
+        Node* opNode = operators.back(); operators.pop_back();
+        opNode->left = std::unique_ptr<Node>(left);
+        opNode->right = std::unique_ptr<Node>(right);
+        output.push_back(opNode);
+    }
+
+    double evaluateNode(Node* node, double xValue) const {
+        if (!node) return 0;
+        if (node->op == 0) {
+            return node->value; // Return numeric value
+        } else if (node->op == 'x') {
+            return xValue; // Return the value of variable x
+        }
+        double leftValue = evaluateNode(node->left.get(), xValue);
+        double rightValue = evaluateNode(node->right.get(), xValue);
+        switch (node->op) {
+            case '+': return leftValue + rightValue;
+            case '-': return leftValue - rightValue;
+            case '*': return leftValue * rightValue;
+            case '/':
+                if (rightValue == 0) {
+                  throw ExpressionException(
+                      ExpressionException::DIVISION_BY_ZERO,
+                      "Division by zero");
+                }
+                return leftValue / rightValue;
+            default:
+              throw ExpressionException(ExpressionException::UNKNOWN_OPERATOR,
+                                        "Unknown operator");
+        }
+    }
+
+	std::string nodeToString(Node *node) const {
+		std::ostringstream oss;
+		oss << "Node(op=" << (node->op != 0 ? std::string(1, node->op) : std::to_string(node->value)) 
+			<< ", left=" << nodeToString(node->left.get()) 
+			<< ", right=" << nodeToString(node->right.get()) << ")";
+		return oss.str();
+	}
+
+};
+
 //
 // Facts
 //
@@ -66,39 +301,15 @@ double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansur
 typedef std::map<std::string, std::string> FactTags;
 
 
-class FactMatcher {
-public:
-	FactMatcher(std::string name, FactTags tags): name(name), tags(tags) {};
-	FactMatcher(std::string name): name(name), tags({}) {};
-	std::string name;
-	FactTags tags;
-};
-
-
 class FactMeta {
 public:
 	FactMeta(): name(""), tags({}) {};
 	FactMeta(std::string name): name(name), tags({}) {};
 	FactMeta(std::string name, FactTags tags): name(name), tags(tags) {};
+	
 
-
-	std::string getName() { return name; }
-	FactTags getTags() { return tags; }
-
-	/**
-	 * Returns true if names are equal and all match_tags are defined and have equal value
-	 */
-	bool match(FactMatcher matcher) {
-		if(matcher.name != name) return false;
-		for (const auto& [key, match_value] : matcher.tags) {
-			if (auto value = tags.find(key); value != tags.end()) {
-				if (value->second != match_value) return false;
-			} else {
-				return false;
-			}
-		}
-		return true;
-	}
+	std::string getName() const { return name; }
+	FactTags getTags() const { return tags; }
 
 private:
 	std::string name;
@@ -129,52 +340,48 @@ public:
 	}
 
 	// TODO: try to cast instead of crash
-	bool getBoolValue() {
+	bool getBoolValue() const {
 		assertType(T_BOOL);
 		return std::get<bool>(value);
 	}
 
-	long getIntValue() {
+	long getIntValue() const {
 		assertType(T_INT);
 		return std::get<long>(value);
 	}
 
-	ulong getUintValue() {
+	ulong getUintValue() const {
 		assertType(T_UINT);
 		return std::get<ulong>(value);
 	}
 
-	double getDoubleValue() {
+	double getDoubleValue() const {
 		assertType(T_DOUBLE);
 		return std::get<double>(value);
 	}
 
-	std::string getStrValue() {
+	std::string getStrValue() const {
 		assertType(T_STRING);
 		return std::get<std::string>(value);
 	}
 
-	bool matches(FactMatcher matcher) {
-		return meta.match(matcher);
-	}
-
-	std::string getTypeName() {
+	std::string getTypeName() const {
 		return typeName(type);
 	}
 
-	Type getType() {
+	Type getType() const {
 		return type;
 	}
 
-	std::string getName() {
+	std::string getName() const {
 		return meta.getName();
 	}
 
-	FactTags getTags() {
+	FactTags getTags() const {
 		return meta.getTags();
 	}
 
-	std::string asString() {
+	std::string asString() const {
 		switch(type) {
 		case T_UNDEF:
 			return "(undefined)";
@@ -195,10 +402,24 @@ public:
 		}
 		return "(unknown)";
 	}
+
+	std::string asVerboseString() {
+		std::ostringstream oss;
+		if (!isDefined()) {
+			oss << "undef";
+		} else {
+			oss << getName() << " (" << getTypeName() << ") {";
+			for (const auto &tag : getTags()) {
+				oss << tag.first << "=>" << tag.second << ", ";
+			}
+			oss << "} = " << asString();
+		}
+		return oss.str();
+	}
 	
 private:
 	Type type = T_UNDEF;
-	std::string typeName(Type t) {
+	std::string typeName(Type t) const {
 		switch(t) {
 		case T_UNDEF:
 			return "UNDEF";
@@ -216,7 +437,7 @@ private:
 		return "UNKNOWN";
 	}
 
-	void assertType(Type t) {
+	void assertType(Type t) const {
 		if (t != type) {
 			spdlog::error("'{}': requested type of {}, but the actual type is {}",
 						  meta.getName(), typeName(t), typeName(type));
@@ -234,6 +455,77 @@ private:
 		> value;
 };
 
+
+
+class FactMatcher {
+public:
+	FactMatcher(std::string name, FactTags tags, std::string &convert_str)
+		: name(name), tags(tags), converter(ExpressionTree(convert_str)) {};
+	// FactMatcher(std::string name, FactTags tags, ExpressionTree converter)
+	// 	: name(name), tags(tags), converter(std::move(converter)) {};
+	FactMatcher(std::string name, FactTags tags): name(name), tags(tags) {};
+	FactMatcher(std::string name): name(name), tags({}) {};
+
+	
+	/**
+	 * Returns true if names are equal and all match_tags are defined and have equal value
+	 */
+	bool matches(Fact fact) {
+		if(fact.getName() != name) return false;
+		FactTags fact_tags = fact.getTags();
+		
+		for (const auto& [key, match_value] : tags) {
+			if (auto value = fact_tags.find(key); value != tags.end()) {
+				if (value->second != match_value) return false;
+			} else {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Applies 'convert' expression to the fact's value.
+	 * On success, a new fact is returned with `.converted` appended to its name and value converted
+	 */
+	Fact convert(Fact fact_in) {
+		if (converter.has_value()) {
+			std::string name = fact_in.getName();
+			FactTags tags = fact_in.getTags();
+			FactMeta new_meta(name + ".converted", tags);
+			double val = 0.0;
+
+			switch (fact_in.getType()) {
+			case Fact::T_BOOL:
+				val = 0.0;
+				if(fact_in.getBoolValue()) {
+					val = 1.0;
+				}
+				break;
+			case Fact::T_INT:
+				val = static_cast<double>(fact_in.getIntValue());
+				break;
+			case Fact::T_UINT:
+				val = static_cast<double>(fact_in.getUintValue());
+				break;
+			case Fact::T_DOUBLE:
+				val = fact_in.getDoubleValue();
+				break;
+			default:
+				spdlog::warn("Attempt to apply 'convert' to unexpected datatype. Ignoring");
+				return fact_in;
+			}
+			return Fact(new_meta, converter->evaluate(val));
+		} else {
+			return fact_in;
+		}
+	}
+	
+	std::string name;
+	FactTags tags;
+protected:
+	std::optional<ExpressionTree> converter = std::nullopt;
+};
 
 
 struct Bucket {
@@ -474,85 +766,88 @@ protected:
 
 class TplTextWidget: public Widget {
 public:
-	TplTextWidget(int pos_x, int pos_y, std::string tpl, uint num_args):
-		Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {};
+    TplTextWidget(int pos_x, int pos_y, std::string tpl, uint num_args):
+        Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {};
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		std::unique_ptr<std::string> msg = render_tpl();
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x, y);
-		cairo_show_text(cr, msg->c_str());
-	}
+    virtual void draw(cairo_t *cr) {
+        auto [x, y] = xy(cr);
+        std::unique_ptr<std::string> msg = render_tpl();
+        cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+        cairo_move_to(cr, x, y);
+        cairo_show_text(cr, msg->c_str());
+    }
 
-protected:
-	std::unique_ptr<std::string> render_tpl() {
-		return render_tpl(tpl, args);
-	}
-	std::unique_ptr<std::string> render_tpl(std::string tpl, std::vector<Fact> args) {
-		bool at_placeholder = false;
-		int fact_i = 0;
-		Fact *fact;
-		std::unique_ptr<std::string> msg(new std::string);
-		for(char& c : tpl) {
-			if (c == '%') {
-				at_placeholder = true;
-			} else if (!at_placeholder) {
-				msg->push_back(c);
-			} else if (at_placeholder && c == '%') {
-				msg->push_back('%');
-				at_placeholder = false;
-			} else if (at_placeholder) {
-				at_placeholder = false;
-				fact = &args[fact_i];
-				if (!fact->isDefined()) {
-					msg->push_back('?');
-					fact_i++;
-					continue;
-				}
-				switch (c) {
-				case 'b':
-					{
-						msg->push_back(fact->getBoolValue() ? 't' : 'f');
-						break;
-					}
-				case 'd':
-				case 'i':
-					{
-						msg->append(std::to_string(fact->getIntValue()));
-						break;
-					}
-				case 'u':
-					{
-						msg->append(std::to_string(fact->getUintValue()));
-						break;
-					}
-				case 'f':
-					{
-						char buf[32];
-						std::snprintf(buf, sizeof(buf), "%.2f", fact->getDoubleValue());
-						msg->append(std::string(buf));
-						break;
-					}
-				case 's':
-					{
-						msg->append(fact->getStrValue());
-						break;
-					}
-				default:
-					{
-						msg->push_back('?');
-					}
-				}
-				fact_i++;
-			}
-		}
-		return msg;
-	}
+    uint default_precision = 2;
 
 protected:
-	std::string tpl;
-	uint num_args;
+    std::unique_ptr<std::string> render_tpl() {
+        return render_tpl(tpl, args);
+    }
+    std::unique_ptr<std::string> render_tpl(std::string tpl, const std::vector<Fact>& args) {
+        bool at_placeholder = false;
+        bool at_precision = false;
+        uint precision = default_precision;
+        int fact_i = 0;
+        std::ostringstream msg;
+        std::string precision_str;
+        for(char& c : tpl) {
+            if (c == '%') {
+                at_placeholder = true;
+            } else if (!at_placeholder) {
+                msg << c;
+            } else if (at_placeholder && c == '%') {
+                msg << '%';
+                at_placeholder = false;
+            } else if (at_placeholder) {
+                if (at_precision && std::isdigit(c)) {
+                    precision = precision * 10 + (c - '0');
+                    continue; // exit early
+                }
+                at_precision = false;
+                if (fact_i >= args.size()) {
+                    msg << '?'; // Handle out-of-bounds fact access
+                    break;
+                }
+                const Fact& fact = args[fact_i];
+                switch (c) {
+                case 'b':
+                    msg << (fact.getBoolValue() ? 't' : 'f');
+                    fact_i++;
+                    break;
+                case 'd':
+                case 'i':
+                    msg << fact.getIntValue();
+                    fact_i++;
+                    break;
+                case 'u':
+                    msg << fact.getUintValue();
+                    fact_i++;
+                    break;
+                case 'f':
+                    msg << std::fixed << std::setprecision(precision) << fact.getDoubleValue();
+                    fact_i++;
+                    break;
+                case 's':
+                    msg << fact.getStrValue();
+                    fact_i++;
+                    break;
+                case '.':
+                    // beginning of float precision specifier `%.3f` / `%.123f` / `%.0f`
+                    at_precision = true;
+                    precision = 0;
+                    continue; // exit earlier to not reset `at_placeholder`
+                default:
+                    msg << '?';
+                }
+                at_placeholder = false;
+            }
+        }
+        return std::make_unique<std::string>(msg.str());
+    }
+
+protected:
+    std::string tpl;
+    uint num_args;
 };
 
 
@@ -929,64 +1224,6 @@ public:
 	}
 };
 
-/**
- * Basic power widget
- *
- * It expects strictly the following list of facts in that specific order as input:
- *  [
- *   {"name": "os_mon.power.voltage"},
- *   {"name": "os_mon.power.current"},
- *   {"name": "os_mon.power.power"}
- *  ]
- */
-class PowerWidget : public IconTplTextWidget {
-public:
-	PowerWidget(int pos_x, int pos_y, cairo_surface_t *icon, uint num_args)
-		: IconTplTextWidget(pos_x, pos_y, icon, "Power: %fV, %fA, %fW", num_args) {
-		assert(num_args == 3);
-	};
-
-	virtual void setFact(uint idx, Fact fact) {
-		switch (idx) {
-		case 0: // voltage
-			args[0] = Fact(FactMeta("voltage"), fact.getIntValue() / 1000.0);
-			break;
-		case 1: // current
-			args[1] = Fact(FactMeta("current"), fact.getIntValue() / 1000.0);
-			break;
-		case 2: // power
-			args[2] = Fact(FactMeta("power"), fact.getIntValue() / 1000000.0);
-			break;
-		}
-	}
-};
-
-/**
- * Basic temperature widget.
- *
- * It expects os_mon.temperature fact as input.
- * If you need to display several sensors:
- *
- * {
- *  "type": "TemperatureWidget",
- *  ...
- *  "template": "CPU: %i⁰C, GPU: %i⁰C",
- *  "facts": [
- *    {"name": "os_mon.temperature", "tags": {"name": "soc-thermal"}},
- *    {"name": "os_mon.temperature", "tags": {"name": "gpu-thermal"}}
- *  ]
- * }
- */
-class TemperatureWidget : public IconTplTextWidget {
-public:
-	TemperatureWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string tpl, uint num_args)
-		: IconTplTextWidget(pos_x, pos_y, icon, tpl, num_args) {};
-
-	virtual void setFact(uint idx, Fact fact) {
-		args[idx] = Fact(FactMeta("temperature"), fact.getIntValue() / 1000);
-	}
-};
-
 class DebugWidget: public Widget {
 public:
 	DebugWidget(int pos_x, int pos_y, uint num_args) :
@@ -996,17 +1233,7 @@ public:
 		auto [x, y] = xy(cr);
 		auto y_offset = y;
 		for (Fact &fact : args) {
-			std::ostringstream oss;
-			if (!fact.isDefined()) {
-				oss << "undef";
-			} else {
-				oss << fact.getName() << " (" << fact.getTypeName() << ") {";
-				for (const auto &tag : fact.getTags()) {
-					oss << tag.first << "=>" << tag.second << ", ";
-				}
-				oss << "} = " << fact.asString();
-			}
-			std::string text =  oss.str();
+			std::string text = fact.asVerboseString();
 			cairo_set_source_rgba(cr, 255.0, 50.0, 50.0, 1);
 			cairo_move_to(cr, x, y_offset);
 			cairo_show_text(cr, text.c_str());
@@ -1227,7 +1454,17 @@ public:
 						tags.insert({key, value});
 					}
 				}
-				matchers.push_back(FactMatcher(matcher_name, tags));
+				if (matcher_j.contains("convert")) {
+					auto expression_str = matcher_j.at("convert").template get<std::string>();
+					try {
+						matchers.push_back(FactMatcher(matcher_name, tags, expression_str));
+					} catch (const ExpressionException& e) {
+						spdlog::error("Invalid convert expression {}: {}",
+									  expression_str, e.what());
+					}
+				} else {
+					matchers.push_back(FactMatcher(matcher_name, tags));
+				}
 			}
 			if (type == "TextWidget") {
 				addWidget(new TextWidget(x, y, widget_j.at("text").template get<std::string>()),
@@ -1323,17 +1560,6 @@ public:
 						  matchers);
 			} else if (type == "GPSWidget") {
 				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
-			} else if (type == "PowerWidget") {
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
-				addWidget(new PowerWidget(x, y, icon, (uint)matchers.size()), matchers);
-			} else if (type == "TemperatureWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
-				addWidget(new TemperatureWidget(x, y, icon, tpl, (uint)matchers.size()), matchers);
 			} else if(type == "PopupWidget") {
 				auto timeout_ms = widget_j.at("timeout_ms").template get<uint>();
 				addWidget(new PopupWidget(x, y, timeout_ms, (uint)matchers.size()),
@@ -1362,9 +1588,15 @@ public:
 	};
 
 	void setFact(Fact fact) {
-		for (auto [matcher, widget, arg_idx] : matchers) {
-			if (fact.matches(matcher)) {
-				widget->setFact(arg_idx, fact);
+		for (auto& [matcher, widget, arg_idx] : matchers) {
+			if (matcher.matches(fact)) {
+				try {
+					Fact converted_fact = matcher.convert(fact);
+					widget->setFact(arg_idx, converted_fact);
+				} catch (const ExpressionException& e) {
+					spdlog::error("Failed to evaluate 'convert' expression for {}: {}",
+								  fact.asVerboseString(), e.what());
+				}
 			}
 		}
 	};
@@ -1578,7 +1810,7 @@ void *__OSD_THREAD__(void *param) {
 			// thread woke up because we got a new fact(s)
 			// copy all the facts to the temporary buffer to unlock the queue ASAP
 			for(; !fact_queue.empty(); fact_queue.pop()) {
-				SPDLOG_DEBUG("got fact {}", fact_queue.front().getName());
+				SPDLOG_DEBUG("got fact {}", fact_queue.front().asVerboseString());
 				fact_buf.push_back(fact_queue.front());
 			}
 			lock.unlock();

@@ -149,17 +149,51 @@ pixelpilot --help
 OSD is set-up declaratively in `/etc/pixelpilot/config_osd.json` file (or whatever is set via `--osd-config`
 command line key).
 
+Typical OSD config looks like:
+
+```json
+{
+    "format": "0.0.1",
+    "assets_dir": "/usr/share/pixelpilot/",
+    "widgets": [
+        {
+            "type": "IconTplTextWidget",
+            "name": "Thermal sensors",
+            "x": 10,
+            "y": 60,
+            "icon_path": "device_thermostat.png",
+            "template": "CPU: %.0f⁰C, GPU: %.0f⁰C",
+            "facts": [
+                {"name": "os_mon.temperature",
+                 "tags": {"name": "soc-thermal"},
+                 "convert": "x / 1000"},
+                {"name": "os_mon.temperature",
+                 "tags": {"name": "gpu-thermal"},
+                 "convert": "x / 1000"}
+            ]
+        },
+        ....
+    ]
+}
+
+```
+
 OSD is described as an array of widgets which may subscribe to fact updates (they receive each fact
 update they subscribe to) and those widgets are periodically rendered on the screen (in the order they
 declared in config). So the goal is that widgets would decide how they should be rendered based on
 the values of the facts they are subscribed to. If widget needs to render not the latest value of the
 fact, but some processed value (like average / max / total etc), the widget should keep the necessary
 state for that. There is a helper class `MovingAverage` that would be helpful to calculate common
-statistical parameters.
+statistical parameters, but you'd need to implement the widget in C++.
 
 Each fact has a specific datatype: one of `int` (signed integer) / `uint` (unsigned integer) /
 `double` (floating point) / `bool` (true/false) / `string` (text). Type cast is currently not
 implemented, so it is important to use the right type in the widget code and templates.
+
+When widget subscribes to a numeric fact, it can specify a conversion formula where `x` is the
+value of the fact and various floating-point operations can be performed on it: `+` / `-` / `/` / `*`,
+operator precedence is standard, but parentheses can be also used: `"convert": "x / 1000 + 128"`.
+Conversion always alters type of the fact to `double` (float) and appends `.converted` to its name.
 
 Facts may also have tags: a set of string key->value pairs. Widget may filter facts by tags as well as by name.
 Currently there are several generic OSD widgets and several specific ad-hoc ones. There are quite a
@@ -259,6 +293,8 @@ When enabled, following facts become available:
 * temperature facts are tagged with `name` and `sensor` of the sensor/chipset
 * power facts are tagged with `sensor` - ID of the sensor (`hwmonN`, see `/sys/class/hwmon/`)
 
+See [os_monitor_demo_osd.json](os_monitor_demo_osd.json) for examples.
+
 NOTE: power sensor (ina226) should be installed and configured separately!
 
 #### Widgets
@@ -266,17 +302,21 @@ NOTE: power sensor (ina226) should be installed and configured separately!
 Currently we have generic widgets and more ad-hoc specific ones. Generic widgets normally can be used
 to display any fact (as long as datatype matches):
 
-* `TextWidget` - displays a static string of text
-* `IconTextWidget` - displays a graphical icon followed by a static text
-* `TplTextWidget` - displays a string of text by replacing placeholders with the fact values
-* `IconTplTextWidget` - displays a graphical icon followed by templatized text string
-* `BoxWidget` - displays a static square. Might be good as a background.
-* `BarChartWidget` - displays a simple bar chart for the single fact's statistics. Each bar represents
+* `{"type": "TextWidget", "text": "..."}` - displays a static string of text
+* `{"type": "TplTextWidget", "template": "..."}` - displays a string of text by replacing placeholders with
+  the fact values. Supported placeholders are `%i` or `%d` - integer, `%b` - boolean, `%u` - unsigned,
+  `%s` - string, `%.f` / `%.0f` / `%.4f` - float with optional precision specifier
+* `{"type": "IconTplTextWidget", "template": "...", "icon_path": "foobar.png"}` - displays a
+  graphical icon followed by templatized text string
+* `{"type": "BoxWidget", "width": 100, "height": 100, "color": {"r": 255, "g": 255, "b": 255, "alpha": 128}}` - displays
+  a static square. Might be good as a background.
+* `{"type": "BarChartWidget", "width": 100, "height": 100, "window_s": 5, "num_buckets": 10, "stats_kind": "sum/min/max/count/avg"}` - displays
+ a simple bar chart for the single fact's statistics. Each bar represents
  either minimum or maximum or sum or count or average of the fact over time interval. Can be used to show
  eg the average video bitrate or RSSI or FPS.
-* `PopupWidget` - displays a stacked pop-ups with text facts which fade-away after timeout.
-* `DebugWidget` - displays debug information (name, type, tags, value) about fact(s)
-* `IconSelectorWidget` - display a icon based on a fact's value
+* `{"type": "PopupWidget", "timeout_ms": 2000}` - displays a stacked pop-ups with text facts which fade-away after timeout.
+* `{"type": "DebugWidget"}` - displays debug information (name, type, tags, value) about fact(s)
+* `{"type": "IconSelectorWidget"}` - display a icon based on a fact's value
 
 Specific widgets expect quite concrete facts as input:
 
@@ -290,6 +330,8 @@ Specific widgets expect quite concrete facts as input:
   Uses `video.decode_and_handover_ms` fact
 * `GPSWidget` - displays GPS fix type (no fix / 2D fix / 3D fix etc) and GPS coordinates.
   Uses `mavlink.gps_raw.fix_type`, `mavlink.gps_raw.lat` and `mavlink.gps_raw.lon` facts
+* `{"type": "IconSelectorWidget", "ranges_and_icons": [{"range": [0, 10], "icon_path": "0_10.png"}, {"range": [11, 20], ...}]}` - shows
+  different icon depending on the range where the value lands to.
 
 ## GSMenu
 
