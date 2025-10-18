@@ -21,6 +21,8 @@ extern "C" {
 #include <deque>
 #include <cstdlib> //KILLME
 #include <string>
+#include <optional>
+#include <utility>
 #include <filesystem>
 #include <cairo.h>
 #include <time.h>
@@ -59,6 +61,239 @@ double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansur
        (timestamp->tv_nsec - last_meansure_timestamp->tv_nsec) / 1000000000.;
 }
 
+
+//
+// Evaluation of `convert` expressions on numerical facts
+//
+
+class ExpressionException : public std::exception {
+public:
+    enum ErrorType {
+        MISMATCHED_PARENTHESES,
+        DIVISION_BY_ZERO,
+        UNKNOWN_OPERATOR,
+        INVALID_EXPRESSION
+    };
+
+    ExpressionException(ErrorType type, const std::string& message)
+        : type_(type), msg_(message) {}
+
+    virtual const char* what() const noexcept override {
+        return msg_.c_str();
+    }
+
+    ErrorType type() const { return type_; }
+
+private:
+    ErrorType type_;
+    std::string msg_;
+};
+
+/**
+ * This class can parse and evaluate basic math expressions.
+ * It understands the following operators and tokens:
+ * - '123', '12.34' - integer and simple float numbers (negative not supported yet)
+ * - '+', '-', '/', '*' - standard math operators with respect to precedence
+ * - '(', ')' - parentheses to alter the precedence
+ * - 'x' - the variable that is goig to be passed to `evaluate` function
+ *
+ * It always evaluates float math and returns float.
+ */
+class ExpressionTree {
+public:
+	ExpressionTree() : root(nullptr) {}
+	ExpressionTree(const std::string &expression) : root(nullptr) {
+		parse(expression);
+	}
+    // Move constructor
+    ExpressionTree(ExpressionTree&& other) noexcept : root(std::move(other.root)) {}
+    
+    // Copy constructor
+    ExpressionTree(const ExpressionTree& other) {
+        if (other.root) {
+            root = std::make_unique<Node>(*other.root); // Make a deep copy
+        } else {
+            root = nullptr;
+        }
+    }
+
+	// Tokenize the expression string, return vector of tokens
+	std::vector<std::string> tokenize(const std::string& expression) {
+		std::vector<std::string> tokens;
+		std::string currentToken;
+
+		for (size_t i = 0; i < expression.length(); ++i) {
+			char c = expression[i];
+
+			// Handling digits and decimal point for numbers
+			if (std::isdigit(c) || c == '.') {
+				currentToken += c;
+			} 
+			// Handling 'x' variable
+			else if (c == 'x') {
+				if (!currentToken.empty()) {
+					tokens.push_back(currentToken);
+					currentToken.clear();
+				}
+				tokens.push_back("x");
+			}
+			// Handling operators and parentheses
+			else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')') {
+				if (!currentToken.empty()) {
+					tokens.push_back(currentToken);
+					currentToken.clear();
+				}
+				tokens.push_back(std::string(1, c)); // Add the operator or parenthesis as a token
+			} else if (std::isspace(c)) {
+				// Ignore whitespace
+				if (!currentToken.empty()) {
+					tokens.push_back(currentToken);
+					currentToken.clear();
+				}
+			} else {
+				throw ExpressionException(
+    					  ExpressionException::INVALID_EXPRESSION,
+						  "Unexpected symbol at " + std::to_string(i) + ": '" + c + "'");
+			}
+		}
+    
+		if (!currentToken.empty()) {
+			tokens.push_back(currentToken); // Add any remaining token
+		}
+
+		return tokens;
+	}
+	
+    void parseTokens(const std::vector<std::string>& tokens) {
+        std::vector<Node*> output;
+        std::vector<Node*> operators;
+
+        for (const auto& token : tokens) {
+            if (isNumber(token)) {
+                output.push_back(new Node(std::stod(token)));
+            } else if (token == "x") {
+                output.push_back(new Node('x'));
+            } else if (token == "(") {
+                operators.push_back(new Node('(')); // Push a dummy node for '('
+            } else if (token == ")") {
+                while (!operators.empty() && operators.back()->op != '(') {
+                    processOperator(output, operators);
+                }
+                if (operators.empty()) {
+                  throw ExpressionException(
+                      ExpressionException::MISMATCHED_PARENTHESES,
+                      "Mismatched parentheses");
+                }
+                operators.pop_back(); // Remove the '('
+            } else {
+                while (!operators.empty() && precedence(operators.back()->op) >= precedence(token[0])) {
+                    processOperator(output, operators);
+                }
+                operators.push_back(new Node(token[0]));
+            }
+        }
+
+        while (!operators.empty()) {
+            processOperator(output, operators);
+        }
+
+        root.reset(output.back());
+    }
+
+	// Tokenize and parse the expression
+    void parse(const std::string &expression) {
+		parseTokens(tokenize(expression));
+	}
+
+    double evaluate(double xValue) {
+        return evaluateNode(root.get(), xValue);
+    }
+
+	std::string treeToString() const {
+		if (!root.get()) return "null";
+
+		return nodeToString(root.get());
+	}
+
+private:
+    struct Node {
+        char op; // Operator: +, -, *, /, 'x' variable
+        double value; // Used for numeric values
+        std::unique_ptr<Node> left, right; // Left and right children
+
+        Node(double val) : op(0), value(val), left(nullptr), right(nullptr) {}
+        Node(char operation) : op(operation), value(0), left(nullptr), right(nullptr) {}
+        // Copy constructor for Node
+        Node(const Node& other) 
+            : op(other.op), value(other.value), 
+              left(other.left ? std::make_unique<Node>(*other.left) : nullptr), 
+              right(other.right ? std::make_unique<Node>(*other.right) : nullptr) {}
+
+        // Move constructor for Node
+        Node(Node&& other) noexcept 
+            : op(other.op), value(other.value), 
+              left(std::move(other.left)), right(std::move(other.right)) {}
+	};
+
+    std::unique_ptr<Node> root;
+
+    bool isNumber(const std::string& s) {
+        char* p;
+        std::strtod(s.c_str(), &p);
+        return *p == 0; // Verify if p points to the end of the string
+    }
+
+    int precedence(char op) {
+        if (op == '+' || op == '-') return 1;
+        if (op == '*' || op == '/') return 2;
+        return 0;
+    }
+
+    void processOperator(std::vector<Node*>& output, std::vector<Node*>& operators) {
+        Node* right = output.back(); output.pop_back();
+        Node* left = output.back(); output.pop_back();
+        Node* opNode = operators.back(); operators.pop_back();
+        opNode->left = std::unique_ptr<Node>(left);
+        opNode->right = std::unique_ptr<Node>(right);
+        output.push_back(opNode);
+    }
+
+    double evaluateNode(Node* node, double xValue) const {
+        if (!node) return 0;
+        if (node->op == 0) {
+            return node->value; // Return numeric value
+        } else if (node->op == 'x') {
+            return xValue; // Return the value of variable x
+        }
+        double leftValue = evaluateNode(node->left.get(), xValue);
+        double rightValue = evaluateNode(node->right.get(), xValue);
+        switch (node->op) {
+            case '+': return leftValue + rightValue;
+            case '-': return leftValue - rightValue;
+            case '*': return leftValue * rightValue;
+            case '/':
+                if (rightValue == 0) {
+                  throw ExpressionException(
+                      ExpressionException::DIVISION_BY_ZERO,
+                      "Division by zero");
+                }
+                return leftValue / rightValue;
+            default:
+              throw ExpressionException(ExpressionException::UNKNOWN_OPERATOR,
+                                        "Unknown operator");
+        }
+    }
+
+	std::string nodeToString(Node *node) const {
+		std::ostringstream oss;
+		oss << "Node(op=" << (node->op != 0 ? std::string(1, node->op) : std::to_string(node->value)) 
+			<< ", left=" << nodeToString(node->left.get()) 
+			<< ", right=" << nodeToString(node->right.get()) << ")";
+		return oss.str();
+	}
+
+};
+
 //
 // Facts
 //
@@ -66,39 +301,15 @@ double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansur
 typedef std::map<std::string, std::string> FactTags;
 
 
-class FactMatcher {
-public:
-	FactMatcher(std::string name, FactTags tags): name(name), tags(tags) {};
-	FactMatcher(std::string name): name(name), tags({}) {};
-	std::string name;
-	FactTags tags;
-};
-
-
 class FactMeta {
 public:
 	FactMeta(): name(""), tags({}) {};
 	FactMeta(std::string name): name(name), tags({}) {};
 	FactMeta(std::string name, FactTags tags): name(name), tags(tags) {};
-
+	
 
 	std::string getName() { return name; }
 	FactTags getTags() { return tags; }
-
-	/**
-	 * Returns true if names are equal and all match_tags are defined and have equal value
-	 */
-	bool match(FactMatcher matcher) {
-		if(matcher.name != name) return false;
-		for (const auto& [key, match_value] : matcher.tags) {
-			if (auto value = tags.find(key); value != tags.end()) {
-				if (value->second != match_value) return false;
-			} else {
-				return false;
-			}
-		}
-		return true;
-	}
 
 private:
 	std::string name;
@@ -154,10 +365,6 @@ public:
 		return std::get<std::string>(value);
 	}
 
-	bool matches(FactMatcher matcher) {
-		return meta.match(matcher);
-	}
-
 	std::string getTypeName() {
 		return typeName(type);
 	}
@@ -194,6 +401,20 @@ public:
 			return getStrValue();
 		}
 		return "(unknown)";
+	}
+
+	std::string asVerboseString() {
+		std::ostringstream oss;
+		if (!isDefined()) {
+			oss << "undef";
+		} else {
+			oss << getName() << " (" << getTypeName() << ") {";
+			for (const auto &tag : getTags()) {
+				oss << tag.first << "=>" << tag.second << ", ";
+			}
+			oss << "} = " << asString();
+		}
+		return oss.str();
 	}
 	
 private:
@@ -234,6 +455,77 @@ private:
 		> value;
 };
 
+
+
+class FactMatcher {
+public:
+	FactMatcher(std::string name, FactTags tags, std::string &convert_str)
+		: name(name), tags(tags), converter(ExpressionTree(convert_str)) {};
+	// FactMatcher(std::string name, FactTags tags, ExpressionTree converter)
+	// 	: name(name), tags(tags), converter(std::move(converter)) {};
+	FactMatcher(std::string name, FactTags tags): name(name), tags(tags) {};
+	FactMatcher(std::string name): name(name), tags({}) {};
+
+	
+	/**
+	 * Returns true if names are equal and all match_tags are defined and have equal value
+	 */
+	bool matches(Fact fact) {
+		if(fact.getName() != name) return false;
+		FactTags fact_tags = fact.getTags();
+		
+		for (const auto& [key, match_value] : tags) {
+			if (auto value = fact_tags.find(key); value != tags.end()) {
+				if (value->second != match_value) return false;
+			} else {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Applies 'convert' expression to the fact's value.
+	 * On success, a new fact is returned with `.converted` appended to its name and value converted
+	 */
+	Fact convert(Fact fact_in) {
+		if (converter.has_value()) {
+			std::string name = fact_in.getName();
+			FactTags tags = fact_in.getTags();
+			FactMeta new_meta(name + ".converted", tags);
+			double val = 0.0;
+
+			switch (fact_in.getType()) {
+			case Fact::T_BOOL:
+				val = 0.0;
+				if(fact_in.getBoolValue()) {
+					val = 1.0;
+				}
+				break;
+			case Fact::T_INT:
+				val = static_cast<double>(fact_in.getIntValue());
+				break;
+			case Fact::T_UINT:
+				val = static_cast<double>(fact_in.getUintValue());
+				break;
+			case Fact::T_DOUBLE:
+				val = fact_in.getDoubleValue();
+				break;
+			default:
+				spdlog::warn("Attempt to apply 'convert' to unexpected datatype. Ignoring");
+				return fact_in;
+			}
+			return Fact(new_meta, val); //converter->evaluate(val));
+		} else {
+			return fact_in;
+		}
+	}
+	
+	std::string name;
+	FactTags tags;
+protected:
+	std::optional<ExpressionTree> converter = std::nullopt;
+};
 
 
 struct Bucket {
@@ -996,17 +1288,7 @@ public:
 		auto [x, y] = xy(cr);
 		auto y_offset = y;
 		for (Fact &fact : args) {
-			std::ostringstream oss;
-			if (!fact.isDefined()) {
-				oss << "undef";
-			} else {
-				oss << fact.getName() << " (" << fact.getTypeName() << ") {";
-				for (const auto &tag : fact.getTags()) {
-					oss << tag.first << "=>" << tag.second << ", ";
-				}
-				oss << "} = " << fact.asString();
-			}
-			std::string text =  oss.str();
+			std::string text = fact.asVerboseString();
 			cairo_set_source_rgba(cr, 255.0, 50.0, 50.0, 1);
 			cairo_move_to(cr, x, y_offset);
 			cairo_show_text(cr, text.c_str());
@@ -1227,7 +1509,17 @@ public:
 						tags.insert({key, value});
 					}
 				}
-				matchers.push_back(FactMatcher(matcher_name, tags));
+				if (matcher_j.contains("convert")) {
+					auto expression_str = matcher_j.at("convert").template get<std::string>();
+					try {
+						matchers.push_back(FactMatcher(matcher_name, tags, expression_str));
+					} catch (const ExpressionException& e) {
+						spdlog::error("Invalid convert expression {}: {}",
+									  expression_str, e.what());
+					}
+				} else {
+					matchers.push_back(FactMatcher(matcher_name, tags));
+				}
 			}
 			if (type == "TextWidget") {
 				addWidget(new TextWidget(x, y, widget_j.at("text").template get<std::string>()),
@@ -1362,9 +1654,15 @@ public:
 	};
 
 	void setFact(Fact fact) {
-		for (auto [matcher, widget, arg_idx] : matchers) {
-			if (fact.matches(matcher)) {
-				widget->setFact(arg_idx, fact);
+		for (auto& [matcher, widget, arg_idx] : matchers) {
+			if (matcher.matches(fact)) {
+				try {
+					Fact converted_fact = matcher.convert(fact);
+					widget->setFact(arg_idx, converted_fact);
+				} catch (const ExpressionException& e) {
+					spdlog::error("Failed to evaluate 'convert' expression for {}: {}",
+								  fact.asVerboseString(), e.what());
+				}
 			}
 		}
 	};
@@ -1578,7 +1876,7 @@ void *__OSD_THREAD__(void *param) {
 			// thread woke up because we got a new fact(s)
 			// copy all the facts to the temporary buffer to unlock the queue ASAP
 			for(; !fact_queue.empty(); fact_queue.pop()) {
-				SPDLOG_DEBUG("got fact {}", fact_queue.front().getName());
+				SPDLOG_DEBUG("got fact {}", fact_queue.front().asVerboseString());
 				fact_buf.push_back(fact_queue.front());
 			}
 			lock.unlock();
