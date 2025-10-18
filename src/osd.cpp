@@ -929,6 +929,63 @@ public:
 	}
 };
 
+/**
+ * Basic power widget
+ *
+ * It expects strictly the following list of facts in that specific order as input:
+ *  [
+ *   {"name": "os_mon.power.voltage"},
+ *   {"name": "os_mon.power.current"},
+ *   {"name": "os_mon.power.power"}
+ *  ]
+ */
+class PowerWidget : public IconTplTextWidget {
+public:
+	PowerWidget(int pos_x, int pos_y, cairo_surface_t *icon, uint num_args)
+		: IconTplTextWidget(pos_x, pos_y, icon, "Power: %fV, %fA, %fW", num_args) {
+		assert(num_args == 3);
+	};
+
+	virtual void setFact(uint idx, Fact fact) {
+		switch (idx) {
+		case 0: // voltage
+			args[0] = Fact(FactMeta("voltage"), fact.getIntValue() / 1000.0);
+			break;
+		case 1: // current
+			args[1] = Fact(FactMeta("current"), fact.getIntValue() / 1000.0);
+			break;
+		case 2: // power
+			args[2] = Fact(FactMeta("power"), fact.getIntValue() / 1000000.0);
+			break;
+		}
+	}
+};
+
+/**
+ * Basic temperature widget.
+ *
+ * It expects os_mon.temperature fact as input.
+ * If you need to display several sensors:
+ *
+ * {
+ *  "type": "TemperatureWidget",
+ *  ...
+ *  "template": "CPU: %i⁰C, GPU: %i⁰C",
+ *  "facts": [
+ *    {"name": "os_mon.temperature", "tags": {"name": "soc-thermal"}},
+ *    {"name": "os_mon.temperature", "tags": {"name": "gpu-thermal"}}
+ *  ]
+ * }
+ */
+class TemperatureWidget : public IconTplTextWidget {
+public:
+	TemperatureWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string tpl, uint num_args)
+		: IconTplTextWidget(pos_x, pos_y, icon, tpl, num_args) {};
+
+	virtual void setFact(uint idx, Fact fact) {
+		args[idx] = Fact(FactMeta("temperature"), fact.getIntValue() / 1000);
+	}
+};
 
 class DebugWidget: public Widget {
 public:
@@ -1266,6 +1323,17 @@ public:
 						  matchers);
 			} else if (type == "GPSWidget") {
 				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
+			} else if (type == "PowerWidget") {
+				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
+				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
+				if (icon == NULL) break;
+				addWidget(new PowerWidget(x, y, icon, (uint)matchers.size()), matchers);
+			} else if (type == "TemperatureWidget") {
+				auto tpl = widget_j.at("template").template get<std::string>();
+				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
+				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
+				if (icon == NULL) break;
+				addWidget(new TemperatureWidget(x, y, icon, tpl, (uint)matchers.size()), matchers);
 			} else if(type == "PopupWidget") {
 				auto timeout_ms = widget_j.at("timeout_ms").template get<uint>();
 				addWidget(new PopupWidget(x, y, timeout_ms, (uint)matchers.size()),
