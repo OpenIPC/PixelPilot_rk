@@ -1,4 +1,17 @@
-
+/**
+ * A graphical OSD overlay on top of the video.
+ * It receives a ton of various data-points ("Facts") other parts of the system publish using
+ * osd_publish_* and osd_add_* functions and uses this data to draw a graphical and/or textual
+ * widgets on the screen.
+ * The whole OSD is configured using config-file (JSON) which currently is basically a list of
+ * widgets, their positions, additional options and "subscriptions" to the "Facts".
+ *
+ * OSD runs in a separate thread and receives all the facts via queue.
+ *
+ * We also have `ExternalSurfaceWidget` which is a bit special - it doesn't read any facts but
+ * displays a surface that is provided via shm by external program. Right now it is used to display
+ * MSP/Displayport OSD.
+ */
 extern "C" {
 #include "drm.h"
 #include "mavlink.h"
@@ -129,16 +142,8 @@ public:
 			if (std::isdigit(c) || c == '.') {
 				currentToken += c;
 			} 
-			// Handling 'x' variable
-			else if (c == 'x') {
-				if (!currentToken.empty()) {
-					tokens.push_back(currentToken);
-					currentToken.clear();
-				}
-				tokens.push_back("x");
-			}
-			// Handling operators and parentheses
-			else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')') {
+			// Handling operators, 'x' and parentheses
+			else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == 'x') {
 				if (!currentToken.empty()) {
 					tokens.push_back(currentToken);
 					currentToken.clear();
@@ -1421,7 +1426,12 @@ class Osd {
 public:
 	void loadConfig(json cfg) {
 		json obj;
-		if (!cfg.contains("format")) {
+		if (cfg.contains("format")) {
+			auto cfg_format = cfg.at("format").template get<std::string>();
+			if (cfg_format != "0.0.1" && cfg_format != "0.0.2") {
+				spdlog::warn("Unexpected OSD config format: {}. OSD may look wrong", cfg_format);
+			}
+		} else {
 			spdlog::error("OSD config doesn't have 'format' key");
 			return;
 		}

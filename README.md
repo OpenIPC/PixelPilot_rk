@@ -153,7 +153,7 @@ Typical OSD config looks like:
 
 ```json
 {
-    "format": "0.0.1",
+    "format": "0.0.2",
     "assets_dir": "/usr/share/pixelpilot/",
     "widgets": [
         {
@@ -305,7 +305,7 @@ to display any fact (as long as datatype matches):
 * `{"type": "TextWidget", "text": "..."}` - displays a static string of text
 * `{"type": "TplTextWidget", "template": "..."}` - displays a string of text by replacing placeholders with
   the fact values. Supported placeholders are `%i` or `%d` - integer, `%b` - boolean, `%u` - unsigned,
-  `%s` - string, `%.f` / `%.0f` / `%.4f` - float with optional precision specifier
+  `%s` - string, `%f` / `%.0f` / `%.4f` - float with optional precision specifier
 * `{"type": "IconTplTextWidget", "template": "...", "icon_path": "foobar.png"}` - displays a
   graphical icon followed by templatized text string
 * `{"type": "BoxWidget", "width": 100, "height": 100, "color": {"r": 255, "g": 255, "b": 255, "alpha": 128}}` - displays
