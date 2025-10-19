@@ -284,13 +284,21 @@ void* __MAVLINK_THREAD__(void* arg) {
             {
                 mavlink_radio_status_t radio;
                 mavlink_msg_radio_status_decode(&message, &radio);
+                // In mavlink `radio_status` packets rssi and noise are defined as unsigned while
+                // in fact they are signed (they are in dBm):
+                // https://github.com/svpcom/wfb-ng/discussions/367
+                // So, converting them back.
+                int8_t rssi = (int8_t) radio.rssi;
+                int8_t noise = (int8_t) radio.noise;
+                int8_t snr = rssi - noise;
                 void *batch = osd_batch_init(6);
                 osd_add_uint_fact(batch, "mavlink.radio_status.rxerrors", tags, 2, (ulong) radio.rxerrors);
                 osd_add_uint_fact(batch, "mavlink.radio_status.fixed", tags, 2, (ulong) radio.fixed);
-                osd_add_int_fact(batch, "mavlink.radio_status.rssi", tags, 2, (int8_t) radio.rssi); // is type correct?
+                osd_add_int_fact(batch, "mavlink.radio_status.rssi", tags, 2, rssi);
                 osd_add_int_fact(batch, "mavlink.radio_status.remrssi", tags, 2, (long) radio.remrssi); // is type correct?
-                osd_add_uint_fact(batch, "mavlink.radio_status.noise", tags, 2, (ulong) radio.noise);
+                osd_add_int_fact(batch, "mavlink.radio_status.noise", tags, 2, noise);
                 osd_add_uint_fact(batch, "mavlink.radio_status.remnoise", tags, 2, (ulong) radio.remnoise);
+                osd_add_int_fact(batch, "mavlink.calculated.radio_status.snr", tags, 2, snr);
                 osd_publish_batch(batch);
                 
                 if ((message.sysid != 3) || (message.compid != 68)) {

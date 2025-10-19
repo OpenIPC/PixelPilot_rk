@@ -192,6 +192,7 @@ Currently implemented fact categories are grouped by Mavlink message types:
 | `mavlink.global_position_int.*`     | int      | Position estimation based on sensor fusion, see [GLOBAL_POSITION_INT](https://mavlink.io/en/messages/common.html#GLOBAL_POSITION_INT)                                                                                             |
 | `mavlink.attitude.*`                | double   | See [ATTITUDE](https://mavlink.io/en/messages/common.html#ATTITUDE)                                                                                                                                                               |
 | `mavlink.radio_status.*`            | uint/int | Status of various radio equipment. Tags `{sysid: 3, compid: 68}` encode the [injected status of WFB-ng receiver](https://github.com/svpcom/wfb-ng/blob/4ea700606c259960ea169bad1f55fde77850013d/wfb_ng/conf/master.cfg#L227-L228) |
+| `mavlink.calculated.radio_status.snr` | int    | SNR that doesn't come from Mavlink packet, but is calculated as `radio_status.rssi - radio_status.noise` |
 
 More can be easily added later. You can use `DebugWidget` to inspect the current raw value of the fact(s).
 
@@ -201,7 +202,7 @@ the last section of the name is either `delta` or `total`:
 
 | Fact                                | Type | Description                                  |
 |:------------------------------------|:-----|:---------------------------------------------|
-| `wfbcli.rx.packets.all.delta|total` | uint | Number of packets received                   |
+| `wfbcli.rx.packets.all.delta/total` | uint | Number of packets received                   |
 | `wfbcli.rx.packets.all_bytes.*`     | uint | Number of bytes received                     |
 | `wfbcli.rx.packets.dec_err.*`       | uint | Number of packets we failed to decrypt       |
 | `wfbcli.rx.packets.session.*`       | uint | Number of session packets received           |
@@ -227,7 +228,7 @@ Transmitting packets stats (same tags as receiving packets), add `delta` or `tot
 
 | Fact                                     | Type | Description                              |
 |:-----------------------------------------|:-----|:-----------------------------------------|
-| `wfbcli.tx.packets.injected.delta|total` | uint | Number of successfully injected packets  |
+| `wfbcli.tx.packets.injected.delta/total` | uint | Number of successfully injected packets  |
 | `wfbcli.tx.packets.injected_bytes.*`     | uint | Number of successfully injected bytes    |
 | `wfbcli.tx.packets.dropped.*`            | uint | Number of dropped packets                |
 | `wfbcli.tx.packets.truncated.*`          | uint | Number of truncated (?) packets          |
