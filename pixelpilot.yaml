@@ -1,3 +1,7 @@
+splash:
+  enabled: false
+  file: /usr/local/share/pixelpilot/splash.mp4 # use ffmpeg -i input.mp4 -c:v libx265 -x265-params keyint=1:scenecut=0 -c:a copy splash.mp4
+  # timeout: 3
 gsmenu:
   enabled: true
   gpio:
