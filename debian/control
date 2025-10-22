@@ -28,6 +28,8 @@ Depends:
  ${shlibs:Depends},
  ${misc:Depends},
  wfb-ng,
+ jq,
+ drm-info
 Description: Client for OpenIPC wfb-ng
  The client for wfb-ng that reads the video and telemetry streams,
  decodes video using Rockchip's MPP and displays on screen using Linux DRM
