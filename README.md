@@ -331,6 +331,12 @@ Specific widgets expect quite concrete facts as input:
   Uses `video.decode_and_handover_ms` fact
 * `GPSWidget` - displays GPS fix type (no fix / 2D fix / 3D fix etc) and GPS coordinates.
   Uses `mavlink.gps_raw.fix_type`, `mavlink.gps_raw.lat` and `mavlink.gps_raw.lon` facts
+* `{"type": "BatteryCellWidget", "template": "%.2fV", "critical_voltage": 3.5, "max_voltage": 4.2, "num_cells": "even"}` -
+  displays the individual cell voltage; the number of cells can be provided explicitly or auto-detected
+  from `max_voltage` and current pack voltage. Text changes color to yellow (20%) transitioning to
+  red (0%) when voltage approaches the `critical_voltage`. Change `critical_voltage` to ~3 for LiIon
+  and 3.5 for LiPo. This widget takes millivolts and is designed to work with `os_mon.power.voltage`,
+  but can probably be used with Mavlink as well.
 * `{"type": "IconSelectorWidget", "ranges_and_icons": [{"range": [0, 10], "icon_path": "0_10.png"}, {"range": [11, 20], ...}]}` - shows
   different icon depending on the range where the value lands to.
 

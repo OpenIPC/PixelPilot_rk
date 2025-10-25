@@ -12,6 +12,7 @@
  * displays a surface that is provided via shm by external program. Right now it is used to display
  * MSP/Displayport OSD.
  */
+#include <cmath>
 extern "C" {
 #include "drm.h"
 #include "mavlink.h"
@@ -343,6 +344,60 @@ public:
 	bool isDefined() {
 		return type != T_UNDEF;
 	}
+
+    operator bool() {
+        switch (type) {
+        case T_BOOL:
+            return getBoolValue();
+        case T_UINT:
+            return getUintValue() != 0;
+        case T_INT:
+            return getIntValue() != 0;
+        case T_DOUBLE:
+            return getDoubleValue() != 0.0;
+        case T_STRING:
+            return getStrValue() != "";
+        }
+    }
+
+    operator long() {
+        switch (type) {
+        case T_BOOL:
+            return getBoolValue() ? 1 : 0;
+        case T_UINT:
+            return (long)getUintValue();
+        case T_INT:
+            return getIntValue();
+        case T_DOUBLE:
+            return round(getDoubleValue());
+        }
+    }
+
+    operator ulong() {
+        switch (type) {
+        case T_BOOL:
+            return getBoolValue() ? 1 : 0;
+        case T_UINT:
+            return getUintValue();
+        case T_INT:
+            return (ulong)getIntValue();
+        case T_DOUBLE:
+            return round(getDoubleValue());
+        }
+    }
+
+    operator double() {
+        switch (type) {
+        case T_BOOL:
+            return getBoolValue() ? 1.0 : 0.0;
+        case T_UINT:
+            return getUintValue() * 1.0;
+        case T_INT:
+            return getIntValue() * 1.0;
+        case T_DOUBLE:
+            return getDoubleValue();
+        }
+    }
 
 	// TODO: try to cast instead of crash
 	bool getBoolValue() const {
@@ -1229,6 +1284,85 @@ public:
 	}
 };
 
+/**
+ * Widget that shows approximate voltage of a battery cell.
+ * If the number of cells is 0, it estimates it from the pack voltage based on max_voltage_mv;
+ * If the number of cells is -1, it estimates only even cell numbers (2, 4, 6, 8, ...) - this
+ * fixes the situation when, eg, discharged to 20v 6s LiIon would be recognized as 5s.
+ *
+ * Widget's text is drawn in white when battery is above 20% from critical. And below 20% it
+ * gradually transitions from yellow through orange to red.
+ */
+class BatteryCellWidget: public TplTextWidget {
+public:
+    float warn_percentage = 0.2;
+
+    BatteryCellWidget(int pos_x, int pos_y,
+                      int critical_voltage_mv, int max_voltage_mv, int num_cells,
+                      std::string tpl, uint num_args) :
+        TplTextWidget(pos_x, pos_y, tpl, num_args), critical_voltage_mv(critical_voltage_mv),
+        max_voltage_mv(max_voltage_mv), num_cells(num_cells) {
+        assert(num_args == 1);
+    };
+
+    virtual void setFact(uint idx, Fact fact) {
+        assert(idx == 0);
+        // replace the pack value with per-cell value
+        long voltage_mv = fact.getIntValue();
+        int cells;
+        if (num_cells > 0) {
+            cells = num_cells;
+        } else if (num_cells == 0) {
+            // estimate any number of cells
+            cells = (voltage_mv / max_voltage_mv) + 1;
+        } else {
+            // estimate even number of cells
+            cells = (voltage_mv / max_voltage_mv) + 1;
+            if (cells % 2 != 0) {
+                cells++;
+            }
+        }
+        long cell_voltage_mv = voltage_mv / cells;
+        args[0] = Fact(FactMeta("volts"), (double)cell_voltage_mv / 1000.0);
+    }
+
+
+    virtual void draw(cairo_t *cr) {
+        auto [x, y] = xy(cr);
+        const Fact& fact = args[0];
+        auto cell_voltage = fact.getDoubleValue();
+        auto cell_voltage_mv = cell_voltage * 1000;
+
+        std::unique_ptr<std::string> msg = render_tpl();
+
+        if (cell_voltage_mv <= critical_voltage_mv) {
+            // Draw in red
+            cairo_set_source_rgba(cr, 255.0, 0, 0, 1);
+        } else {
+            // Now we know voltage is above critical
+            float remaining_percentage =
+                (float)(cell_voltage_mv - critical_voltage_mv) /
+                (max_voltage_mv - critical_voltage_mv);
+
+            if (remaining_percentage < warn_percentage) {
+                // Calculate green based on remaining percentage (0--warn_percentage% range)
+                double green_value = 255.0 * (remaining_percentage / warn_percentage);
+                // Transition from yellow through orange to red
+                cairo_set_source_rgba(cr, 255.0, green_value, 0, 1);
+            } else {
+                // White when above 20%
+                cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+            }
+        }
+        cairo_move_to(cr, x, y);
+        cairo_show_text(cr, msg->c_str());
+    }
+protected:
+    int critical_voltage_mv;
+    int max_voltage_mv;
+    int num_cells;
+};
+
 class DebugWidget: public Widget {
 public:
 	DebugWidget(int pos_x, int pos_y, uint num_args) :
@@ -1570,11 +1704,36 @@ public:
 						  matchers);
 			} else if (type == "GPSWidget") {
 				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
-			} else if(type == "PopupWidget") {
+            } else if (type == "BatteryCellWidget") {
+                int critical_mv = 3500;
+                int max_mv = 4200;
+                int num_cells = -1;
+				auto tpl = widget_j.at("template").template get<std::string>();
+                if (widget_j.contains("critical_voltage")) {
+                    critical_mv = (int)(widget_j.at("critical_voltage").template get<float>() * 1000);
+                }
+                if (widget_j.contains("max_voltage")) {
+                    max_mv = (int)(widget_j.at("max_voltage").template get<float>() * 1000);
+                }
+                if (widget_j.contains("num_cells")) {
+                    std::string cells = widget_j["num_cells"];
+                    if (cells == "auto") {
+                        num_cells = 0;
+                    } else if (cells == "even") {
+                        num_cells = -1;
+                    } else {
+                        num_cells = widget_j["num_cells"].get<int>();
+                    }
+                }
+                assert(critical_mv < max_mv);
+                addWidget(new BatteryCellWidget(x, y, critical_mv, max_mv, num_cells,
+                                                tpl, (uint)matchers.size()),
+                          matchers);
+			} else if (type == "PopupWidget") {
 				auto timeout_ms = widget_j.at("timeout_ms").template get<uint>();
 				addWidget(new PopupWidget(x, y, timeout_ms, (uint)matchers.size()),
 						  matchers);
-			} else if(type == "DebugWidget") {
+			} else if (type == "DebugWidget") {
 				addWidget(new DebugWidget(x, y, (uint)matchers.size()), matchers);
 			} else {
 				spdlog::warn("Widget '{}': unknown type: {}", name, type);

@@ -46,6 +46,21 @@
                 {"name": "os_mon.power.power",
                  "convert": "x / 1000000"}
             ]
+        },
+        {
+            "type": "BatteryCellWidget",
+            "name": "Individual battery cell voltage",
+            "x": 350,
+            "y": 90,
+            "template": "(cell: %.2fV)",
+            "__comment1": "for LiPo set critical to 3.5; for LiIon critical to ~2.8-3",
+            "critical_voltage": 3.5,
+            "max_voltage": 4.2,
+            "__comment2": "num_cells can be 'auto' - to be autodetected, 'even' - autodetect even number (2/4/6/8..) or the actual number of cells eg 4 or 6 etc",
+            "num_cells": "even",
+            "facts": [
+                {"name": "os_mon.power.voltage"}
+            ]
         }
     ]
 }
