@@ -84,7 +84,7 @@ int process_rx(const msgpack::object& packet) {
         uint64_t antenna_id = key_array.ptr[1].as<uint64_t>();
 
         strcpy(tags[1].key, "ant_id");
-        snprintf(tags[1].val, sizeof(tags[0].val), "%u", antenna_id);
+        snprintf(tags[1].val, sizeof(tags[0].val), "%lu", antenna_id);
 
         // Extract the value (which is an array: [packets_delta, rssi_min, rssi_avg, rssi_max, snr_min, snr_avg, snr_max])
         msgpack::object_array value_array = rx_ant_stats.via.map.ptr[i].val.via.array;

@@ -6,6 +6,11 @@ find_package(PkgConfig REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Option to control wmenu simulator build
+option(USE_SIMULATOR "Build the simulator version of the application" OFF)
+# If build should include tests
+option(BUILD_TESTS "Build unit tests" OFF)
+
 # LVGL setup
 set(LV_USE_LINUX_DRM ON)
 set(LV_CONF_BUILD_DISABLE_DEMOS 1)
@@ -73,7 +78,7 @@ set(SIMULATOR_SOURCES
 
 add_compile_options("-Wno-address-of-packed-member")
 
-set(SOURCE_FILES 
+set(LIB_SOURCE_FILES 
         src/drm.h
         src/drm.c
         src/gsmenu/executor.h
@@ -126,22 +131,21 @@ set(SOURCE_FILES
         src/dvr.cpp
         src/mavlink.h
         src/mavlink.c
-        src/main.cpp
-        src/main.h
         src/wfbcli.hpp
         src/wfbcli.cpp
         src/scheduling_helper.hpp
         src/gstrtpreceiver.cpp
         src/gstrtpreceiver.h)
+set(SOURCE_FILES
+  ${LIB_SOURCE_FILES}
+  src/main.cpp
+  src/main.h)
 file(GLOB ICONS src/icons/*.png)
 file(GLOB OSD_CONFIGS *_osd.json)
 
 include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog")
 
 configure_file("${PROJECT_NAME}_config.h.in" "${PROJECT_NAME}_config.h")
-
-# Option to control wmenu simulator build
-option(USE_SIMULATOR "Build the simulator version of the application" OFF)
 
 if(USE_SIMULATOR)
   add_definitions(-DUSE_SIMULATOR)
@@ -180,6 +184,48 @@ if(CMAKE_BUILD_TYPE MATCHES "Debug")
 endif()
 
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_BINARY_DIR}")
+
+# Testing
+if(BUILD_TESTS)
+    find_package(Catch2 REQUIRED)
+
+    # Test source files
+    set(TEST_SOURCES
+      tests/test_osd.cpp
+      src/main.h
+      src/main.cpp
+    )
+    find_package(spdlog REQUIRED)
+    find_package(nlohmann_json 3 REQUIRED)
+    find_package(yaml-cpp REQUIRED)
+
+    # Test executable
+    add_executable(pixelpilot_tests ${LIB_SOURCE_FILES} ${TEST_SOURCES})
+    target_include_directories(pixelpilot_tests PUBLIC "${PROJECT_BINARY_DIR}")
+    # Define the TEST preprocessor directive
+    target_compile_definitions(pixelpilot_tests PRIVATE TEST)
+    target_link_libraries(pixelpilot_tests rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES} ${PNG_LIBRARIES} Catch2::Catch2WithMain)
+
+    find_package(PkgConfig REQUIRED)
+    pkg_search_module(GST REQUIRED
+          gstreamer-1.0>=1.4
+          gstreamer-app-1.0>=1.4
+    )
+    pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
+    pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
+    target_link_libraries(pixelpilot_tests PkgConfig::gstreamer PkgConfig::gstreamer-app)
+
+    target_link_options(pixelpilot_tests
+      BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
+    )
+
+    # Optionally, establish testing options
+    #enable_testing()
+    #add_test(NAME PixelPilotTests COMMAND pixelpilot_tests)
+endif()
+
+
+# Installation
 
 include(GNUInstallDirs)
 install(TARGETS ${PROJECT_NAME}

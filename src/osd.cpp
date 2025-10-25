@@ -45,7 +45,11 @@ extern "C" {
 #include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 #include <fmt/ranges.h>
-#include "lvgl/lvgl.h"
+#include "../lvgl/lvgl.h"
+
+#ifdef BUILD_TESTS
+#include <catch2/catch.hpp>
+#endif
 
 #define WFB_LINK_LOST 1
 #define WFB_LINK_JAMMED 2
@@ -464,7 +468,7 @@ public:
 		return "(unknown)";
 	}
 
-	std::string asVerboseString() {
+	std::string asVerboseString() const {
 		std::ostringstream oss;
 		if (!isDefined()) {
 			oss << "undef";
@@ -501,7 +505,7 @@ private:
 	void assertType(Type t) const {
 		if (t != type) {
 			spdlog::error("'{}': requested type of {}, but the actual type is {}",
-						  meta.getName(), typeName(t), typeName(type));
+						  asVerboseString(), typeName(t), typeName(type));
 			assert(type == t);
 		}
 	}
@@ -762,7 +766,8 @@ public:
 	virtual void draw(cairo_t *cr) {};
 
 	virtual void setFact(uint idx, Fact fact) {
-		args[idx] = fact;
+        if (idx >= args.size()) throw std::out_of_range("setFact index out of range");
+        args[idx] = fact;
 	}
 
 	int x(cairo_t *cr) {
@@ -840,6 +845,10 @@ public:
         cairo_show_text(cr, msg->c_str());
     }
 
+    std::unique_ptr<std::string> render_tpl() {
+        return render_tokens(_tokens, args);
+    }
+
     uint default_precision = 2;
 
 protected:
@@ -864,10 +873,6 @@ protected:
         Token(TokenType t) // other
             : type(t), value(std::nullopt), precision(0) {}
     };
-
-    std::unique_ptr<std::string> render_tpl() {
-        return render_tokens(_tokens, args);
-    }
 
     std::unique_ptr<std::string> render_tpl(const std::string& tpl, const std::vector<Fact>& facts) {
         auto tokens = tokenize(tpl);
@@ -922,7 +927,7 @@ protected:
             if (match == "%%") {
                 tokens.emplace_back(TokenType::Literal, "%");
             } else if (match[0] == '%') {
-                if (match.size() == 2) { // Simple placeholder like %b, %i, %u, %s
+                if (match.size() == 2) { // Simple placeholder like %b, %i, %u, %s, %f
                     if (match[1] == 'b') {
                         tokens.emplace_back(TokenType::Bool);
                     } else if (match[1] == 'i' || match[1] == 'd') {
@@ -931,8 +936,10 @@ protected:
                         tokens.emplace_back(TokenType::Uint);
                     } else if (match[1] == 's') {
                         tokens.emplace_back(TokenType::String);
+                    } else if (match[1] == 'f') {
+                        tokens.emplace_back(TokenType::Float, default_precision);
                     }
-                } else if (match.back() == 'f') { // Float placeholder
+                } else if (match.back() == 'f') { // Float placeholder with precision
                     uint precision = 0;
                     if (match.size() > 2 && match[1] == '.') {
                         precision = std::stoi(match.substr(2, match.size() - 3)); // Extract precision
@@ -1864,8 +1871,6 @@ void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	unsigned int j,k,off;
 	cairo_t* cr;
 	cairo_surface_t *surface;
-	char msg[80];
-	memset(msg, 0x00, sizeof(msg));
 
 	int osd_x = buf->width - 300;
 	surface = cairo_image_surface_create_for_data(buf->map, CAIRO_FORMAT_ARGB32, buf->width, buf->height, buf->stride);
@@ -2179,4 +2184,73 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 
 #ifdef __cplusplus
 }
+#endif
+
+
+//
+// Code below is only for unit-tests!
+//
+#ifdef TEST
+
+TestExpressionTree::TestExpressionTree() {
+    tree = new ExpressionTree();
+}
+
+TestExpressionTree::TestExpressionTree(const std::string& expression) {
+    tree = new ExpressionTree(expression);
+}
+
+TestExpressionTree::~TestExpressionTree() {
+    delete tree;
+}
+
+std::vector<std::string> TestExpressionTree::tokenize(const std::string& input) {
+    return tree->tokenize(input);
+}
+
+void TestExpressionTree::parse(const std::string &expression) {
+    tree->parse(expression);
+}
+
+double TestExpressionTree::evaluate(double xValue) {
+    return tree->evaluate(xValue);
+}
+
+
+
+TestTplTextWidget::TestTplTextWidget(int pos_x, int pos_y, std::string tpl, uint n_args) {
+    widget = new TplTextWidget(pos_x, pos_y, tpl, n_args);
+}
+TestTplTextWidget::~TestTplTextWidget() {
+    delete widget;
+}
+void TestTplTextWidget::setBoolFact(uint idx, bool v) {
+    Fact fact = Fact(FactMeta("bool"), v);
+    widget->setFact(idx, fact);
+};
+void TestTplTextWidget::setLongFact(uint idx, long v) {
+    Fact fact = Fact(FactMeta("long"), v);
+    widget->setFact(idx, fact);
+};
+void TestTplTextWidget::setUlongFact(uint idx, ulong v) {
+    Fact fact = Fact(FactMeta("ulong"), v);
+    widget->setFact(idx, fact);
+};
+void TestTplTextWidget::setDoubleFact(uint idx, double v) {
+    Fact fact = Fact(FactMeta("double"), v);
+    widget->setFact(idx, fact);
+};
+void TestTplTextWidget::setStringFact(uint idx, std::string v) {
+    Fact fact = Fact(FactMeta("string"), v);
+    widget->setFact(idx, fact);
+};
+
+void TestTplTextWidget::draw(void *cr) {
+    widget->draw((cairo_t *) cr);
+}
+
+std::unique_ptr<std::string> TestTplTextWidget::render_tpl() {
+    return widget->render_tpl();
+}
+
 #endif

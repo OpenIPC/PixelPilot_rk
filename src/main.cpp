@@ -692,6 +692,7 @@ void printHelp() {
 }
 
 // main
+#ifndef TEST
 
 int main(int argc, char **argv)
 {
@@ -1151,3 +1152,5 @@ int main(int argc, char **argv)
 	restore_stdin();
 	return return_value;
 }
+
+#endif

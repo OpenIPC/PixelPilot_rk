@@ -10,7 +10,7 @@ DEBIAN_CODENAME=bookworm
 SKIP_SETUP=0
 
 print_help() {
-    echo "$0 --wipe-boot --pkg-version X.Y.Z --root-dir /path/to/surces --build-type <deb|bin|debug> --skip-setup --help"
+    echo "$0 --wipe-boot --pkg-version X.Y.Z --root-dir /path/to/surces --build-type <deb|bin|debug|test> --skip-setup --help"
 }
 
 
@@ -88,6 +88,8 @@ if [ $SKIP_SETUP -lt 1 ]; then
         bin|debug)
             apt-get install -y cmake build-essential git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
             ;;
+        test)
+            apt-get install -y cmake build-essential git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev catch2
     esac
 fi
 
@@ -122,4 +124,8 @@ case $BUILD_TYPE in
     debug)
         cmake -B build -DCMAKE_BUILD_TYPE=Debug
         cmake --build build -j`nproc` --target install
+        ;;
+    test)
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+        cmake --build build -j`nproc`
 esac
