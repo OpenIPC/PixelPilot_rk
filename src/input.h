@@ -3,8 +3,8 @@
 #define INPUT_H
 
 #include <stdint.h>
-#include "../../lvgl/lvgl.h"
-#include "../../lvgl/src/core/lv_global.h"
+#include "../lvgl/lvgl.h"
+#include "../lvgl/src/core/lv_global.h"
 
 typedef enum {
     GSMENU_CONTROL_MODE_NAV = 0,

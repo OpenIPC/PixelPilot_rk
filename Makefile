@@ -3,7 +3,7 @@ DEBIAN_CODENAME=bookworm
 DEBIAN_HOST=https://cloud.debian.org/images/cloud/$(DEBIAN_CODENAME)
 DEBIAN_RELEASE=latest
 SKIP_SETUP=0
-# BUILD_TYPE=bin|debug
+# BUILD_TYPE=bin|debug|test
 BUILD_TYPE=bin
 
 ifeq ($(DEBIAN_CODENAME),bookworm)
@@ -46,6 +46,17 @@ qemu_build_deb:
 	sudo rm $(OUTPUT)/etc/resolv.conf
 	echo nameserver 1.1.1.1 | sudo tee -a $(OUTPUT)/etc/resolv.conf
 	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --pkg-version $(DEB_VERSION) --debian-codename $(DEBIAN_CODENAME) --build-type deb
+	make umount
+
+.PHONY: qemu_test
+qemu_test:
+	mkdir -p $(OUTPUT)
+	make mount
+
+	sudo rm $(OUTPUT)/etc/resolv.conf
+	echo nameserver 1.1.1.1 | sudo tee -a $(OUTPUT)/etc/resolv.conf
+	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --debian-codename $(DEBIAN_CODENAME) --build-type test $(if $(filter 1,$(SKIP_SETUP)),--skip-setup,)
+	sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_run_test.sh
 	make umount
 
 .PHONY: mount

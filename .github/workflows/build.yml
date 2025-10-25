@@ -25,6 +25,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Cache debian
+        id: cache-debian
+        uses: actions/cache@v4
+        with:
+          path: |
+            !.apt_cache/archives/lock
+            !.apt_cache/archives/partial
+            .apt_cache
+            debian-*-generic-arm64.tar
+          key: ${{ matrix.debian_codename }}-files
+
       - name: Install deps
         run: |
           sudo apt-get update
@@ -54,6 +65,39 @@ jobs:
             ${{ matrix.debian_codename }}_pixelpilot
             ${{ matrix.debian_codename }}_pixelpilot-rk_*_arm64.deb
             ${{ matrix.debian_codename }}_pixelpilot-rk-dbgsym_*_arm64.deb
+
+  test:
+    name: Test (${{ matrix.debian_codename }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        debian_codename:
+          - bookworm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache debian
+        id: cache-debian
+        uses: actions/cache@v4
+        with:
+          path: |
+            .apt_cache
+            !.apt_cache/archives/lock
+            !.apt_cache/archives/partial
+            debian-*-generic-arm64.tar
+          key: ${{ matrix.debian_codename }}-files
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
+
+      - name: QEMU Test
+        run: |
+          make qemu_test DEBIAN_CODENAME=${{ matrix.debian_codename }}
 
   release:
     name: Release Artifacts
