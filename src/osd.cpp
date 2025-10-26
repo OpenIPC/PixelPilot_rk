@@ -849,7 +849,6 @@ protected:
         uint precision = default_precision;
         int fact_i = 0;
         std::ostringstream msg;
-        std::string precision_str;
         for(char& c : tpl) {
             if (c == '%') {
                 at_placeholder = true;
@@ -868,7 +867,12 @@ protected:
                     msg << '?'; // Handle out-of-bounds fact access
                     break;
                 }
-                const Fact& fact = args[fact_i];
+                const Fact& fact = args.at(fact_i);
+                if (!fact.isDefined()) {
+                    msg << '?';
+                    fact_i++;
+                    continue;
+                }
                 switch (c) {
                 case 'b':
                     msg << (fact.getBoolValue() ? 't' : 'f');
