@@ -35,6 +35,7 @@ extern "C" {
 #include <cstdlib> //KILLME
 #include <string>
 #include <optional>
+#include <regex>
 #include <utility>
 #include <filesystem>
 #include <cairo.h>
@@ -340,7 +341,7 @@ public:
 	Fact(FactMeta meta, double val): meta(meta), value(val), type(T_DOUBLE) {};
 	Fact(FactMeta meta, std::string val): meta(meta), value(val), type(T_STRING) {};
 
-	bool isDefined() {
+	bool isDefined() const {
 		return type != T_UNDEF;
 	}
 
@@ -772,7 +773,9 @@ protected:
 class TplTextWidget: public Widget {
 public:
     TplTextWidget(int pos_x, int pos_y, std::string tpl, uint num_args):
-        Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {};
+        Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {
+        _tokens = tokenize(tpl);
+    };
 
     virtual void draw(cairo_t *cr) {
         auto [x, y] = xy(cr);
@@ -785,77 +788,113 @@ public:
     uint default_precision = 2;
 
 protected:
+    enum class TokenType {
+        Literal,
+        Bool,
+        Int,
+        Uint,
+        Float,
+        String
+    };
+
+    struct Token {
+        TokenType type;
+        std::optional<std::string> value; // Used to hold literal
+        uint precision;    // Precision for float placeholders if applicable
+
+        Token(TokenType t, std::string v) // literal
+            : type(t), value(std::move(v)), precision(0) {}
+        Token(TokenType t, uint p) // float
+            : type(t), value(std::nullopt), precision(p) {}
+        Token(TokenType t) // other
+            : type(t), value(std::nullopt), precision(0) {}
+    };
+
     std::unique_ptr<std::string> render_tpl() {
-        return render_tpl(tpl, args);
+        return render_tokens(_tokens, args);
     }
-    std::unique_ptr<std::string> render_tpl(std::string tpl, const std::vector<Fact>& args) {
-        bool at_placeholder = false;
-        bool at_precision = false;
-        uint precision = default_precision;
-        int fact_i = 0;
+
+    std::unique_ptr<std::string> render_tpl(const std::string& tpl, const std::vector<Fact>& facts) {
+        auto tokens = tokenize(tpl);
+        return render_tokens(tokens, facts);
+    }
+
+    std::unique_ptr<std::string> render_tokens(const std::vector<Token>& tokens,
+                                               const std::vector<Fact>& facts) {
         std::ostringstream msg;
-        for(char& c : tpl) {
-            if (c == '%') {
-                at_placeholder = true;
-            } else if (!at_placeholder) {
-                msg << c;
-            } else if (at_placeholder && c == '%') {
-                msg << '%';
-                at_placeholder = false;
-            } else if (at_placeholder) {
-                if (at_precision && std::isdigit(c)) {
-                    precision = precision * 10 + (c - '0');
-                    continue; // exit early
+        size_t fact_i = 0; // To track the current index in the facts vector
+
+        for (const Token& token : tokens) {
+            if (token.type == TokenType::Literal) {
+                msg << *token.value; // Append literal directly, dereference std::optional
+            } else {
+                // Check if we have enough facts and if the current fact is defined
+                if (fact_i >= facts.size() || !facts[fact_i].isDefined()) {
+                    msg << '?'; // Append '?' for undefined facts
+                } else {
+                    switch (token.type) {
+                    case TokenType::Bool:
+                        msg << (facts[fact_i].getBoolValue() ? 't' : 'f');
+                        break;
+                    case TokenType::Int:
+                        msg << facts[fact_i].getIntValue();
+                        break;
+                    case TokenType::Uint:
+                        msg << facts[fact_i].getUintValue();
+                        break;
+                    case TokenType::Float:
+                        msg << std::fixed << std::setprecision(token.precision) << facts[fact_i].getDoubleValue();
+                        break;
+                    case TokenType::String:
+                        msg << facts[fact_i].getStrValue();
+                        break;
+                    }
                 }
-                at_precision = false;
-                if (fact_i >= args.size()) {
-                    msg << '?'; // Handle out-of-bounds fact access
-                    break;
-                }
-                const Fact& fact = args.at(fact_i);
-                if (!fact.isDefined()) {
-                    msg << '?';
-                    fact_i++;
-                    continue;
-                }
-                switch (c) {
-                case 'b':
-                    msg << (fact.getBoolValue() ? 't' : 'f');
-                    fact_i++;
-                    break;
-                case 'd':
-                case 'i':
-                    msg << fact.getIntValue();
-                    fact_i++;
-                    break;
-                case 'u':
-                    msg << fact.getUintValue();
-                    fact_i++;
-                    break;
-                case 'f':
-                    msg << std::fixed << std::setprecision(precision) << fact.getDoubleValue();
-                    fact_i++;
-                    break;
-                case 's':
-                    msg << fact.getStrValue();
-                    fact_i++;
-                    break;
-                case '.':
-                    // beginning of float precision specifier `%.3f` / `%.123f` / `%.0f`
-                    at_precision = true;
-                    precision = 0;
-                    continue; // exit earlier to not reset `at_placeholder`
-                default:
-                    msg << '?';
-                }
-                at_placeholder = false;
+                fact_i++; // Move to the next fact for the next placeholder
             }
         }
         return std::make_unique<std::string>(msg.str());
     }
 
-protected:
+    std::vector<Token> tokenize(const std::string& tpl) {
+        std::vector<Token> tokens;
+        std::regex token_regex(R"(%%|%[bisu]|%(\.\d+)?f|[^%]+)"); // Match placeholders and literals
+        std::sregex_iterator iter(tpl.begin(), tpl.end(), token_regex);
+        std::sregex_iterator end;
+
+        while (iter != end) {
+            std::string match = iter->str();
+            if (match == "%%") {
+                tokens.emplace_back(TokenType::Literal, "%");
+            } else if (match[0] == '%') {
+                if (match.size() == 2) { // Simple placeholder like %b, %i, %u, %s
+                    if (match[1] == 'b') {
+                        tokens.emplace_back(TokenType::Bool);
+                    } else if (match[1] == 'i' || match[1] == 'd') {
+                        tokens.emplace_back(TokenType::Int);
+                    } else if (match[1] == 'u') {
+                        tokens.emplace_back(TokenType::Uint);
+                    } else if (match[1] == 's') {
+                        tokens.emplace_back(TokenType::String);
+                    }
+                } else if (match.back() == 'f') { // Float placeholder
+                    uint precision = 0;
+                    if (match.size() > 2 && match[1] == '.') {
+                        precision = std::stoi(match.substr(2, match.size() - 3)); // Extract precision
+                    }
+                    tokens.emplace_back(TokenType::Float, precision); // Add float token
+                }
+            } else {
+                tokens.emplace_back(TokenType::Literal, match); // Accumulate literal
+            }
+            ++iter;
+        }
+
+        return tokens;
+    }
+
     std::string tpl;
+    std::vector<Token> _tokens;
     uint num_args;
 };
 
