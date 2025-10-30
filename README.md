@@ -209,6 +209,7 @@ lot of facts to which widgets can subscribe to:
 | `video.decoder_feed_time_ms`   | uint | Time to feed the video packet to hardware decoder                         |
 | `gstreamer.received_bytes`     | uint | Number of bytes received from gstreamer (published for each packet)       |
 | `osd.custom_message`           | str  | The custom message passed via `--osd-custom-message` feature              |
+| `os_mon.wifi.rssi`             | uint | rssi as reported from /proc/net/rtl88x2eu/<interface>/trx_info_debug      |
 
 There are many facts based on Mavlink telemetry, see `mavlink.c`. All of them have tags "sysid" and
 "compid", but some have extra tags.
@@ -356,7 +357,7 @@ cmake -B build
 sudo cmake --build build --target install
 curl -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_arm64
 chmod +x /usr/local/bin/yq
-sudo apt install drm-info jq
+sudo apt install drm-info jq netcat
 ```
 
 ### Navigation

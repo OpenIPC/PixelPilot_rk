@@ -55,7 +55,8 @@ extern "C" {
 #include "os_mon.hpp"
 #include "pixelpilot_config.h"
 #include <iostream>
-
+#include "WiFiRSSIMonitor.hpp"
+#include "gsmenu/gs_system.h"
 
 #define READ_BUF_SIZE (1024*1024) // SZ_1M https://github.com/rockchip-linux/mpp/blob/ed377c99a733e2cdbcc457a6aa3f0fcd438a9dff/osal/inc/mpp_common.h#L179
 #define MAX_FRAMES 24		// min 16 and 20+ recommended (mpp/readme.txt)
@@ -108,6 +109,9 @@ OsSensors os_sensors; // TODO: pass as argument to `main_loop`
 // Add global variables for plane id overrides
 uint32_t video_plane_id_override = 0;
 uint32_t osd_plane_id_override = 0;
+
+WiFiRSSIMonitor wifi_monitor;
+extern enum RXMode RXMODE;
 
 void init_buffer(MppFrame frame) {
 	output_list->video_frm_width = mpp_frame_get_width(frame);
@@ -540,6 +544,9 @@ void main_loop() {
         // TODO: put gsmenu main loop here
         msg_manager.check_message();
 		os_sensors.run();
+		if (RXMODE == APFPV) {
+    		wifi_monitor.run();
+		}
         sleep(1);
     }
     return;
