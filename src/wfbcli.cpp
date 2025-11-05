@@ -20,6 +20,7 @@
 #include <msgpack.hpp>
 #include "spdlog/spdlog.h"
 
+#include "gsmenu/gs_system.h"
 #include "wfbcli.hpp"
 extern "C" {
 #include "osd.h"
@@ -30,6 +31,7 @@ extern "C" {
 int wfb_thread_signal = 0;
 
 uint64_t gtotal_tunnel_data = 0; // global variable for easyer access in gsmenu
+extern enum RXMode RXMODE;
 
 int process_rx(const msgpack::object& packet) {
 
@@ -298,41 +300,51 @@ int reconnect_to_server(const char *host, int port) {
     hints.ai_socktype = SOCK_STREAM; // TCP
 
     while (!wfb_thread_signal) {
-        SPDLOG_DEBUG("wfb-cli attempting to connect to API server...");
-        // Get address info
-        if ((status = getaddrinfo(host, std::to_string(port).c_str(), &hints, &res)) != 0) {
-            SPDLOG_ERROR("wfb-cli incorrect host {} or port {}. Error: {}",
-                         host, port, gai_strerror(status));
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
-        // Loop through results and try to connect
-        for (p = res; p != nullptr; p = p->ai_next) {
-            sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-            if (sock < 0) {
-                SPDLOG_ERROR("wfb-cli socket creation failed");
-                continue;
-            }
-            if (connect(sock, p->ai_addr, p->ai_addrlen) < 0) {
-                char ip_str[INET6_ADDRSTRLEN];
-                if (p->ai_family == AF_INET) {
-                    struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
-                    inet_ntop(AF_INET, &ipv4->sin_addr, ip_str, sizeof(ip_str));
-                } else {
-                    struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)p->ai_addr;
-                    inet_ntop(AF_INET6, &ipv6->sin6_addr, ip_str, sizeof(ip_str));
+        switch (RXMODE)
+        {
+            case APFPV:
+                SPDLOG_DEBUG("rxMode is apfpv, idle WFB thread");
+                break;
+
+            case WFB:
+                {
+                    SPDLOG_DEBUG("wfb-cli attempting to connect to API server...");
+                    // Get address info
+                    if ((status = getaddrinfo(host, std::to_string(port).c_str(), &hints, &res)) != 0) {
+                        SPDLOG_ERROR("wfb-cli incorrect host {} or port {}. Error: {}",
+                                    host, port, gai_strerror(status));
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                        continue;
+                    }
+                    // Loop through results and try to connect
+                    for (p = res; p != nullptr; p = p->ai_next) {
+                        sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+                        if (sock < 0) {
+                            SPDLOG_ERROR("wfb-cli socket creation failed");
+                            continue;
+                        }
+                        if (connect(sock, p->ai_addr, p->ai_addrlen) < 0) {
+                            char ip_str[INET6_ADDRSTRLEN];
+                            if (p->ai_family == AF_INET) {
+                                struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
+                                inet_ntop(AF_INET, &ipv4->sin_addr, ip_str, sizeof(ip_str));
+                            } else {
+                                struct sockaddr_in6* ipv6 = (struct sockaddr_in6*)p->ai_addr;
+                                inet_ntop(AF_INET6, &ipv6->sin6_addr, ip_str, sizeof(ip_str));
+                            }
+                            SPDLOG_ERROR("wfb-cli connection to {}:{} ({}) failed", host, port, ip_str);
+                            close(sock); // Clean up the socket if connection fails
+                            continue;
+                        }
+                        SPDLOG_DEBUG("wfb-cli successfully connected to API server.");
+                        freeaddrinfo(res);
+                        return sock; // success
+                    }
+                    freeaddrinfo(res);
+                    res = nullptr;
+                    SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
                 }
-                SPDLOG_ERROR("wfb-cli connection to {}:{} ({}) failed", host, port, ip_str);
-                close(sock); // Clean up the socket if connection fails
-                continue;
-            }
-            SPDLOG_DEBUG("wfb-cli successfully connected to API server.");
-            freeaddrinfo(res);
-            return sock; // success
         }
-        freeaddrinfo(res);
-        res = nullptr;
-        SPDLOG_WARN("Reconnection failed. Retrying in 1 second");
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     return -1;
