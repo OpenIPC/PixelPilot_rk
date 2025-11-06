@@ -540,6 +540,9 @@ void main_loop() {
         // TODO: put gsmenu main loop here
         msg_manager.check_message();
 		os_sensors.run();
+        if (receiver) {
+            receiver->poll_bus();
+        }
         sleep(1);
     }
     return;

@@ -141,6 +141,7 @@ set(SOURCE_FILES
   src/main.cpp
   src/main.h)
 file(GLOB ICONS src/icons/*.png)
+file(GLOB SPLASH src/icons/*.mp4)
 file(GLOB OSD_CONFIGS *_osd.json)
 
 include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog")
@@ -231,7 +232,7 @@ include(GNUInstallDirs)
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(FILES ${ICONS}
+install(FILES ${ICONS} ${SPLASH}
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}
 )
 
