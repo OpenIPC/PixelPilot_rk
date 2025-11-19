@@ -671,16 +671,22 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 	if (set_drm_object_property(req, plane, "SRC_H", height << 16) < 0)
 		return -1;
 
-	uint32_t crtcw =  out->video_crtc_width;
-	uint32_t crtch = out->video_crtc_height;
-	float video_ratio = (float)width/height;
-	if (crtcw / video_ratio > crtch) {
-		crtcw = crtch * video_ratio;
-		crtch = crtch;
+	uint32_t orig_crtcw = out->video_crtc_width;
+	uint32_t orig_crtch = out->video_crtc_height;
+	float video_ratio = (float)width / height;
+	if (orig_crtcw / video_ratio > orig_crtch) {
+		orig_crtcw = orig_crtch * video_ratio;
+		orig_crtch = orig_crtch;
 	} else {
-		crtcw = crtcw;
-		crtch = crtcw / video_ratio;
+		orig_crtcw = orig_crtcw;
+		orig_crtch = orig_crtcw / video_ratio;
 	}
+
+	
+	float scale_factor = 0.75; //hardcoded value for quick test
+	uint32_t crtcw = (uint32_t)(orig_crtcw * scale_factor);
+	uint32_t crtch = (uint32_t)(orig_crtch * scale_factor);
+
 	int crtcx = (out->video_crtc_width - crtcw) / 2;
 	int crtcy = (out->video_crtc_height - crtch) / 2;
 	if (set_drm_object_property(req, plane, "CRTC_X", crtcx) < 0)
