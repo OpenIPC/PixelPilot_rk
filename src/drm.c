@@ -441,13 +441,14 @@ void modeset_output_destroy(int fd, struct modeset_output *out)
 	free(out);
 }
 
-struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id)
+struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id, float video_scale_factor)
 {
 	int ret;
 	struct modeset_output *out;
 
 	out = malloc(sizeof(*out));
 	memset(out, 0, sizeof(*out));
+	out->video_scale_factor = video_scale_factor;
 	out->connector.id = conn->connector_id;
 
 	if (conn->connection != DRM_MODE_CONNECTED) {
@@ -587,7 +588,7 @@ void *modeset_print_modes(int fd)
 
 }
 
-struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id)
+struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id, float video_scale_factor)
 {
 	drmModeRes *res;
 	drmModeConnector *conn;
@@ -609,7 +610,7 @@ struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mod
 			continue;
 		}
 
-		out = modeset_output_create(fd, res, conn, mode_width, mode_height, mode_vrefresh, video_plane_id, osd_plane_id);
+		out = modeset_output_create(fd, res, conn, mode_width, mode_height, mode_vrefresh, video_plane_id, osd_plane_id, video_scale_factor);
 		drmModeFreeConnector(conn);
 		if (out) {
 			drmModeFreeResources(res);
@@ -683,7 +684,7 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 	}
 
 	
-	float scale_factor = 0.75; //hardcoded value for quick test
+	float scale_factor = out->video_scale_factor;
 	uint32_t crtcw = (uint32_t)(orig_crtcw * scale_factor);
 	uint32_t crtch = (uint32_t)(orig_crtch * scale_factor);
 
