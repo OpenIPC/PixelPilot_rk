@@ -725,7 +725,9 @@ void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
     snprintf(buffer, sizeof(buffer), "%s: %s", org_txt, param_value);
     
     // Set the label text
+    lv_lock();
     lv_label_set_text(obj, buffer);
+    lv_unlock();
 }
 
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
