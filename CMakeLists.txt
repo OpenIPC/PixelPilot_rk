@@ -16,16 +16,24 @@ set(LV_USE_LINUX_DRM ON)
 set(LV_CONF_BUILD_DISABLE_DEMOS 1)
 set(LV_CONF_BUILD_DISABLE_EXAMPLES 1)
 add_subdirectory(lvgl)
+
+# Set include directories for LVGL BEFORE any other targets
 target_include_directories(lvgl PUBLIC 
     ${PROJECT_SOURCE_DIR}
-    /usr/include/libdrm
-    /usr/include/drm
+    ${PROJECT_SOURCE_DIR}/lvgl
 )
 set(CMAKE_C_STANDARD 99) # LVGL officially supports C99 and above
 set(CMAKE_CXX_STANDARD 17) #C17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+pkg_check_modules(LIBDRM REQUIRED libdrm)
+pkg_check_modules(CAIRO IMPORTED_TARGET REQUIRED cairo)
+pkg_check_modules(SPDLOG REQUIRED spdlog)
+
 find_package(PNG REQUIRED)
+find_package(fmt REQUIRED)
+find_package(spdlog REQUIRED)
+
 include_directories(${PNG_INCLUDE_DIR})
 
 # Simulator
@@ -80,7 +88,6 @@ set(SIMULATOR_SOURCES
         src/input.h
         src/input.cpp
 )
-# LVGL setup
 
 add_compile_options("-Wno-address-of-packed-member")
 
@@ -157,24 +164,21 @@ set(SOURCE_FILES
 file(GLOB ICONS src/icons/*.png)
 file(GLOB OSD_CONFIGS *_osd.json)
 
-include_directories("/usr/include/libdrm" "/usr/include/cairo" "/usr/include/spdlog")
-
 configure_file("${PROJECT_NAME}_config.h.in" "${PROJECT_NAME}_config.h")
 
 if(USE_SIMULATOR)
   add_definitions(-DUSE_SIMULATOR)
   target_compile_definitions(lvgl PRIVATE USE_SIMULATOR)
   pkg_check_modules(LIBSDL REQUIRED sdl2)
-  add_executable(${PROJECT_NAME} ${SIMULATOR_SOURCES} lvgl)
-  target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES} ${PNG_LIBRARIES})
+  add_executable(${PROJECT_NAME} ${SIMULATOR_SOURCES})
+  target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES} ${PNG_LIBRARIES} ${LIBDRM_LIBRARIES})
 else()
-  find_package(spdlog REQUIRED)
   find_package(nlohmann_json 3 REQUIRED)
   find_package(yaml-cpp REQUIRED)
   pkg_check_modules(LIBGPIOD REQUIRED libgpiod)
-  add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-  target_link_libraries(${PROJECT_NAME} rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES} ${PNG_LIBRARIES})
-  # Embed gstreamer
+  include_directories(${LIBGPIOD_INCLUDE_DIR})
+  
+  # GStreamer setup
   find_package(PkgConfig REQUIRED)
   pkg_search_module(GST REQUIRED
           gstreamer-1.0>=1.4
@@ -182,7 +186,33 @@ else()
   )
   pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
   pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
-  target_link_libraries(${PROJECT_NAME} PkgConfig::gstreamer PkgConfig::gstreamer-app)  
+  
+  add_executable(${PROJECT_NAME} ${SOURCE_FILES})
+  
+  # Add include directories for the main target
+  target_include_directories(${PROJECT_NAME} PRIVATE
+      ${PROJECT_SOURCE_DIR}
+      ${PROJECT_SOURCE_DIR}/lvgl
+      ${LIBDRM_INCLUDE_DIRS}
+  )
+  
+  target_link_libraries(${PROJECT_NAME} 
+      rockchip_mpp 
+      pthread 
+      drm 
+      m 
+      PkgConfig::CAIRO
+      spdlog::spdlog 
+      fmt::fmt
+      nlohmann_json::nlohmann_json 
+      yaml-cpp 
+      rt 
+      lvgl 
+      ${LIBGPIOD_LIBRARIES} 
+      ${PNG_LIBRARIES}
+      PkgConfig::gstreamer 
+      PkgConfig::gstreamer-app
+  )
 endif()
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
