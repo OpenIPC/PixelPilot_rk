@@ -109,8 +109,6 @@ OsSensors os_sensors; // TODO: pass as argument to `main_loop`
 uint32_t video_plane_id_override = 0;
 uint32_t osd_plane_id_override = 0;
 
-float video_scale_factor = 1.0;
-
 void init_buffer(MppFrame frame) {
 	output_list->video_frm_width = mpp_frame_get_width(frame);
 	output_list->video_frm_height = mpp_frame_get_height(frame);
@@ -721,6 +719,7 @@ int main(int argc, char **argv)
     std::ofstream pidFile(pidFilePath);
     pidFile << getpid();
     pidFile.close();
+	float video_scale_factor = 1.0;
 
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
