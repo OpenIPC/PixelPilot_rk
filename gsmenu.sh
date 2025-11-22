@@ -566,6 +566,9 @@ case "$@" in
     "values gs wfbng txpower")
         echo -n -e "1\n100"
         ;;
+    "values gs system video_scale")
+        echo -n 0.5 1.0
+        ;;
     "values gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq  | sed -z '$ s/\n$//'
         ;;
@@ -605,6 +608,12 @@ case "$@" in
         else
             : #noop
         fi
+        ;;
+    "get gs system video_scale")
+        grep "^video_scale =" /config/setup.txt | cut -d '=' -f2 | xargs
+        ;;
+    "set gs system video_scale"*)
+        sed -i "s/^video_scale =.*/video_scale = $5/" /config/setup.txt
         ;;
     "get gs wifi hotspot")
         nmcli connection show --active | grep -q "Hotspot" && echo 1 || echo 0

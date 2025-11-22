@@ -4,6 +4,7 @@
 CONFIG=/etc/pixelpilot/pixelpilot.yaml
 OSD_PATH=/etc/pixelpilot/config_osd.json
 SCREEN_MODE=1920x1080@60
+VIDEO_SCALE=1.0
 DVR_FPS=60
 DVR_PATH=/var/dvr
 DVR_TEMPLATE=record_%Y-%m-%d_%H-%M-%S.mp4

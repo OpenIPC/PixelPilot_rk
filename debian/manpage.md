@@ -81,6 +81,8 @@ pixelpilot-rk - OpenIPC video display client for wfb-ng
 
     --video-plane-id       - Override default drm plane used for video by plane-id
 
+    --video-scale <factor> - Scale video output size (0.5 <= factor <= 1.0) (Default: 1.0)
+
     --osd-plane-id         - Override default drm plane used for osd by plane-id
 
     --disable-vsync        - Disable VSYNC commits
@@ -162,6 +164,9 @@ a complete description, see the **info**(1) files.
 
 **--video-plane-id**
 : Override default drm plane used for video by plane-id
+
+**--video-scale \<factor\>**
+: Scale video output size (0.5 <= factor <= 1.0) (Default: 1.0)
 
 **--osd-plane-id**
 : Override default drm plane used for osd by plane-id

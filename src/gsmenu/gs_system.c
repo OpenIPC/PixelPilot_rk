@@ -14,6 +14,7 @@ lv_obj_t * resolution;
 lv_obj_t * rec_enabled;
 lv_obj_t * rec_fps;
 lv_obj_t * vsync_disabled;
+lv_obj_t * video_scale;
 
 typedef struct Dvr* Dvr; // Forward declaration
 void dvr_start_recording(Dvr* dvr);
@@ -28,7 +29,7 @@ void gs_system_page_load_callback(lv_obj_t * page)
     reload_switch_value(page,gs_rendering);
     reload_dropdown_value(page,resolution);
     reload_dropdown_value(page,rec_fps);
-
+    reload_slider_value(page, video_scale);
     if (dvr_enabled) lv_obj_add_state(lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class), LV_STATE_CHECKED);
 
@@ -112,6 +113,8 @@ void create_gs_system_menu(lv_obj_t * parent) {
 
     gs_rendering = create_switch(cont,LV_SYMBOL_SETTINGS,"GS Rendering","gs_rendering", menu_page_data,false);
     resolution = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Resolution","","resolution",menu_page_data,false);
+    video_scale = create_slider(cont, LV_SYMBOL_SETTINGS, "Video scale factor", "video_scale", menu_page_data, false, 2);
+
     vsync_disabled = create_switch(cont,LV_SYMBOL_SETTINGS,"Disable VSYNC","disable_vsync", NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), disable_vsync_cb, LV_EVENT_VALUE_CHANGED,NULL);
 

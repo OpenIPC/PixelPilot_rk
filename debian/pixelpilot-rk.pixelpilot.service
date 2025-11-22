@@ -6,7 +6,7 @@ After=wifibroadcast.service
 [Service]
 Type=simple
 EnvironmentFile=/etc/default/pixelpilot
-ExecStart=/usr/bin/pixelpilot --osd --osd-custom-message --osd-config ${OSD_PATH} --screen-mode ${SCREEN_MODE} --dvr-framerate ${DVR_FPS} --dvr-fmp4 --dvr-sequenced-files --dvr-template ${DVR_PATH}/${DVR_TEMPLATE} --config ${CONFIG} $EXTRA_OPTS
+ExecStart=/usr/bin/pixelpilot --osd --osd-custom-message --osd-config ${OSD_PATH} --screen-mode ${SCREEN_MODE} --video-scale ${VIDEO_SCALE} --dvr-framerate ${DVR_FPS} --dvr-fmp4 --dvr-sequenced-files --dvr-template ${DVR_PATH}/${DVR_TEMPLATE} --config ${CONFIG} $EXTRA_OPTS
 Restart=always
 # Sleep between 3 and 10 seconds between restart attempts; it will keep restarting forever
 RestartSec=3

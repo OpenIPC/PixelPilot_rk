@@ -674,6 +674,8 @@ void printHelp() {
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
     "    --video-plane-id       - Override default drm plane used for video by plane-id\n"
+	"\n"
+	"    --video-scale <factor> - Scale video output size (0.5 =< factor <= 1.0) (Default: 1.0)\n"
     "\n"
     "    --osd-plane-id         - Override default drm plane used for osd by plane-id\n"
     "\n"
@@ -717,6 +719,7 @@ int main(int argc, char **argv)
     std::ofstream pidFile(pidFilePath);
     pidFile << getpid();
     pidFile.close();
+	float video_scale_factor = 1.0;
 
 	// Load console arguments
 	__BeginParseConsoleArguments__(printHelp) 
@@ -880,6 +883,15 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--video-scale") {
+    	video_scale_factor = atof(__ArgValue);
+    	if (video_scale_factor < 0.5 || video_scale_factor > 1.0) {
+        	fprintf(stderr, "Invalid video scale factor, should be (0.5 =< scale <= 1.0)\n");
+        	return -1;
+    	}
+    	continue;
+	}
+
 	__EndParseConsoleArguments__
 
 	spdlog::set_level(log_level);
@@ -976,7 +988,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh, video_plane_id_override, osd_plane_id_override);
+	output_list = modeset_prepare(drm_fd, mode_width, mode_height, mode_vrefresh, video_plane_id_override, osd_plane_id_override, video_scale_factor);
 	if (!output_list) {
 		fprintf(stderr,
 				"cannot initialize display. Is display connected? Is --screen-mode correct?\n");
