@@ -17,7 +17,7 @@ typedef struct {
     void (*page_load_callback)(lv_obj_t * page);
     lv_group_t *indev_group;
     size_t entry_count;
-    PageEntry page_entries[];
+    PageEntry *page_entries;
 } menu_page_data_t;
 
 lv_obj_t * pp_header_create(lv_obj_t * screen);

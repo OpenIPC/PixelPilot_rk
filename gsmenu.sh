@@ -2,13 +2,15 @@
 set -o pipefail
 
 # Configuration
-REMOTE_IP="10.5.0.10"
+REMOTE_IP="${REMOTE_IP:-10.5.0.10}"
+AIR_FIRMWARE_TYPE="${AIR_FIRMWARE_TYPE:-wfb}"
 SSH_PASS="12345"
 CACHE_DIR="/tmp/gsmenu_cache"
 CACHE_TTL=10 # seconds
 MAJESTIC_YAML="/etc/majestic.yaml"
 WFB_YAML="/etc/wfb.yaml"
 ALINK_CONF="/etc/alink.conf"
+AALINK_CONF="/etc/aalink.conf"
 TXPROFILES_CONF="/etc/txprofiles.conf"
 PRESET_DIR="/etc/presets"
 
@@ -27,7 +29,7 @@ refresh_cache() {
     # Check if we need to refresh
     if [[ ! -f "$CACHE_DIR/last_refresh" ]] || [[ $(cat "$CACHE_DIR/last_refresh") -lt $last_refresh ]]; then
         # Copy the YAML configuration files
-        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF root@$REMOTE_IP:$TXPROFILES_CONF $CACHE_DIR 2>/dev/null
+        $SCP root@$REMOTE_IP:$MAJESTIC_YAML root@$REMOTE_IP:$WFB_YAML root@$REMOTE_IP:$ALINK_CONF root@$REMOTE_IP:$TXPROFILES_CONF root@$REMOTE_IP:$AALINK_CONF $CACHE_DIR 2>/dev/null
 
         # Update refresh timestamp
         echo "$current_time" > "$CACHE_DIR/last_refresh"
@@ -50,6 +52,12 @@ get_wfb_value() {
 get_alink_value() {
     local key="$1"
     grep $key= "$CACHE_DIR/alink.conf" | cut -d "=" -f 2 2>/dev/null
+}
+
+# Function to get value from alink.conf
+get_aalink_value() {
+    local key="$1"
+    grep ^$key= "$CACHE_DIR/aalink.conf" | cut -d "=" -f 2 2>/dev/null
 }
 
 # Refresh cache for get
@@ -157,8 +165,32 @@ case "$@" in
     "values air alink multiply_font_size_by")
         echo -n 0 1.5
         ;;
+    "values air aalink channel")
+        echo -n -e "36\n40\n44\n48\n52\n56\n60\n64\n100\n104\n108\n112\n116\n120\n124\n128\n132\n136\n140\n144\n149\n153\n157\n161\n165\n36_40\n44_48\n52_56\n60_64\n100_104\n108_112\n116_120\n124_128\n132_136\n140_144\n149_153\n157_161"
+        ;;
+    "values air aalink SCALE_TX_POWER")
+        echo -n 0.2 1.2
+        ;;
+    "values air aalink THRESH_SHIFT")
+        echo -n -50 50
+        ;;
+    "values air aalink OSD_SCALE")
+        echo -n 0.2 2
+        ;;
+    "values air aalink THROUGHPUT_PCT")
+        echo -n 0 100
+        ;;
+    "values air aalink HIGH_TEMP")
+        echo -n 70 100
+        ;;
+    "values air aalink MCS_SOURCE")
+        echo -n -e "lowest\ndownlink"
+        ;;
     "values air camera size")
         echo -n -e "1280x720\n1456x816\n1920x1080\n1440x1080\n1920x1440\n2104x1184\n2208x1248\n2240x1264\n2312x1304\n2436x1828\n2512x1416\n2560x1440\n2560x1920\n2720x1528\n2944x1656\n3200x1800\n3840x2160"
+        ;;
+    "values air camera video_mode")
+        echo -ne "16:9 720p 30\n\n16:9 720p 30 50HzAC\n16:9 1080p 30\n16:9 1080p 30 50HzAC\n16:9 1440p 30\n16:9 1440p 30 50HzAC\n16:9 4k 2160p 30\n16:9 4k 2160p 30 50HzAC\n16:9 540p 60\n16:9 540p 60 50HzAC\n16:9 720p 60\n16:9 720p 60 50HzAC\n16:9 1080p 60\n16:9 1080p 60 50HzAC\n16:9 1440p 60\n16:9 1440p 60 50HzAC\n16:9 1688p 60\n16:9 1688p 60 50HzAC\n16:9 540p 90\n16:9 540p 90 50HzAC\n16:9 720p 90\n16:9 720p 90 50HzAC\n16:9 1080p 90\n16:9 1080p 90 50HzAC\n16:9 540p 120\n16:9 720p 120\n16:9 816p 120\n4:3 720p 30\n4:3 720p 30 50HzAC\n4:3 960p 30\n4:3 960p 30 50HzAC\n4:3 1080p 30\n4:3 1080p 30 50HzAC\n4:3 1440p 30\n4:3 1440p 30 50HzAC\n4:3 2160p 30\n4:3 2160p 30 50HzAC\n4:3 720p 60\n4:3 720p 60 50HzAC\n4:3 960p 60\n4:3 960p 60 50HzAC\n4:3 1080p 60\n4:3 1080p 60 50HzAC\n4:3 1440p 60\n4:3 1440p 60 50HzAC\n4:3 1688p 60\n4:3 1688p 60 50HzAC\n4:3 720p 90\n4:3 720p 90 50HzAC\n4:3 960p 90\n4:3 960p 90 50HzAC\n4:3 1080p 90\n4:3 1080p 90 50HzAC\n4:3 540p 120\n4:3 720p 120\n4:3 816p 120"
         ;;
     "values air camera fps")
         echo -n -e "60\n90\n120"
@@ -231,6 +263,9 @@ case "$@" in
         ;;
     "get air camera size")
         get_majestic_value '.video0.size'
+        ;;
+    "get air camera video_mode")
+        echo get_current_video_mode | nc -w 11 $REMOTE_IP 12355
         ;;
     "get air camera fps")
         get_majestic_value '.video0.fps'
@@ -354,6 +389,9 @@ case "$@" in
     "set air camera size"*)
         $SSH "cli -s .video0.size $5 && killall -1 majestic"
         ;;
+    "set air camera video_mode"*)
+        echo set_simple_video_mode "$5" | nc -w 11 $REMOTE_IP 12355
+        ;;
     "set air camera fps"*)
         $SSH "cli -s .video0.fps $5 && killall -1 majestic"
         ;;
@@ -405,7 +443,19 @@ case "$@" in
         ;;
 
     "get air telemetry serial")
-        $SSH wifibroadcast cli -g .telemetry.serial
+        if [ $AIR_FIRMWARE_TYPE = "wfb" ]
+        then
+            $SSH wifibroadcast cli -g .telemetry.serial
+        elif [ $AIR_FIRMWARE_TYPE = "apfpv" ]
+        then
+            tty=$($SSH "fw_printenv -n msposd_tty")
+            if [ ! -z $tty ]
+            then
+                basename "$tty"
+            else
+                echo ttyS2
+            fi
+        fi
         ;;
     "get air telemetry router")
         $SSH wifibroadcast cli -g .telemetry.router
@@ -424,8 +474,14 @@ case "$@" in
         else
           $SSH "sed -i 's/^#console::respawn:\/sbin\/getty -L console 0 vt100/console::respawn:\/sbin\/getty -L console 0 vt100/' /etc/inittab ; kill -HUP 1"
         fi
-        $SSH wifibroadcast cli -s .telemetry.serial $5
-        $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        if [ $AIR_FIRMWARE_TYPE = "wfb" ]
+        then
+            $SSH wifibroadcast cli -s .telemetry.serial $5
+            $SSH "(wifibroadcast stop ;wifibroadcast stop; sleep 1;  wifibroadcast start) >/dev/null 2>&1 &"
+        elif [ $AIR_FIRMWARE_TYPE = "apfpv" ]
+        then
+            $SSH "fw_setenv msposd_tty /dev/$5; /etc/init.d/S99msposd stop ; /etc/init.d/S99msposd stop ; sleep 1; /etc/init.d/S99msposd start"
+        fi
         ;;
     "set air telemetry router"*)
         $SSH wifibroadcast cli -s .telemetry.router $5
@@ -537,8 +593,99 @@ case "$@" in
         fi
         ;;
 
+    "get gs apfpv ssid")
+        nmcli  c show apfpv0 | grep "802-11-wireless.ssid" | cut -d : -f2 | awk ' {print $1}'
+        ;;
+    "get gs apfpv password")
+        nmcli -t connection show apfpv0 --show-secrets | grep 802-11-wireless-security.psk: | cut -d : -f2
+        ;;
+    "get gs apfpv wlx"*)
+        grep -q autoconnect=false $(grep -l $4 /etc/NetworkManager/system-connections/apfpv*.nmconnection) && echo 0 || echo 1
+        ;;
+    "get gs apfpv status wlx"*)
+        nmcli -t device status | grep $5 | grep -q :connected: && echo Connected || echo Disconnected
+        ;;
+    "set gs apfpv ssid"*)
+        if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
+            $SSH 'fw_setenv wlanssid "'$5'"'
+            $SSH '(hostapd_cli -i wlan0 set ssid "'$5'"; hostapd_cli -i wlan0 reload)  >/dev/null 2>&1 &'
+        fi
+        WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+        INDEX=0
+        for IFACE in $WIFI_IFACES; do
+            CONN_NAME="apfpv$INDEX"
+            if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                nmcli connection modify "$CONN_NAME" ssid "$5"
+                if [ $($0 get gs apfpv $IFACE) = 1 ]
+                then
+                    nmcli -w 0 connection up "$CONN_NAME"
+                fi
+            fi
+            INDEX=$((INDEX + 1))
+        done
+        ;;
+    "set gs apfpv password"*)
+        if [ "$GSMENU_VTX_DETECTED" -eq "1" ]; then
+            $SSH 'fw_setenv wlanpass "'$5'"'
+            $SSH '(hostapd_cli -i wlan0 set wpa_passphrase "'$5'"; hostapd_cli -i wlan0 reload)  >/dev/null 2>&1 &'
+        fi
+        WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+        INDEX=0
+        for IFACE in $WIFI_IFACES; do
+            CONN_NAME="apfpv$INDEX"
+            if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                nmcli connection modify "$CONN_NAME" wifi-sec.psk "$5"
+                if [ $($0 get gs apfpv $IFACE) = 1 ]
+                then
+                    nmcli -w 0 connection up "$CONN_NAME"
+                fi
+            fi
+            INDEX=$((INDEX + 1))
+        done
+        ;;
+
+    "set gs apfpv wlx"*)
+        conn=$(basename -s .nmconnection $(grep -l $4 /etc/NetworkManager/system-connections/apfpv*.nmconnection))
+        if [ $5 = "on" ]
+        then
+            nmcli connection modify "$conn" connection.autoconnect yes
+            nmcli connection up "$conn"
+        else
+            nmcli connection modify "$conn" connection.autoconnect no
+            nmcli connection down "$conn"
+            DRV_PATH=$(readlink -f /sys/class/net/$4/device/driver 2>/dev/null || true)
+            DEV_PATH=$(readlink -f /sys/class/net/$4/device 2>/dev/null || true)
+            DRV_NAME=$(basename "$DRV_PATH")
+            DEV_NAME=$(basename "$DEV_PATH")
+            echo -n "$DEV_NAME" | sudo tee /sys/bus/usb/drivers/$DRV_NAME/unbind >/dev/null
+            sleep 1
+            echo -n "$DEV_NAME" | sudo tee /sys/bus/usb/drivers/$DRV_NAME/bind >/dev/null
+            sleep 1
+        fi
+        ;;
+    "set gs apfpv reset")
+            CONNECTIONS=$(nmcli -t c show  | grep ^apfpv | cut -d : -f1)
+            for CONN_NAME in $CONNECTIONS; do
+                if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                    nmcli connection down "$CONN_NAME"
+                    nmcli connection delete "$CONN_NAME"
+                fi
+            done
+        ;;
     "get air alink"*)
         get_alink_value $4
+        ;;
+
+    "get air aalink channel")
+        $SSH "fw_printenv -n wlanchan || echo 157"
+        ;;
+
+    "get air aalink"*)
+        get_aalink_value $4
+        ;;
+
+    "set air aalink channel"*)
+        echo "set_ap_channel $5" | nc -w 11 $REMOTE_IP 12355
         ;;
 
     "set air alink"*)
@@ -557,6 +704,10 @@ case "$@" in
         fi
         ;;
 
+    "set air aalink"*)
+            $SSH 'sed -i "s/'$4'=.*/'$4'='$5'/" /etc/aalink.conf; kill -SIGHUP $(pidof aalink)'
+        ;;
+
     "values gs wfbng gs_channel")
         iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n |  uniq  | sed -z '$ s/\n$//'
         ;;
@@ -569,6 +720,12 @@ case "$@" in
     "values gs system video_scale")
         echo -n 0.5 1.0
         ;;
+    "values gs apfpv channel")
+        echo -n -e "36\n40\n44\n48\n52\n56\n60\n64\n100\n104\n108\n112\n116\n120\n124\n128\n132\n136\n140\n144\n149\n153\n157\n161\n165\n36_40\n44_48\n52_56\n60_64\n100_104\n108_112\n116_120\n124_128\n132_136\n140_144\n149_153\n157_161"
+        ;;
+    "values gs system rx_mode")
+        echo -n -e "wfb\napfpv"
+        ;;
     "values gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq  | sed -z '$ s/\n$//'
         ;;
@@ -576,6 +733,9 @@ case "$@" in
         echo -n -e "60\n90\n120"
         ;;
 
+    "get gs system rx_mode")
+        systemctl is-enabled --quiet wifibroadcast && echo wfb || echo apfpv
+    ;;
     "get gs system gs_rendering")
         [ "$(grep ^render /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
         ;;
@@ -584,6 +744,67 @@ case "$@" in
         ;;
     "get gs system rec_fps")
         grep ^rec_fps /config/setup.txt | cut -d ' ' -f 3 
+        ;;
+    "set gs system rx_mode"*)
+            EXCLUDE_IFACE="wlan0"
+            SSID="${6:-OpenIPC}"
+            PASSWORD="${7:-12345678}"
+            if [ "$5" = "apfpv" ]
+            then
+                systemctl stop alink_gs.service
+                systemctl stop wifibroadcast.service
+                systemctl stop wifibroadcast@gs.service
+                systemctl disable wifibroadcast.service
+                systemctl disable wifibroadcast@gs.service
+                systemctl disable alink_gs.service
+                rmmod 8812eu
+                rmmod 88XXau_wfb
+                modprobe 8812eu
+                modprobe 88XXau_wfb
+                # list every wifi interface wlx or wlan expect wlan0
+                WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+                INDEX=0
+                for IFACE in $WIFI_IFACES; do
+                    nmcli device set $IFACE managed yes
+                    CONN_NAME="apfpv$INDEX"
+                    if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                        nmcli connection modify "$CONN_NAME" connection.autoconnect $([ "$INDEX" -eq 0 ] && echo "yes" || echo "no")
+                    else
+                        nmcli device wifi rescan ifname "$IFACE"
+                        sleep 2
+                        nmcli connection add type wifi ifname "$IFACE" con-name "$CONN_NAME" ssid "$SSID" \
+                            wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$PASSWORD" \
+                            ipv4.method auto connection.autoconnect $([ "$INDEX" -eq 0 ] && echo "yes" || echo "no")
+                    fi
+                    nmcli connection modify "$CONN_NAME" ipv4.route-metric $((100 * (INDEX + 1)))
+                    INDEX=$((INDEX + 1))
+                done
+                ln -s /usr/local/bin/gsmenu.sh /etc/NetworkManager/dispatcher.d/
+                nmcli -w 0 connection up apfpv0
+        elif [ "$5" = "wfb" ]
+        then
+            rm /etc/NetworkManager/dispatcher.d/gsmenu.sh
+            WIFI_IFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^wlx' | grep -v "^$EXCLUDE_IFACE$")
+            INDEX=0
+            for IFACE in $WIFI_IFACES; do
+                CONN_NAME="apfpv$INDEX"
+                if nmcli connection show "$CONN_NAME" &>/dev/null; then
+                    nmcli connection modify "$CONN_NAME" connection.autoconnect no
+                    nmcli connection down "$IFACE"
+                fi
+                INDEX=$((INDEX + 1))
+            done
+            rmmod 8812eu
+            rmmod 88XXau_wfb
+            modprobe 8812eu
+            modprobe 88XXau_wfb
+            systemctl start wifibroadcast.service
+            systemctl start wifibroadcast@gs.service
+            systemctl start alink_gs.service
+            systemctl enable wifibroadcast.service
+            systemctl enable wifibroadcast@gs.service
+            systemctl enable alink_gs.service
+        fi
         ;;
     "set gs system gs_rendering"*)
         if [ "$5" = "off" ]
@@ -798,6 +1019,19 @@ case "$@" in
         reboot
     ;;
 
+    "wlx"*"dhcp4-change")
+        eval $(udevadm info -x --query=property --path=/sys/class/net/$DEVICE_IFACE)
+        case "$ID_NET_DRIVER" in
+        "rtl88xxau_wfb")
+            iw dev "$DEVICE_IFACE" set txpower fixed -4000
+            ;;
+
+        "rtl88x2eu")
+            iw dev "$DEVICE_IFACE" set txpower fixed 2500
+            ;;
+        esac
+
+    ;;
     *)
         echo "Unknown $@"
         exit 1

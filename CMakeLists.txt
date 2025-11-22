@@ -56,14 +56,20 @@ set(SIMULATOR_SOURCES
         src/gsmenu/gs_dvrplayer.c
         src/gsmenu/gs_wfbng.h
         src/gsmenu/gs_wfbng.c
+        src/gsmenu/gs_apfpv.h
+        src/gsmenu/gs_apfpv.c
         src/gsmenu/gs_system.h
         src/gsmenu/gs_system.c
         src/gsmenu/gs_actions.h
-        src/gsmenu/gs_actions.c        
+        src/gsmenu/gs_actions.c
+        src/gsmenu/gs_connection_checker.h
+        src/gsmenu/gs_connection_checker.c
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
         src/gsmenu/air_alink.h
         src/gsmenu/air_alink.c
+        src/gsmenu/air_aalink.h
+        src/gsmenu/air_aalink.c
         src/gsmenu/ui.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
@@ -105,14 +111,20 @@ set(LIB_SOURCE_FILES
         src/gsmenu/gs_dvrplayer.c
         src/gsmenu/gs_wfbng.h
         src/gsmenu/gs_wfbng.c
+        src/gsmenu/gs_apfpv.h
+        src/gsmenu/gs_apfpv.c
         src/gsmenu/gs_system.h
         src/gsmenu/gs_system.c
         src/gsmenu/air_wfbng.h
         src/gsmenu/air_wfbng.c
         src/gsmenu/air_alink.h
         src/gsmenu/air_alink.c
+        src/gsmenu/air_aalink.h
+        src/gsmenu/air_aalink.c
         src/gsmenu/gs_actions.h
-        src/gsmenu/gs_actions.c        
+        src/gsmenu/gs_actions.c
+        src/gsmenu/gs_connection_checker.h
+        src/gsmenu/gs_connection_checker.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
         src/gsmenu/ui.c 
@@ -133,6 +145,8 @@ set(LIB_SOURCE_FILES
         src/mavlink.c
         src/wfbcli.hpp
         src/wfbcli.cpp
+        src/WiFiRSSIMonitor.hpp
+        src/WiFiRSSIMonitor.cpp
         src/scheduling_helper.hpp
         src/gstrtpreceiver.cpp
         src/gstrtpreceiver.h)

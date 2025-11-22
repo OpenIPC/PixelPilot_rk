@@ -2,11 +2,15 @@
 #include <pthread.h>
 #include <math.h>
 #include "../../lvgl/lvgl.h"
+#include "gs_system.h"
 #include "../input.h"
 #include "helper.h"
 #include "styles.h"
 #include "ui.h"
 #include "executor.h"
+#include "../WiFiRSSIMonitor.h"
+
+extern enum RXMode RXMODE;
 
 extern gsmenu_control_mode_t control_mode;
 extern lv_obj_t * menu;
@@ -15,16 +19,29 @@ extern lv_obj_t * sub_gs_main_page;
 
 extern lv_obj_t * air_presets_cont;
 extern lv_obj_t * air_wfbng_cont;
+extern lv_obj_t * air_alink_cont;
+extern lv_obj_t * air_aalink_cont;
 extern lv_obj_t * air_camera_cont;
 extern lv_obj_t * air_telemetry_cont;
 extern lv_obj_t * air_actions_cont;
 extern lv_obj_t * gs_dvr_cont;
 extern lv_obj_t * gs_wfbng_cont;
+extern lv_obj_t * gs_apfpv_cont;
 extern lv_obj_t * gs_system_cont;
 extern lv_obj_t * gs_wlan_cont;
 extern lv_obj_t * gs_actions_cont;
 extern lv_group_t *main_group;
 extern lv_group_t * error_group;
+extern lv_obj_t * size; // air camera size setting wfb-ng only
+extern lv_obj_t * fps; // air camera fps setting wfb-ng only
+extern lv_obj_t * bitrate; // air camera bitrate setting wfb-ng only
+extern lv_obj_t * video_mode; // air camera video_mode setting apfpv only
+extern lv_obj_t * router;
+extern lv_obj_t * osd_fps;
+extern lv_obj_t * air_gs_rendering;
+extern lv_obj_t * air_telemetry_msposd_text;
+extern lv_obj_t * air_telemetry_msposd_section;
+
 
 extern lv_obj_t * msgbox;
 
@@ -147,11 +164,14 @@ void generic_back_event_handler(lv_event_t * e) {
         lv_menu_set_page(menu,NULL);
         lv_obj_remove_state(air_presets_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_alink_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(air_aalink_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_camera_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_telemetry_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_actions_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_dvr_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wfbng_cont, LV_STATE_CHECKED);
+        lv_obj_remove_state(gs_apfpv_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_system_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_wlan_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(gs_actions_cont, LV_STATE_CHECKED);
@@ -177,6 +197,7 @@ lv_obj_t * create_text(lv_obj_t * parent, const char * icon, const char * txt, c
         lv_label_set_text(label, txt);
         // lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
         lv_obj_set_flex_grow(label, 1);
+        lv_obj_set_user_data(obj,(void *)txt); // ugly but where else to store
     }
 
     if(builder_variant == LV_MENU_ITEM_BUILDER_VARIANT_2 && icon && txt) {
@@ -530,6 +551,43 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
     return obj;
 }
 
+
+lv_obj_t * create_checkbox(lv_obj_t * parent, const char * icon, const char * label_txt, const char * parameter, menu_page_data_t* menu_page_data,bool blocking)
+{
+
+    lv_obj_t * obj = lv_menu_cont_create(parent);
+
+    lv_obj_t * img = NULL;
+
+    if(icon) {
+        img = lv_image_create(obj);
+        lv_image_set_src(img, icon);
+    }    
+
+    lv_obj_t * cb;
+    cb = lv_checkbox_create(obj);
+    lv_checkbox_set_text(cb, label_txt);
+
+    lv_obj_add_style(cb, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_border_color(cb, lv_color_hex(0xff4c60d8), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(cb, lv_color_hex(0xff4c60d8), LV_PART_INDICATOR | LV_STATE_CHECKED);
+
+    thread_data_t* data = malloc(sizeof(thread_data_t));
+    if (data) {
+        memset(data, 0, sizeof(thread_data_t));
+    }
+    data->menu_page_data = menu_page_data;
+    data->blocking = blocking;
+    strcpy(data->parameter, parameter);
+
+    lv_obj_set_user_data(cb,data);
+
+    lv_obj_add_event_cb(cb, generic_checkbox_event_cb, LV_EVENT_VALUE_CHANGED,data);
+    lv_obj_add_event_cb(cb, generic_back_event_handler, LV_EVENT_KEY,NULL);
+
+    return obj;
+}
+
 lv_obj_t * create_backbutton(lv_obj_t * parent, const char * icon, const char * label_txt)
 {
 
@@ -591,6 +649,7 @@ lv_obj_t * create_textarea(lv_obj_t * parent, char * text, const char * label_tx
 // Recursive function to find the first focusable object
 lv_obj_t * find_first_focusable_obj(lv_obj_t * parent) {
     // Iterate through all children of the parent
+    if (lv_obj_has_flag(parent, LV_OBJ_FLAG_HIDDEN)) return NULL;
     for (int i = 0; i < lv_obj_get_child_cnt(parent); i++) {
         lv_obj_t * child = lv_obj_get_child(parent, i);
 
@@ -657,61 +716,85 @@ void reload_label_value(lv_obj_t * page,lv_obj_t * parameter) {
     
     // Get the parameter value
     const char *param_value = get_paramater(page, param_user_data->parameter);
+
+    // Original label
+    const char *org_txt = (const char*)lv_obj_get_user_data(parameter);
     
     // Create the combined string
     char buffer[256];
-    snprintf(buffer, sizeof(buffer), "%s: %s", param_user_data->parameter, param_value);
+    snprintf(buffer, sizeof(buffer), "%s: %s", org_txt, param_value);
     
     // Set the label text
+    lv_lock();
     lv_label_set_text(obj, buffer);
+    lv_unlock();
 }
 
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_switch_class);
-    thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
-    bool value = atoi(get_paramater(page,param_user_data->parameter));
-    lv_lock();
-    lv_obj_set_state(obj,LV_STATE_CHECKED,value);
-    lv_unlock();
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
+        thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
+        bool value = atoi(get_paramater(page,param_user_data->parameter));
+        lv_lock();
+        lv_obj_set_state(obj,LV_STATE_CHECKED,value);
+        lv_unlock();
+    }
 }
 
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_dropdown_class);
-    thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
-    char * value = get_paramater(page, param_user_data->parameter);
-    lv_lock();
-    lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
-    lv_unlock();
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
+        thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
+        char * value = get_paramater(page, param_user_data->parameter);
+        lv_lock();
+        lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
+        lv_unlock();
+    }
+}
+
+void reload_checkbox_value(lv_obj_t * page,lv_obj_t * parameter) {
+    lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_checkbox_class);
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
+        thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
+        bool value = atoi(get_paramater(page,param_user_data->parameter));
+        lv_lock();
+        lv_obj_set_state(obj,LV_STATE_CHECKED,value);
+        lv_unlock();
+    }
 }
 
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_textarea_class);
-    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    const char * value = get_paramater(page,param_user_data->parameter);
-    lv_lock();
-    lv_textarea_set_text(obj,value);
-    lv_unlock();
+    // if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) { // ToDo: This need rework
+        thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
+        const char * value = get_paramater(page,param_user_data->parameter);
+        lv_lock();
+        lv_textarea_set_text(obj,value);
+        lv_unlock();
+    // }
 }
 
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_slider_class);
     lv_obj_t * label = lv_obj_get_child_by_type(parameter,1,&lv_label_class);
-    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    char * value = get_paramater(page,param_user_data->parameter);
-    float current_value;
-    if (sscanf(value, "%f", &current_value) != 1) {
-        return;
+    if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
+        thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
+        char * value = get_paramater(page,param_user_data->parameter);
+        float current_value;
+        if (sscanf(value, "%f", &current_value) != 1) {
+            return;
+        }
+        int32_t scaled_value = (int32_t)(current_value * powf(10, param_user_data->precision));
+        // Create a buffer for the float value display
+        char format[16];
+        snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
+        char s[32];
+        snprintf(s, sizeof(s), format, current_value);
+        lv_lock();
+        lv_slider_set_value(obj,scaled_value,LV_ANIM_OFF);
+        lv_label_set_text(label,s);
+        lv_unlock();
     }
-    int32_t scaled_value = (int32_t)(current_value * powf(10, param_user_data->precision));
-    // Create a buffer for the float value display
-    char format[16];
-    snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
-    char s[32];
-    snprintf(s, sizeof(s), format, current_value);
-    lv_lock();
-    lv_slider_set_value(obj,scaled_value,LV_ANIM_OFF);
-    lv_label_set_text(label,s);
-    lv_unlock();
 }
 
 char* get_values(thread_data_t * data) {
@@ -810,4 +893,116 @@ const char* find_resource_file(const char* relative_path) {
     }
 
     return NULL; // Not found
+}
+
+void gsmenu_toggle_rxmode() {
+
+
+    switch (RXMODE)
+    {
+    case APFPV:
+        lv_obj_add_flag(air_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(router, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(osd_fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_gs_rendering, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_telemetry_msposd_text,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_telemetry_msposd_section,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_alink_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(gs_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(size, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(bitrate, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_aalink_cont, LV_OBJ_FLAG_HIDDEN);
+        setenv("REMOTE_IP" , "192.168.0.1", 1);
+        setenv("AIR_FIRMWARE_TYPE" , "apfpv", 1);
+        break;
+    case WFB:
+        lv_obj_remove_flag(air_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(router, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(osd_fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_gs_rendering, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_telemetry_msposd_text,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_telemetry_msposd_section,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(air_alink_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(gs_wfbng_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(size, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(fps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(bitrate, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(gs_apfpv_cont, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(video_mode, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(air_aalink_cont, LV_OBJ_FLAG_HIDDEN);
+        setenv("REMOTE_IP" , "10.5.0.10", 1);
+        setenv("AIR_FIRMWARE_TYPE" , "wfb", 1);
+        wifi_rssi_monitor_reset();
+        break;
+
+    default:
+        break;
+    }
+}
+
+void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, lv_obj_t* obj, ReloadFunc reload_func) {
+    // Increase entry count
+    menu_page_data->entry_count++;
+    
+    // Reallocate memory for entries
+    PageEntry *new_entries = realloc(menu_page_data->page_entries, 
+                                    sizeof(PageEntry) * menu_page_data->entry_count);
+    
+    if (new_entries) {
+        menu_page_data->page_entries = new_entries;
+        
+        // Add new entry at the end with string copy
+        menu_page_data->page_entries[menu_page_data->entry_count - 1] = 
+            (PageEntry){ strdup(text), obj, reload_func };
+    } else {
+        // Handle allocation failure
+        menu_page_data->entry_count--; // Revert count on failure
+    }
+}
+
+void delete_menu_page_entry_by_obj(menu_page_data_t *menu_page_data, lv_obj_t* obj) {
+    if (!menu_page_data || !menu_page_data->page_entries || menu_page_data->entry_count == 0) {
+        return;
+    }
+    
+    // Find the index of the entry with matching object
+    int found_index = -1;
+    for (size_t i = 0; i < menu_page_data->entry_count; i++) {
+        if (menu_page_data->page_entries[i].target == obj) {
+            found_index = i;
+            break;
+        }
+    }
+    
+    if (found_index == -1) {
+        return;
+    }
+    
+    // Free the duplicated string
+    if (menu_page_data->page_entries[found_index].caption) {
+        free((void*)menu_page_data->page_entries[found_index].caption);
+    }
+    
+    // Shift entries
+    for (size_t i = found_index; i < menu_page_data->entry_count - 1; i++) {
+        menu_page_data->page_entries[i] = menu_page_data->page_entries[i + 1];
+    }
+    
+    menu_page_data->entry_count--;
+    
+    // Only reallocate if we have entries left
+    if (menu_page_data->entry_count > 0) {
+        PageEntry *new_entries = realloc(menu_page_data->page_entries, 
+                                        sizeof(PageEntry) * menu_page_data->entry_count);
+        // If realloc succeeds, use the new pointer. If it fails, keep the old one.
+        if (new_entries) {
+            menu_page_data->page_entries = new_entries;
+        }
+    } else {
+        free(menu_page_data->page_entries);
+        menu_page_data->page_entries = NULL;
+    }
 }

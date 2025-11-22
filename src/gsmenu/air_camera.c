@@ -8,13 +8,13 @@
 
 extern lv_group_t * default_group;
 
-#define ENTRIES 20
 lv_obj_t * mirror;
 lv_obj_t * flip;
 lv_obj_t * contrast;
 lv_obj_t * hue;
 lv_obj_t * saturation;
 lv_obj_t * luminace;
+lv_obj_t * video_mode;
 lv_obj_t * size;
 lv_obj_t * fps;
 lv_obj_t * bitrate;
@@ -46,12 +46,13 @@ void air_rec_fps_cb(lv_event_t *e) {
 
 void create_air_camera_menu(lv_obj_t * parent) {
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t) + sizeof(PageEntry) * ENTRIES);
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "air");
     strcpy(menu_page_data->page, "camera");
     menu_page_data->page_load_callback = generic_page_load_callback;
     menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = ENTRIES;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
 
@@ -64,6 +65,7 @@ void create_air_camera_menu(lv_obj_t * parent) {
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
     size = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Size","","size",menu_page_data,false);
+    video_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Video Mode","","video_mode",menu_page_data,false);
 
     fps = create_dropdown(cont,LV_SYMBOL_SETTINGS, "FPS","","fps",menu_page_data,false);
     // change rec fps when changeing camera fps
@@ -114,29 +116,27 @@ void create_air_camera_menu(lv_obj_t * parent) {
     noiselevel = create_slider(cont,LV_SYMBOL_SETTINGS,"Noiselevel","noiselevel",menu_page_data,false,0);
 
 
-    PageEntry entries[] = {
-        { "Loading mirror ...", mirror, reload_switch_value },
-        { "Loading flip ...", flip, reload_switch_value },
-        { "Loading contrast ...", contrast, reload_slider_value },
-        { "Loading hue ...", hue, reload_slider_value },
-        { "Loading saturation ...", saturation, reload_slider_value },
-        { "Loading luminace ...", luminace, reload_slider_value },
-        { "Loading size ...", size, reload_dropdown_value },
-        { "Loading fps ...", fps, reload_dropdown_value },
-        { "Loading bitrate ...", bitrate, reload_dropdown_value },
-        { "Loading video_codec ...", video_codec, reload_dropdown_value },
-        { "Loading gopsize ...", gopsize, reload_slider_value },
-        { "Loading rc_mode ...", rc_mode, reload_dropdown_value },
-        { "Loading rec_enable ...", rec_enable, reload_switch_value },
-        { "Loading rec_split ...", rec_split, reload_slider_value },
-        { "Loading rec_maxusage ...", rec_maxusage, reload_slider_value },
-        { "Loading exposure ...", exposure, reload_slider_value },
-        { "Loading antiflicker ...", antiflicker, reload_dropdown_value },
-        { "Loading sensor_file ...", sensor_file, reload_dropdown_value },
-        { "Loading fpv_enable ...", fpv_enable, reload_switch_value },
-        { "Loading noiselevel ...", noiselevel, reload_slider_value }
-    };
-    memcpy(menu_page_data->page_entries, entries, sizeof(entries));
+    add_entry_to_menu_page(menu_page_data,"Loading mirror ...", mirror, reload_switch_value );
+    add_entry_to_menu_page(menu_page_data,"Loading flip ...", flip, reload_switch_value );
+    add_entry_to_menu_page(menu_page_data,"Loading contrast ...", contrast, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading hue ...", hue, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading saturation ...", saturation, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading luminace ...", luminace, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading size ...", size, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading video_mode ...", video_mode, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading fps ...", fps, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading bitrate ...", bitrate, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading video_codec ...", video_codec, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading gopsize ...", gopsize, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading rc_mode ...", rc_mode, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading rec_enable ...", rec_enable, reload_switch_value );
+    add_entry_to_menu_page(menu_page_data,"Loading rec_split ...", rec_split, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading rec_maxusage ...", rec_maxusage, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading exposure ...", exposure, reload_slider_value );
+    add_entry_to_menu_page(menu_page_data,"Loading antiflicker ...", antiflicker, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading sensor_file ...", sensor_file, reload_dropdown_value );
+    add_entry_to_menu_page(menu_page_data,"Loading fpv_enable ...", fpv_enable, reload_switch_value );
+    add_entry_to_menu_page(menu_page_data,"Loading noiselevel ...", noiselevel, reload_slider_value);
 
     lv_group_set_default(default_group);
 }
