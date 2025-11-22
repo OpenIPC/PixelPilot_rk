@@ -245,7 +245,7 @@ if(BUILD_TESTS)
 
     # Test executable
     add_executable(pixelpilot_tests ${LIB_SOURCE_FILES} ${TEST_SOURCES})
-    target_include_directories(pixelpilot_tests PUBLIC "${PROJECT_BINARY_DIR}")
+    target_include_directories(pixelpilot_tests PUBLIC "${PROJECT_BINARY_DIR}" ${LIBDRM_INCLUDE_DIRS} ${CAIRO_INCLUDE_DIRS})
     # Define the TEST preprocessor directive
     target_compile_definitions(pixelpilot_tests PRIVATE TEST)
     target_link_libraries(pixelpilot_tests rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES} ${PNG_LIBRARIES} Catch2::Catch2WithMain)
