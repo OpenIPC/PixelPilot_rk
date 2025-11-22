@@ -593,7 +593,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
 void set_control_verbose(MppApi * mpi,  MppCtx ctx,MpiCmd control,RK_U32 enable){
     RK_U32 res = mpi->control(ctx, control, &enable);
     if(res){
-        spdlog::warn("Could not set control {} {}", control, enable);
+        spdlog::warn("Could not set control {} {}", static_cast<int>(control), enable);
         assert(false);
     }
 }

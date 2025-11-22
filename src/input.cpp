@@ -10,8 +10,7 @@
 #include <yaml-cpp/yaml.h>
 #include <glob.h>
 #include "main.h"
-#include "../../lvgl/lvgl.h"
-#include "../../lvgl/src/core/lv_global.h"
+#include "lvgl/lvgl.h"
 #include "input.h"
 #include "gsmenu/gs_system.h"
 
