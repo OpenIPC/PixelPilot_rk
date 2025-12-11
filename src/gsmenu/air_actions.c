@@ -6,9 +6,11 @@
 #include "helper.h"
 #include "executor.h"
 #include "styles.h"
+#include "air_actions.h"
 
 extern lv_group_t * default_group;
 lv_obj_t * air_reboot;
+lv_obj_t * air_custom_action;
 
 void create_air_actions_menu(lv_obj_t * parent) {
 
@@ -26,6 +28,11 @@ void create_air_actions_menu(lv_obj_t * parent) {
 
     air_reboot = create_button(section, "Reboot");
     lv_obj_add_event_cb(lv_obj_get_child_by_type(air_reboot,0,&lv_button_class),generic_button_callback,LV_EVENT_CLICKED,menu_page_data);
+
+    for (size_t i = 0; i < airactions_count; i++) {
+        air_custom_action = create_button(section, airactions[i].label);
+        lv_obj_add_event_cb(lv_obj_get_child_by_type(air_custom_action,0,&lv_button_class),custom_actions_cb,LV_EVENT_CLICKED,&airactions[i]);
+    }
 
     lv_group_set_default(default_group);
 }
