@@ -6,6 +6,7 @@
 #include "helper.h"
 #include "executor.h"
 #include "styles.h"
+#include "helper.h"
 #include "air_actions.h"
 
 extern lv_group_t * default_group;

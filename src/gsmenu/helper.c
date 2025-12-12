@@ -9,6 +9,7 @@
 #include "ui.h"
 #include "executor.h"
 #include "../WiFiRSSIMonitor.h"
+#include "../menu.h"
 
 extern enum RXMode RXMODE;
 
@@ -523,6 +524,7 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
     lv_dropdown_set_dir(dd, LV_DIR_RIGHT);
     lv_dropdown_set_symbol(dd, LV_SYMBOL_RIGHT);
     lv_obj_set_width(dd,300); // someone got a better idea ?
+    lv_obj_add_state(dd, LV_STATE_DISABLED);
 
     lv_obj_add_style(dd, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_add_style(dd, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -862,6 +864,8 @@ void get_dropdown_value(lv_obj_t * parent) {
     thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
     lv_dropdown_set_options(obj,get_values(param_user_data));
     update_dropdown_width(obj);
+    if (lv_dropdown_get_option_cnt(obj) > 1)
+        lv_obj_remove_state(obj, LV_STATE_DISABLED);
 }
 
 bool file_exists(const char *path) {
@@ -1007,4 +1011,10 @@ void delete_menu_page_entry_by_obj(menu_page_data_t *menu_page_data, lv_obj_t* o
         free(menu_page_data->page_entries);
         menu_page_data->page_entries = NULL;
     }
+}
+
+void custom_actions_cb(lv_event_t * event)
+{   
+    MenuAction *action = lv_event_get_user_data(event);
+    run_command_and_block(event, action->action, NULL);
 }
