@@ -726,6 +726,9 @@ case "$@" in
     "values gs system rx_mode")
         echo -n -e "wfb\napfpv"
         ;;
+    "values gs system connector")
+        echo -n -e "HDMI"
+        ;;
     "values gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".connectors[1].modes[] | select(.name | contains("i") | not) | .name + "@" + (.vrefresh|tostring)' | sort | uniq  | sed -z '$ s/\n$//'
         ;;
@@ -738,6 +741,9 @@ case "$@" in
     ;;
     "get gs system gs_rendering")
         [ "$(grep ^render /config/setup.txt | cut -d ' ' -f 3)" = "ground" ] && echo 1 || echo 0
+        ;;
+    "get gs system connector")
+        echo HDMI
         ;;
     "get gs system resolution")
         drm_info -j /dev/dri/card0 2>/dev/null | jq -r '."/dev/dri/card0".crtcs[0].mode| .name + "@" + (.vrefresh|tostring)'
@@ -815,6 +821,9 @@ case "$@" in
             sed -i 's/^render =.*/render = ground/' /config/setup.txt
             msposd_rockchip --osd --ahi 0 --matrix 11 -v -r 5 --master 0.0.0.0:14551 &
         fi
+        ;;
+    "set gs system connector"*)
+        : # noop
         ;;
     "set gs system resolution"*)
         sed -i "s/^screen_mode =.*/screen_mode = $5/" /config/setup.txt

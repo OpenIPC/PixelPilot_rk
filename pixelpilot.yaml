@@ -30,7 +30,17 @@ gsmenu:
     # right: 32
     # up: 16
     # down: 18
-
+  # Define custom actions here
+  # action is the command the button will trigger
+  # actions:
+  #   air:
+  #     - label: Custom Action 1
+  #       action: sleep 5
+  #     - label: Custom Action 1
+  #       action: sleep 5
+  #   ground:
+  #     - label: Custom Action 1
+  #       action: sleep 5
 # enables collection of `os_mon.*` OSD facts
 os_sensors:
   cpu: true      # Monitor CPU load percentage

@@ -7,6 +7,9 @@
 #include "helper.h"
 #include "executor.h"
 #include "styles.h"
+#include <stddef.h>
+#include "../menu.h"
+#include "gs_actions.h"
 
 #ifdef USE_SIMULATOR
 void sig_handler(int exit_code)
@@ -20,6 +23,7 @@ extern lv_group_t * default_group;
 lv_obj_t * restart_pp;
 lv_obj_t * exit_pp;
 lv_obj_t * gs_reboot;
+lv_obj_t * gs_custom_action;
 int restart_value = 1;
 int exit_value = 2;
 
@@ -50,6 +54,12 @@ void create_gs_actions_menu(lv_obj_t * parent) {
 
     gs_reboot = create_button(section, "Reboot");
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_reboot,0,&lv_button_class),generic_button_callback,LV_EVENT_CLICKED,menu_page_data);
+
+
+    for (size_t i = 0; i < gsactions_count; i++) {
+        gs_custom_action = create_button(section, gsactions[i].label);
+        lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_custom_action,0,&lv_button_class),custom_actions_cb,LV_EVENT_CLICKED,&gsactions[i]);
+    }
 
     lv_group_set_default(default_group);
 }
