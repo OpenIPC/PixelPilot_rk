@@ -717,6 +717,9 @@ case "$@" in
     "values gs wfbng txpower")
         echo -n -e "1\n100"
         ;;
+    "values gs system rx_codec")
+        echo -n -e "h265"
+        ;;
     "values gs system video_scale")
         echo -n 0.5 1.0
         ;;
@@ -736,6 +739,9 @@ case "$@" in
         echo -n -e "60\n90\n120"
         ;;
 
+    "get gs system rx_codec")
+        echo "h265"
+    ;;
     "get gs system rx_mode")
         systemctl is-enabled --quiet wifibroadcast && echo wfb || echo apfpv
     ;;
@@ -751,6 +757,9 @@ case "$@" in
     "get gs system rec_fps")
         grep ^rec_fps /config/setup.txt | cut -d ' ' -f 3 
         ;;
+    "set gs system rx_codec"*)
+        : # noop
+    ;;
     "set gs system rx_mode"*)
             EXCLUDE_IFACE="wlan0"
             SSID="${6:-OpenIPC}"

@@ -11,6 +11,7 @@
 extern lv_group_t * default_group;
 enum RXMode RXMODE = WFB;
 
+lv_obj_t * rx_codec;
 lv_obj_t * rx_mode;
 lv_obj_t * gs_rendering;
 lv_obj_t * connector;
@@ -34,6 +35,7 @@ extern bool disable_vsync;
 void gs_system_page_load_callback(lv_obj_t * page)
 {
 
+    reload_dropdown_value(page,rx_codec);
     reload_switch_value(page,gs_rendering);
     reload_dropdown_value(page,rx_mode);
     RXMODE = lv_dropdown_get_selected(lv_obj_get_child_by_type(rx_mode,0,&lv_dropdown_class));
@@ -131,6 +133,7 @@ void create_gs_system_menu(lv_obj_t * parent) {
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
 
+    rx_codec = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Codec","","rx_codec",menu_page_data,false);
     rx_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "RX Mode","","rx_mode",menu_page_data,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(rx_mode,0,&lv_dropdown_class), rx_mode_cb, LV_EVENT_VALUE_CHANGED,NULL);
     thread_data_t* data = lv_obj_get_user_data(lv_obj_get_child_by_type(rx_mode,0,&lv_dropdown_class));
