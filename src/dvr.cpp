@@ -134,9 +134,11 @@ void Dvr::loop() {
 					if (dvr_file != NULL) {
 						break;
 					}
-					start();
-					if (video_frm_width > 0 && video_frm_height > 0) {
-						init();
+					if (start() == 0) {
+						idr_request_record_start();
+						if (video_frm_width > 0 && video_frm_height > 0) {
+							init();
+						}
 					}
 					break;
 				}
@@ -153,9 +155,11 @@ void Dvr::loop() {
 				{
 					SPDLOG_DEBUG("got rpc TOGGLE");
 					if (dvr_file == NULL) {
-						start();
-						if (video_frm_width > 0 && video_frm_height > 0) {
-							init();
+						if (start() == 0) {
+							idr_request_record_start();
+							if (video_frm_width > 0 && video_frm_height > 0) {
+								init();
+							}
 						}
 					} else {
 						stop();

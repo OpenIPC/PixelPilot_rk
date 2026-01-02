@@ -74,7 +74,7 @@ private:
     std::unique_ptr<std::thread> m_pull_samples_thread=nullptr;
     // appsrc
     const char* unix_socket = nullptr;
-    int sock;
+    int sock = -1;
     bool m_read_socket_run = false;
     std::unique_ptr<std::thread> m_read_socket_thread;
 
@@ -85,5 +85,9 @@ private:
     double m_pre_pause_rate = 1.0;
 };
 
+void idr_set_enabled(bool enabled);
+void idr_request_record_start();
+void idr_request_decoder_issue(const char* reason);
+void idr_notify_decoded_frame();
 
 #endif //FPVUE_GSTRTPRECEIVER_H

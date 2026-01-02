@@ -6,9 +6,11 @@
 #include "gstrtpreceiver.h"
 #include "gst/gstparse.h"
 #include "gst/gstpipeline.h"
+#include "gst/net/gstnetaddressmeta.h"
 #include "gst/app/gstappsink.h"
 #include "gst/app/gstappsrc.h"
 #include "spdlog/spdlog.h"
+#include <gio/gio.h>
 #include <cstring>
 #include <stdexcept>
 #include <cassert>
@@ -16,11 +18,22 @@
 #include <iostream>
 #include <memory>
 #include <utility>
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <random>
+#include <chrono>
 #include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #include <sys/un.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <errno.h>
+#if defined(__linux__)
+#include <sys/random.h>
+#endif
 
 namespace pipeline {
     static std::string gst_create_rtp_caps(const VideoCodec& videoCodec){
@@ -62,6 +75,457 @@ namespace pipeline {
             return ss.str();
         }
         assert(false);
+    }
+}
+
+namespace {
+    static constexpr int kIdrUdpPort = 11223;
+    static constexpr int kIdrBurstCount = 3;
+    static constexpr int kIdrBurstSpacingMs = 100;
+    static constexpr int kIdrRepeatCount = 3;
+    static constexpr int kIdrRepeatSpacingMs = 100;
+    static constexpr uint64_t kStreamDownMs = 1200;
+    static constexpr uint64_t kStreamTickMs = 200;
+    static constexpr uint64_t kIntegrityCooldownMs = 350;
+    static constexpr uint64_t kRtpGapCooldownMs = 500;
+    static constexpr uint64_t kDecodeStallMs = 700;
+    static constexpr uint64_t kDecodeStallCooldownMs = 700;
+    static constexpr uint64_t kDecodeStallPktWindowMs = 500;
+    static constexpr uint64_t kRtpSeqResetMs = 1000;
+
+    static std::mutex g_idr_sock_mutex;
+    static int g_idr_sock = -1;
+    static std::atomic<bool> g_idr_sock_ready{false};
+
+    static std::mutex g_last_hop_mutex;
+    static std::string g_last_hop_ip;
+    static std::atomic<uint64_t> g_last_pkt_ms{0};
+    static std::atomic<bool> g_stream_up{false};
+    static std::atomic<bool> g_pending_rec_idr{false};
+    static std::atomic<uint64_t> g_last_integrity_idr_ms{0};
+    static std::atomic<uint64_t> g_last_rtp_gap_idr_ms{0};
+    static std::atomic<uint64_t> g_last_decode_stall_idr_ms{0};
+    static std::atomic<uint64_t> g_last_decoded_ms{0};
+    static std::atomic<uint64_t> g_last_rtp_seq_ms{0};
+    static std::atomic<uint16_t> g_last_rtp_seq{0};
+    static std::atomic<bool> g_last_rtp_seq_valid{false};
+    static std::atomic<bool> g_idr_enabled{true};
+
+    static uint64_t now_ms() {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    }
+
+    static void request_idr_bursts(const char* reason, int request_count, bool allow_pending);
+
+    static bool ensure_idr_socket() {
+        if (g_idr_sock_ready.load(std::memory_order_acquire)) {
+            return true;
+        }
+
+        std::lock_guard<std::mutex> lock(g_idr_sock_mutex);
+        if (g_idr_sock_ready.load(std::memory_order_relaxed)) {
+            return true;
+        }
+
+        g_idr_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (g_idr_sock < 0) {
+            spdlog::warn("[IDR] socket(AF_INET,SOCK_DGRAM) failed: {}", strerror(errno));
+            return false;
+        }
+
+        g_idr_sock_ready.store(true, std::memory_order_release);
+        spdlog::info("[IDR] UDP socket ready");
+        return true;
+    }
+
+    static uint32_t secure_random_u32() {
+        uint32_t out = 0;
+#if defined(__linux__)
+        ssize_t n = getrandom(&out, sizeof(out), 0);
+        if (n == sizeof(out)) {
+            return out;
+        }
+#endif
+        static std::random_device rd;
+        out = (static_cast<uint32_t>(rd()) << 16) ^ static_cast<uint32_t>(rd());
+        return out;
+    }
+
+    static void make_idr_token3(char out[4]) {
+        static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz";
+        const uint32_t r0 = secure_random_u32();
+        const uint32_t r1 = secure_random_u32();
+        const uint32_t r2 = secure_random_u32();
+        out[0] = alphabet[r0 % 26];
+        out[1] = alphabet[r1 % 26];
+        out[2] = alphabet[r2 % 26];
+        out[3] = '\0';
+    }
+
+    static bool extract_sender_ip_from_buffer(GstBuffer* buf, std::string& out_ip) {
+        out_ip.clear();
+        if (!buf) {
+            return false;
+        }
+
+        GstNetAddressMeta* meta = (GstNetAddressMeta*)gst_buffer_get_meta(buf, GST_NET_ADDRESS_META_API_TYPE);
+        if (!meta || !meta->addr) {
+            return false;
+        }
+
+        if (!G_IS_INET_SOCKET_ADDRESS(meta->addr)) {
+            return false;
+        }
+
+        GInetSocketAddress* isa = G_INET_SOCKET_ADDRESS(meta->addr);
+        GInetAddress* ia = g_inet_socket_address_get_address(isa);
+        if (!ia) {
+            return false;
+        }
+
+        gchar* s = g_inet_address_to_string(ia);
+        if (!s) {
+            return false;
+        }
+
+        out_ip = s;
+        g_free(s);
+        return !out_ip.empty();
+    }
+
+    static void maybe_update_last_hop_from_buffer(GstBuffer* buf) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        std::string ip;
+        if (!extract_sender_ip_from_buffer(buf, ip)) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(g_last_hop_mutex);
+        if (ip != g_last_hop_ip) {
+            g_last_hop_ip = ip;
+            spdlog::info("[NET] Last-hop sender: {}", g_last_hop_ip);
+        }
+    }
+
+    static std::string get_last_hop_ip_copy() {
+        std::lock_guard<std::mutex> lock(g_last_hop_mutex);
+        return g_last_hop_ip;
+    }
+
+    static bool extract_rtp_sequence(GstBuffer* buf, uint16_t* out_seq) {
+        if (!buf || !out_seq) {
+            return false;
+        }
+
+        GstMapInfo map;
+        if (!gst_buffer_map(buf, &map, GST_MAP_READ)) {
+            return false;
+        }
+
+        bool ok = false;
+        if (map.size >= 4) {
+            const uint8_t* data = map.data;
+            *out_seq = static_cast<uint16_t>((data[2] << 8) | data[3]);
+            ok = true;
+        }
+
+        gst_buffer_unmap(buf, &map);
+        return ok;
+    }
+
+    static void maybe_request_idr_for_rtp_gap(uint16_t gap_count) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        if (!g_stream_up.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        const uint64_t now = now_ms();
+        const uint64_t last = g_last_rtp_gap_idr_ms.load(std::memory_order_relaxed);
+        if (last && (now - last) < kRtpGapCooldownMs) {
+            return;
+        }
+
+        g_last_rtp_gap_idr_ms.store(now, std::memory_order_relaxed);
+        spdlog::info("[IDR] RTP gap detected (missing {} packet(s)) -> request IDR", gap_count);
+        request_idr_bursts("rtp-gap", 1, false);
+    }
+
+    static void maybe_track_rtp_sequence(GstBuffer* buf) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        uint16_t seq = 0;
+        if (!extract_rtp_sequence(buf, &seq)) {
+            return;
+        }
+
+        const uint64_t now = now_ms();
+        if (!g_last_rtp_seq_valid.load(std::memory_order_relaxed)) {
+            g_last_rtp_seq.store(seq, std::memory_order_relaxed);
+            g_last_rtp_seq_ms.store(now, std::memory_order_relaxed);
+            g_last_rtp_seq_valid.store(true, std::memory_order_relaxed);
+            return;
+        }
+
+        const uint16_t last = g_last_rtp_seq.load(std::memory_order_relaxed);
+        const uint16_t diff = static_cast<uint16_t>(seq - last);
+        if (diff == 0) {
+            return;
+        }
+
+        if (diff >= 30000) {
+            const uint64_t last_ms = g_last_rtp_seq_ms.load(std::memory_order_relaxed);
+            if (last_ms == 0 || (now - last_ms) > kRtpSeqResetMs) {
+                g_last_rtp_seq.store(seq, std::memory_order_relaxed);
+                g_last_rtp_seq_ms.store(now, std::memory_order_relaxed);
+            }
+            return;
+        }
+
+        if (diff > 1) {
+            maybe_request_idr_for_rtp_gap(static_cast<uint16_t>(diff - 1));
+        }
+
+        g_last_rtp_seq.store(seq, std::memory_order_relaxed);
+        g_last_rtp_seq_ms.store(now, std::memory_order_relaxed);
+    }
+
+    static void send_idr_token_to_ip(const char* ip, const char token3[4]) {
+        if (!ip || !ip[0]) {
+            return;
+        }
+
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_port = htons(static_cast<uint16_t>(kIdrUdpPort));
+
+        if (inet_pton(AF_INET, ip, &dst.sin_addr) != 1) {
+            spdlog::warn("[IDR] inet_pton failed for ip={}", ip);
+            return;
+        }
+
+        char payload[16];
+        snprintf(payload, sizeof(payload), "%s\n", token3);
+        int rc = sendto(g_idr_sock, payload, static_cast<int>(strlen(payload)), 0,
+                        reinterpret_cast<sockaddr*>(&dst), static_cast<int>(sizeof(dst)));
+        if (rc < 0) {
+            spdlog::warn("[IDR] sendto({}:{}) failed: {}", ip, kIdrUdpPort, strerror(errno));
+        }
+    }
+
+    static void request_idr_bursts(const char* reason, int request_count, bool allow_pending) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        const std::string ip = get_last_hop_ip_copy();
+        if (ip.empty()) {
+            spdlog::warn("[IDR] Cannot request IDR (last-hop unknown) reason={}", reason ? reason : "(null)");
+            if (allow_pending) {
+                g_pending_rec_idr.store(true, std::memory_order_relaxed);
+            }
+            return;
+        }
+
+        if (!ensure_idr_socket()) {
+            return;
+        }
+
+        g_pending_rec_idr.store(false, std::memory_order_relaxed);
+        const std::string reason_str = reason ? reason : "";
+
+        std::thread([ip, reason_str, request_count]() {
+            const char* reason_c = reason_str.empty() ? "no-reason" : reason_str.c_str();
+            spdlog::info("[IDR] Request {} burst(s) to {}:{} ({})", request_count, ip, kIdrUdpPort, reason_c);
+            for (int r = 0; r < request_count; ++r) {
+                for (int i = 0; i < kIdrBurstCount; ++i) {
+                    char tok[4];
+                    make_idr_token3(tok);
+                    send_idr_token_to_ip(ip.c_str(), tok);
+                    if (i + 1 < kIdrBurstCount) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(kIdrBurstSpacingMs));
+                    }
+                }
+                if (r + 1 < request_count) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(kIdrRepeatSpacingMs));
+                }
+            }
+        }).detach();
+    }
+
+    static void on_incoming_stream_buffer(GstBuffer* buf, const char* tag) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        g_last_pkt_ms.store(now_ms(), std::memory_order_relaxed);
+        maybe_update_last_hop_from_buffer(buf);
+
+        if (!g_stream_up.exchange(true)) {
+            spdlog::info("[NET] Stream UP ({})", tag ? tag : "unknown");
+            request_idr_bursts("stream-up", kIdrRepeatCount, false);
+        }
+
+        if (g_pending_rec_idr.load(std::memory_order_relaxed)) {
+            const std::string ip = get_last_hop_ip_copy();
+            if (!ip.empty()) {
+                g_pending_rec_idr.store(false, std::memory_order_relaxed);
+                request_idr_bursts("record-start(pending)", kIdrRepeatCount, false);
+            }
+        }
+    }
+
+    static void maybe_request_decode_stall(uint64_t now) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        if (!g_stream_up.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        const uint64_t last_pkt = g_last_pkt_ms.load(std::memory_order_relaxed);
+        const uint64_t last_decoded = g_last_decoded_ms.load(std::memory_order_relaxed);
+        if (last_decoded == 0) {
+            return;
+        }
+
+        if (last_pkt && (now - last_pkt) > kDecodeStallPktWindowMs) {
+            return;
+        }
+
+        if (last_pkt > last_decoded && (now - last_decoded) > kDecodeStallMs) {
+            const uint64_t last_idr = g_last_decode_stall_idr_ms.load(std::memory_order_relaxed);
+            if (!last_idr || (now - last_idr) > kDecodeStallCooldownMs) {
+                g_last_decode_stall_idr_ms.store(now, std::memory_order_relaxed);
+                spdlog::info("[IDR] Decode stall (no frames for {} ms) -> request IDR", now - last_decoded);
+                request_idr_bursts("decode-stall", 1, false);
+            }
+        }
+    }
+
+    static void tick_stream_presence() {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        static uint64_t last_tick = 0;
+        const uint64_t now = now_ms();
+        if (now - last_tick < kStreamTickMs) {
+            return;
+        }
+        last_tick = now;
+
+        if (!g_stream_up.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        const uint64_t last = g_last_pkt_ms.load(std::memory_order_relaxed);
+        if (last && now > last && (now - last) > kStreamDownMs) {
+            if (g_stream_up.exchange(false)) {
+                spdlog::info("[NET] Stream DOWN (no packets for {} ms)", now - last);
+                g_last_rtp_seq_valid.store(false, std::memory_order_relaxed);
+                g_last_rtp_seq_ms.store(0, std::memory_order_relaxed);
+            }
+        }
+
+        maybe_request_decode_stall(now);
+    }
+
+    static void reset_stream_tracking() {
+        g_stream_up.store(false, std::memory_order_relaxed);
+        g_last_pkt_ms.store(0, std::memory_order_relaxed);
+        g_last_decoded_ms.store(0, std::memory_order_relaxed);
+        g_last_rtp_seq_valid.store(false, std::memory_order_relaxed);
+        g_last_rtp_seq_ms.store(0, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(g_last_hop_mutex);
+        g_last_hop_ip.clear();
+    }
+
+    static GstPadProbeReturn udp_last_hop_probe(GstPad*, GstPadProbeInfo* info, gpointer) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return GST_PAD_PROBE_OK;
+        }
+
+        if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER) {
+            GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
+            if (buf) {
+                on_incoming_stream_buffer(buf, "udpsrc");
+                maybe_track_rtp_sequence(buf);
+            }
+        }
+        return GST_PAD_PROBE_OK;
+    }
+
+    static void attach_last_hop_probes(GstElement* pipeline) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        if (!pipeline || !GST_IS_BIN(pipeline)) {
+            return;
+        }
+
+        GstIterator* it = gst_bin_iterate_recurse(GST_BIN(pipeline));
+        if (!it) {
+            return;
+        }
+
+        GValue v = G_VALUE_INIT;
+        while (gst_iterator_next(it, &v) == GST_ITERATOR_OK) {
+            GstElement* e = GST_ELEMENT(g_value_get_object(&v));
+            GstElementFactory* f = e ? gst_element_get_factory(e) : nullptr;
+            const gchar* fname = f ? gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(f)) : nullptr;
+
+            if (fname && (!strcmp(fname, "udpsrc") || !strcmp(fname, "ts-udpsrc"))) {
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(e), "retrieve-sender-address")) {
+                    g_object_set(G_OBJECT(e), "retrieve-sender-address", TRUE, NULL);
+                }
+
+                GstPad* src_pad = gst_element_get_static_pad(e, "src");
+                if (src_pad) {
+                    gst_pad_add_probe(src_pad, GST_PAD_PROBE_TYPE_BUFFER, udp_last_hop_probe, nullptr, nullptr);
+                    gst_object_unref(src_pad);
+                    spdlog::info("[NET] last-hop probe attached to {}", fname);
+                }
+            }
+
+            g_value_unset(&v);
+        }
+        gst_iterator_free(it);
+    }
+
+    static void maybe_request_idr_rate_limited(const char* reason, const char* context) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        if (!g_stream_up.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        const uint64_t now = now_ms();
+        const uint64_t last = g_last_integrity_idr_ms.load(std::memory_order_relaxed);
+        if (last && (now - last) < kIntegrityCooldownMs) {
+            return;
+        }
+
+        g_last_integrity_idr_ms.store(now, std::memory_order_relaxed);
+        if (context && context[0]) {
+            spdlog::info("[IDR] {} -> request IDR", context);
+        } else {
+            spdlog::info("[IDR] Decoder issue -> request IDR");
+        }
+
+        request_idr_bursts(reason ? reason : "decoder-issue", 1, false);
     }
 }
 
@@ -114,7 +578,9 @@ GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec) {
 }
 
 GstRtpReceiver::~GstRtpReceiver(){
-    close(sock);
+    if (sock >= 0) {
+        close(sock);
+    }
 }
 
 static std::shared_ptr<std::vector<uint8_t>> gst_copy_buffer(GstBuffer* buffer){
@@ -141,11 +607,13 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
             //gst_debug_sample(sample);
             GstBuffer* buffer = gst_sample_get_buffer(sample);
             if (buffer) {
+                on_incoming_stream_buffer(buffer, "appsink");
                 auto buff_copy=gst_copy_buffer(buffer);
                 out_cb(buff_copy);
             }
             gst_sample_unref(sample);
         }
+        tick_stream_presence();
     }
 }
 
@@ -283,6 +751,7 @@ void GstRtpReceiver::stop_receiving() {
         gst_object_unref(m_gst_pipeline);
         m_gst_pipeline = nullptr;
     }
+    reset_stream_tracking();
     spdlog::info("GstRtpReceiver::stop_receiving end");
 }
 
@@ -344,6 +813,8 @@ void GstRtpReceiver::switch_to_stream() {
         m_gst_pipeline = nullptr;
         return;
     }
+
+    attach_last_hop_probes(m_gst_pipeline);
 
     // If using Unix socket, setup appsrc with buffer pool
     if (unix_socket) {
@@ -556,4 +1027,24 @@ void GstRtpReceiver::skip_duration(int64_t skip_ms) {
     if (!gst_element_send_event(m_gst_pipeline, seek_event)) {
         spdlog::warn("Failed to send seek event for skipping.");
     }
+}
+
+void idr_set_enabled(bool enabled) {
+    g_idr_enabled.store(enabled, std::memory_order_relaxed);
+}
+
+void idr_request_record_start() {
+    request_idr_bursts("record-start", kIdrRepeatCount, true);
+}
+
+void idr_request_decoder_issue(const char* reason) {
+    const char* ctx = reason ? reason : "decoder-issue";
+    maybe_request_idr_rate_limited(reason, ctx);
+}
+
+void idr_notify_decoded_frame() {
+    if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+        return;
+    }
+    g_last_decoded_ms.store(now_ms(), std::memory_order_relaxed);
 }
