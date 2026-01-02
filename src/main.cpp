@@ -100,6 +100,7 @@ int video_zpos = 1;
 bool mavlink_dvr_on_arm = false;
 bool osd_custom_message = false;
 bool disable_vsync = false;
+bool disable_gregidr = false;
 uint32_t refresh_frequency_ms = 1000;
 
 VideoCodec codec = VideoCodec::H265;
@@ -262,6 +263,20 @@ void *__FRAME_THREAD__(void *param)
 				init_buffer(frame);
 			} else {
 				// regular frame received
+				idr_notify_decoded_frame();
+				const RK_U32 errinfo = mpp_frame_get_errinfo(frame);
+				const RK_U32 discard = mpp_frame_get_discard(frame);
+				if (errinfo || discard) {
+					const char* reason = "decoder-issue";
+					if (errinfo && discard) {
+						reason = "decoder-errinfo+discard";
+					} else if (errinfo) {
+						reason = "decoder-errinfo";
+					} else if (discard) {
+						reason = "decoder-discard";
+					}
+					idr_request_decoder_issue(reason);
+				}
 				if (!mpi.first_frame_ts.tv_sec) {
 					ts = ats;
 					mpi.first_frame_ts = ats;
@@ -571,6 +586,8 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
     auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
         // Let the gst pull thread run at quite high priority
         static bool first= false;
+        static int stall_count = 0;
+        static uint64_t last_stall_idr_ms = 0;
         if(first){
             SchedulingHelper::set_thread_params_max_realtime("DisplayThread",SchedulingHelper::PRIORITY_REALTIME_LOW);
             first= false;
@@ -578,7 +595,17 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
 		bytes_received += frame->size();
 		uint64_t now = get_time_ms();
 		osd_publish_uint_fact("gstreamer.received_bytes", NULL, 0, frame->size());
-        feed_packet_to_decoder(packet,frame->data(),frame->size());
+        const bool fed_ok = feed_packet_to_decoder(packet,frame->data(),frame->size());
+        if (!fed_ok) {
+            stall_count++;
+            if (stall_count >= 3 && (now - last_stall_idr_ms) > 500) {
+                last_stall_idr_ms = now;
+                stall_count = 0;
+                idr_request_decoder_issue("decoder-feed-stall");
+            }
+        } else {
+            stall_count = 0;
+        }
         if (dvr_enabled && dvr != NULL) {
 			dvr->frame(frame);
         }
@@ -694,6 +721,8 @@ void printHelp() {
     "    --osd-plane-id         - Override default drm plane used for osd by plane-id\n"
     "\n"
     "    --disable-vsync        - Disable VSYNC commits\n"
+    "\n"
+    "    --disable-gregidr      - Disable last-hop probing and IDR requests\n"
     "\n"
     "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
@@ -868,6 +897,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--disable-gregidr") {
+		disable_gregidr = true;
+		continue;
+	}
+
 	__OnArgument("--screen-mode-list") {
 		print_modelist = 1;
 		continue;
@@ -909,6 +943,7 @@ int main(int argc, char **argv)
 	__EndParseConsoleArguments__
 
 	spdlog::set_level(log_level);
+	idr_set_enabled(!disable_gregidr);
 
 	if (dvr_template != NULL && video_framerate < 0 ) {
 		printf("--dvr-framerate must be provided when dvr is enabled.\n");
