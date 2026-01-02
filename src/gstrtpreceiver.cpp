@@ -85,6 +85,8 @@ namespace {
     static constexpr int kIdrBurstSpacingMs = 100;
     static constexpr int kIdrRepeatCount = 3;
     static constexpr int kIdrRepeatSpacingMs = 100;
+    static constexpr int kIdrRecordRepeatCount = 3;
+    static constexpr int kIdrRecordRepeatSpacingMs = 150;
     static constexpr uint64_t kStreamDownMs = 1200;
     static constexpr uint64_t kStreamTickMs = 200;
     static constexpr uint64_t kIntegrityCooldownMs = 350;
@@ -416,6 +418,17 @@ namespace {
         }
     }
 
+    static void send_idr_burst(const std::string& ip) {
+        for (int i = 0; i < kIdrBurstCount; ++i) {
+            char tok[4];
+            make_idr_token3(tok);
+            send_idr_token_to_ip(ip.c_str(), tok);
+            if (i + 1 < kIdrBurstCount) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(kIdrBurstSpacingMs));
+            }
+        }
+    }
+
     static void request_idr_bursts(const char* reason, int request_count, bool allow_pending) {
         if (!g_idr_enabled.load(std::memory_order_relaxed)) {
             return;
@@ -446,28 +459,36 @@ namespace {
         g_pending_rec_idr.store(false, std::memory_order_relaxed);
         const std::string reason_str = reason ? reason : "";
 
+        if (track_record) {
+            std::thread([ip, reason_str, request_count]() {
+                const char* reason_c = reason_str.empty() ? "no-reason" : reason_str.c_str();
+                for (int r = 0; r < request_count; ++r) {
+                    if (!g_record_idr_pending.load(std::memory_order_relaxed)) {
+                        spdlog::info("[IDR] Record refresh confirmed; skipping remaining bursts");
+                        break;
+                    }
+                    spdlog::info("[IDR] Request 1 burst(s) to {}:{} ({} {}/{})",
+                                 ip, kIdrUdpPort, reason_c, r + 1, request_count);
+                    send_idr_burst(ip);
+                    if (r + 1 < request_count) {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(kIdrRecordRepeatSpacingMs));
+                    }
+                }
+            }).detach();
+            return;
+        }
+
         std::thread([ip, reason_str, request_count]() {
             const char* reason_c = reason_str.empty() ? "no-reason" : reason_str.c_str();
+            const bool track_stream = is_stream_idr_reason(reason_c);
             spdlog::info("[IDR] Request {} burst(s) to {}:{} ({})", request_count, ip, kIdrUdpPort, reason_c);
             for (int r = 0; r < request_count; ++r) {
-                const bool track_stream = is_stream_idr_reason(reason_c);
-                const bool track_record = is_record_idr_reason(reason_c);
                 if (track_stream && !g_stream_idr_pending.load(std::memory_order_relaxed)) {
                     spdlog::info("[IDR] Stream refresh confirmed; skipping remaining bursts");
                     break;
                 }
-                if (track_record && !g_record_idr_pending.load(std::memory_order_relaxed)) {
-                    spdlog::info("[IDR] Record refresh confirmed; skipping remaining bursts");
-                    break;
-                }
-                for (int i = 0; i < kIdrBurstCount; ++i) {
-                    char tok[4];
-                    make_idr_token3(tok);
-                    send_idr_token_to_ip(ip.c_str(), tok);
-                    if (i + 1 < kIdrBurstCount) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(kIdrBurstSpacingMs));
-                    }
-                }
+                send_idr_burst(ip);
                 if (r + 1 < request_count) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(kIdrRepeatSpacingMs));
                 }
@@ -495,7 +516,7 @@ namespace {
                 const std::string ip = get_last_hop_ip_copy();
                 if (!ip.empty()) {
                     g_pending_rec_idr.store(false, std::memory_order_relaxed);
-                    request_idr_bursts("record-start(pending)", kIdrRepeatCount, false);
+                    request_idr_bursts("record-start(pending)", kIdrRecordRepeatCount, false);
                 }
             }
         }
@@ -1156,7 +1177,7 @@ void idr_set_enabled(bool enabled) {
 }
 
 void idr_request_record_start() {
-    request_idr_bursts("record-start", kIdrRepeatCount, true);
+    request_idr_bursts("record-start", kIdrRecordRepeatCount, true);
 }
 
 void idr_request_decoder_issue(const char* reason) {
