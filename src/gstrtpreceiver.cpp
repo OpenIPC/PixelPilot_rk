@@ -18,6 +18,7 @@
 #include <iostream>
 #include <memory>
 #include <utility>
+#include <functional>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -110,6 +111,8 @@ namespace {
     static std::atomic<uint16_t> g_last_rtp_seq{0};
     static std::atomic<bool> g_last_rtp_seq_valid{false};
     static std::atomic<bool> g_idr_enabled{true};
+    static std::atomic<bool> g_stream_idr_pending{false};
+    static std::atomic<bool> g_record_idr_pending{false};
 
     static uint64_t now_ms() {
         const auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -117,6 +120,14 @@ namespace {
     }
 
     static void request_idr_bursts(const char* reason, int request_count, bool allow_pending);
+
+    static bool is_stream_idr_reason(const char* reason) {
+        return reason && !strcmp(reason, "stream-up");
+    }
+
+    static bool is_record_idr_reason(const char* reason) {
+        return reason && !strncmp(reason, "record-start", strlen("record-start"));
+    }
 
     static bool ensure_idr_socket() {
         if (g_idr_sock_ready.load(std::memory_order_acquire)) {
@@ -298,6 +309,90 @@ namespace {
         g_last_rtp_seq_ms.store(now, std::memory_order_relaxed);
     }
 
+    static void for_each_nal(const uint8_t* data, size_t size,
+                             const std::function<void(const uint8_t*, size_t)>& cb) {
+        auto find_start = [&](size_t from, size_t& start_len) -> size_t {
+            for (size_t i = from; i + 3 < size; i++) {
+                if (data[i] == 0x00 && data[i + 1] == 0x00) {
+                    if (data[i + 2] == 0x01) {
+                        start_len = 3;
+                        return i;
+                    }
+                    if (i + 3 < size && data[i + 2] == 0x00 && data[i + 3] == 0x01) {
+                        start_len = 4;
+                        return i;
+                    }
+                }
+            }
+            start_len = 0;
+            return size;
+        };
+
+        size_t pos = 0;
+        while (pos < size) {
+            size_t start_len = 0;
+            size_t start = find_start(pos, start_len);
+            if (start == size) {
+                break;
+            }
+            size_t nal_start = start + start_len;
+            size_t next_len = 0;
+            size_t next = find_start(nal_start, next_len);
+            size_t nal_end = (next == size) ? size : next;
+            if (nal_end > nal_start) {
+                cb(data + nal_start, nal_end - nal_start);
+            }
+            pos = nal_end;
+        }
+    }
+
+    static bool has_idr_frame(const uint8_t* data, size_t size, VideoCodec codec) {
+        bool found = false;
+        if (!data || size == 0) {
+            return false;
+        }
+        for_each_nal(data, size, [&](const uint8_t* nal, size_t nal_size) {
+            if (found || !nal || nal_size == 0) {
+                return;
+            }
+            if (codec == VideoCodec::H265) {
+                uint8_t nal_type = (nal[0] >> 1) & 0x3f;
+                if (nal_type >= 16 && nal_type <= 21) {
+                    found = true;
+                }
+            } else if (codec == VideoCodec::H264) {
+                uint8_t nal_type = nal[0] & 0x1f;
+                if (nal_type == 5) {
+                    found = true;
+                }
+            }
+        });
+        return found;
+    }
+
+    static void maybe_mark_idr_received(const uint8_t* data, size_t size, VideoCodec codec) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        if (!g_stream_idr_pending.load(std::memory_order_relaxed) &&
+            !g_record_idr_pending.load(std::memory_order_relaxed)) {
+            return;
+        }
+
+        if (!has_idr_frame(data, size, codec)) {
+            return;
+        }
+
+        if (g_stream_idr_pending.exchange(false, std::memory_order_relaxed)) {
+            spdlog::info("[IDR] Stream refresh confirmed (IDR received)");
+        }
+        if (g_record_idr_pending.exchange(false, std::memory_order_relaxed)) {
+            g_pending_rec_idr.store(false, std::memory_order_relaxed);
+            spdlog::info("[IDR] Record refresh confirmed (IDR received)");
+        }
+    }
+
     static void send_idr_token_to_ip(const char* ip, const char token3[4]) {
         if (!ip || !ip[0]) {
             return;
@@ -326,6 +421,15 @@ namespace {
             return;
         }
 
+        const bool track_stream = is_stream_idr_reason(reason);
+        const bool track_record = is_record_idr_reason(reason);
+        if (track_stream) {
+            g_stream_idr_pending.store(true, std::memory_order_relaxed);
+        }
+        if (track_record) {
+            g_record_idr_pending.store(true, std::memory_order_relaxed);
+        }
+
         const std::string ip = get_last_hop_ip_copy();
         if (ip.empty()) {
             spdlog::warn("[IDR] Cannot request IDR (last-hop unknown) reason={}", reason ? reason : "(null)");
@@ -346,6 +450,16 @@ namespace {
             const char* reason_c = reason_str.empty() ? "no-reason" : reason_str.c_str();
             spdlog::info("[IDR] Request {} burst(s) to {}:{} ({})", request_count, ip, kIdrUdpPort, reason_c);
             for (int r = 0; r < request_count; ++r) {
+                const bool track_stream = is_stream_idr_reason(reason_c);
+                const bool track_record = is_record_idr_reason(reason_c);
+                if (track_stream && !g_stream_idr_pending.load(std::memory_order_relaxed)) {
+                    spdlog::info("[IDR] Stream refresh confirmed; skipping remaining bursts");
+                    break;
+                }
+                if (track_record && !g_record_idr_pending.load(std::memory_order_relaxed)) {
+                    spdlog::info("[IDR] Record refresh confirmed; skipping remaining bursts");
+                    break;
+                }
                 for (int i = 0; i < kIdrBurstCount; ++i) {
                     char tok[4];
                     make_idr_token3(tok);
@@ -375,10 +489,14 @@ namespace {
         }
 
         if (g_pending_rec_idr.load(std::memory_order_relaxed)) {
-            const std::string ip = get_last_hop_ip_copy();
-            if (!ip.empty()) {
+            if (!g_record_idr_pending.load(std::memory_order_relaxed)) {
                 g_pending_rec_idr.store(false, std::memory_order_relaxed);
-                request_idr_bursts("record-start(pending)", kIdrRepeatCount, false);
+            } else {
+                const std::string ip = get_last_hop_ip_copy();
+                if (!ip.empty()) {
+                    g_pending_rec_idr.store(false, std::memory_order_relaxed);
+                    request_idr_bursts("record-start(pending)", kIdrRepeatCount, false);
+                }
             }
         }
     }
@@ -446,6 +564,7 @@ namespace {
         g_last_decoded_ms.store(0, std::memory_order_relaxed);
         g_last_rtp_seq_valid.store(false, std::memory_order_relaxed);
         g_last_rtp_seq_ms.store(0, std::memory_order_relaxed);
+        g_stream_idr_pending.store(false, std::memory_order_relaxed);
         std::lock_guard<std::mutex> lock(g_last_hop_mutex);
         g_last_hop_ip.clear();
     }
@@ -643,6 +762,9 @@ void GstRtpReceiver::loop_pull_samples()
 
 void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample)
 {
+    if (sample && !sample->empty()) {
+        maybe_mark_idr_received(sample->data(), sample->size(), m_video_codec);
+    }
     if(m_cb){
         //debug_sample(sample);
         m_cb(sample);
