@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../main.h"
+#include "../gstrtpreceiver.h"
 #include "gs_system.h"
 #include "lvgl/lvgl.h"
 #include "helper.h"
@@ -18,6 +19,7 @@ lv_obj_t * resolution;
 lv_obj_t * rec_enabled;
 lv_obj_t * rec_fps;
 lv_obj_t * vsync_disabled;
+lv_obj_t * gs_request_idr;
 lv_obj_t * video_scale;
 
 extern lv_obj_t * ap_fpv_ssid;
@@ -47,6 +49,8 @@ void gs_system_page_load_callback(lv_obj_t * page)
     if (disable_vsync) lv_obj_add_state(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), LV_STATE_CHECKED);
 
+    if (idr_get_enabled()) lv_obj_add_state(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), LV_STATE_CHECKED);
+    else lv_obj_clear_state(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), LV_STATE_CHECKED);
 }
 
 void toggle_rec_enabled()
@@ -83,6 +87,14 @@ void disable_vsync_cb(lv_event_t *e) {
     if (event == LV_EVENT_VALUE_CHANGED) {
         lv_obj_t *ta = lv_event_get_target(e);
         disable_vsync = lv_obj_has_state(ta, LV_STATE_CHECKED);
+    }
+}
+
+void gs_request_idr_cb(lv_event_t *e) {
+    lv_event_code_t event = lv_event_get_code(e);
+    if (event == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *ta = lv_event_get_target(e);
+        idr_set_enabled(lv_obj_has_state(ta, LV_STATE_CHECKED));
     }
 }
 
@@ -146,6 +158,8 @@ void create_gs_system_menu(lv_obj_t * parent) {
 
     vsync_disabled = create_switch(cont,LV_SYMBOL_SETTINGS,"Disable VSYNC","disable_vsync", NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), disable_vsync_cb, LV_EVENT_VALUE_CHANGED,NULL);
+    gs_request_idr = create_switch(cont,LV_SYMBOL_SETTINGS,"Request IDR","gs_request_idr", NULL,false);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), gs_request_idr_cb, LV_EVENT_VALUE_CHANGED,NULL);
 
     create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
