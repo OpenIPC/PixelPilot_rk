@@ -2104,7 +2104,7 @@ void osd_publish_batch(void *batch) {
 	if (enable_osd) {
 		{
 			std::lock_guard<std::mutex> lock(mtx);
-			for (Fact fact : *facts) {
+			for (const Fact& fact : *facts) {
 				// SPDLOG_DEBUG("batch post fact {}({})", fact.getName(), fact.getTags());
 				fact_queue.push(fact);
 			}
