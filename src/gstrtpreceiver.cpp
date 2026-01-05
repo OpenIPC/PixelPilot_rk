@@ -1176,6 +1176,10 @@ void idr_set_enabled(bool enabled) {
     g_idr_enabled.store(enabled, std::memory_order_relaxed);
 }
 
+bool idr_get_enabled() {
+    return g_idr_enabled.load(std::memory_order_relaxed);
+}
+
 void idr_request_record_start() {
     request_idr_bursts("record-start", kIdrRecordRepeatCount, true);
 }

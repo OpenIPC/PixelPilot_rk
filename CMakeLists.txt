@@ -261,7 +261,9 @@ if(BUILD_TESTS)
     )
     pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
     pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
-    target_link_libraries(pixelpilot_tests PkgConfig::gstreamer PkgConfig::gstreamer-app)
+    pkg_search_module(gstnet REQUIRED IMPORTED_TARGET gstreamer-net-1.0>=1.4)
+    pkg_search_module(gio REQUIRED IMPORTED_TARGET gio-2.0)
+    target_link_libraries(pixelpilot_tests PkgConfig::gstreamer PkgConfig::gstreamer-app PkgConfig::gstnet PkgConfig::gio)
 
     target_link_options(pixelpilot_tests
       BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address
