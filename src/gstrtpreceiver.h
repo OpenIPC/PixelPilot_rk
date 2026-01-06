@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 #include <gst/gst.h>
+#include <stdbool.h>
+#ifdef __cplusplus
 #include <thread>
 #include <memory>
 #include <vector>
@@ -74,7 +76,7 @@ private:
     std::unique_ptr<std::thread> m_pull_samples_thread=nullptr;
     // appsrc
     const char* unix_socket = nullptr;
-    int sock;
+    int sock = -1;
     bool m_read_socket_run = false;
     std::unique_ptr<std::thread> m_read_socket_thread;
 
@@ -84,6 +86,19 @@ private:
     bool m_is_paused = false;
     double m_pre_pause_rate = 1.0;
 };
+#endif
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+void idr_set_enabled(bool enabled);
+bool idr_get_enabled();
+void idr_request_record_start();
+void idr_request_decoder_issue(const char* reason);
+void idr_notify_decoded_frame();
+#ifdef __cplusplus
+}
+#endif
 
 #endif //FPVUE_GSTRTPRECEIVER_H
