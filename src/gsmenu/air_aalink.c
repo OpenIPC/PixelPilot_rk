@@ -17,6 +17,8 @@ lv_obj_t * mcsShift;
 lv_obj_t * temp;
 lv_obj_t * throughput;
 lv_obj_t * osdscale;
+lv_obj_t * osdlevel;
+lv_obj_t * osdsignalbars;
 lv_obj_t * mcssource;
 
 void create_air_aalink_menu(lv_obj_t * parent) {
@@ -51,6 +53,8 @@ void create_air_aalink_menu(lv_obj_t * parent) {
     txPower = create_slider(cont,LV_SYMBOL_SETTINGS,"VTX Power Output","SCALE_TX_POWER",menu_page_data,false,1);
     mcsShift = create_slider(cont,LV_SYMBOL_SETTINGS,"Link resilience (dB)","THRESH_SHIFT",menu_page_data,false,0);
     osdscale = create_slider(cont,LV_SYMBOL_SETTINGS,"OSD Size","OSD_SCALE",menu_page_data,false,1);
+    osdlevel = create_slider(cont,LV_SYMBOL_SETTINGS,"OSD Level", "OSD_LEVEL", menu_page_data, false, 0);
+    osdsignalbars = create_dropdown(cont,LV_SYMBOL_SETTINGS,"OSD Signal Bars","","SHOW_SIGNAL_BARS", menu_page_data, false);
     throughput = create_slider(cont,LV_SYMBOL_SETTINGS,"Maximum Throughput (%)","THROUGHPUT_PCT",menu_page_data,false,0);
     temp = create_slider(cont,LV_SYMBOL_SETTINGS,"Temp Throttle Threshold (°C)","HIGH_TEMP",menu_page_data,false,0);
     mcssource = create_dropdown(cont,LV_SYMBOL_SETTINGS, "LQ Consideration","","MCS_SOURCE",menu_page_data,false);
@@ -60,6 +64,8 @@ void create_air_aalink_menu(lv_obj_t * parent) {
     add_entry_to_menu_page(menu_page_data,"Loading VTX Power Output ...", txPower, reload_slider_value);
     add_entry_to_menu_page(menu_page_data,"Loading Link resilience (dB) ...", mcsShift, reload_slider_value);
     add_entry_to_menu_page(menu_page_data,"Loading OSD Size ...", osdscale, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading OSD Level ...", osdlevel, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data,"Loading OSD Signal Bars ...", osdsignalbars, reload_dropdown_value);
     add_entry_to_menu_page(menu_page_data,"Loading Maximum Throughput ...", throughput, reload_slider_value);
     add_entry_to_menu_page(menu_page_data,"Loading Temp Throttle Threshold (°C)", temp, reload_slider_value);
     add_entry_to_menu_page(menu_page_data,"Loading LQ Consideration ...", mcssource, reload_dropdown_value);
