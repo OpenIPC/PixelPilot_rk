@@ -177,6 +177,12 @@ case "$@" in
     "values air aalink OSD_SCALE")
         echo -n 0.2 2
         ;;
+    "values air aalink OSD_LEVEL")
+        echo -n -e "0\n1\n2\n3"
+        ;;
+    "values air aalink SHOW_SIGNAL_BARS")
+        echo -n -e "true\nfalse"
+        ;;
     "values air aalink THROUGHPUT_PCT")
         echo -n 0 100
         ;;
