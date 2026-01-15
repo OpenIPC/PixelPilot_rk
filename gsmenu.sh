@@ -680,7 +680,7 @@ case "$@" in
         ;;
 
     "get air aalink SHOW_SIGNAL_BARS")
-        [ "$(get_aalink_value 'SHOW_SIGNAL_BARS')" = "true" ] && echo on || echo off
+        [ "$(get_aalink_value 'SHOW_SIGNAL_BARS')" = "true" ] && echo 1 || echo 0
         ;;
     "get air aalink channel")
         $SSH "fw_printenv -n wlanchan || echo 157"
