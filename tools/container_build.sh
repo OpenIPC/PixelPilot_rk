@@ -86,10 +86,10 @@ if [ $SKIP_SETUP -lt 1 ]; then
             apt-get install -y cmake build-essential git pkg-config devscripts equivs
             ;;
         bin|debug)
-            apt-get install -y cmake build-essential git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
+            apt-get install -y cmake build-essential git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev librga-dev
             ;;
         test)
-            apt-get install -y cmake build-essential git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev catch2
+            apt-get install -y cmake build-essential git pkg-config librockchip-mpp-dev libcairo-dev libdrm-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev catch2 librga-dev
     esac
 fi
 
