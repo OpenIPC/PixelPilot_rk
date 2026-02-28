@@ -339,6 +339,7 @@ int modeset_create_fb(int fd, struct modeset_buf *buf)
 	struct drm_mode_create_dumb creq;
 	struct drm_mode_destroy_dumb dreq;
 	struct drm_mode_map_dumb mreq;
+	struct drm_prime_handle ph;
 	int ret;
 	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
 
@@ -355,6 +356,18 @@ int modeset_create_fb(int fd, struct modeset_buf *buf)
 	buf->stride = creq.pitch;
 	buf->size = creq.size;
 	buf->handle = creq.handle;
+
+	/* Export as DMA-buf prime fd for RGA. */
+	buf->prime_fd = -1;
+	buf->gl_fb_id = 0;
+	memset(&ph, 0, sizeof(ph));
+	ph.handle = buf->handle;
+	ph.flags  = DRM_CLOEXEC | DRM_RDWR;
+	if (drmIoctl(fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &ph) == 0) {
+		buf->prime_fd = ph.fd;
+	} else {
+		fprintf(stderr, "warning: PRIME_HANDLE_TO_FD failed (%m); RGA path unavailable\n");
+	}
 
 	handles[0] = buf->handle;
 	pitches[0] = buf->stride;
@@ -394,6 +407,7 @@ int modeset_create_fb(int fd, struct modeset_buf *buf)
 err_fb:
 	drmModeRmFB(fd, buf->fb);
 err_destroy:
+	if (buf->prime_fd >= 0) { close(buf->prime_fd); buf->prime_fd = -1; }
 	memset(&dreq, 0, sizeof(dreq));
 	dreq.handle = buf->handle;
 	drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
@@ -404,6 +418,8 @@ err_destroy:
 void modeset_destroy_fb(int fd, struct modeset_buf *buf)
 {
 	struct drm_mode_destroy_dumb dreq;
+
+	if (buf->prime_fd >= 0) { close(buf->prime_fd); buf->prime_fd = -1; }
 
 	munmap(buf->map, buf->size);
 

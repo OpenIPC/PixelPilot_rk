@@ -369,8 +369,11 @@ void *__DISPLAY_THREAD__(void *param)
 
 		if(enable_osd) {
 			ret = pthread_mutex_lock(&osd_mutex);
-			assert(!ret);		
-			ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
+			assert(!ret);
+			if (enable_live_colortrans)
+				ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].gl_fb_id);
+			else 
+				ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
 			assert(ret>0);
 		}
 		drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);

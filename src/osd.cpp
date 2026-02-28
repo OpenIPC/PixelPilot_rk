@@ -46,6 +46,7 @@ extern "C" {
 #include "spdlog/spdlog.h"
 #include <fmt/ranges.h>
 #include "../lvgl/lvgl.h"
+#include "osd_gl.hpp"
 
 #ifdef BUILD_TESTS
 #include <catch2/catch.hpp>
@@ -72,13 +73,48 @@ bool osd_update_ready = false;
 bool menu_active = false;
 bool gsmenu_enabled = false;
 
-static uint8_t *lvgl_shadow_map = nullptr;
+OsdGl osd_gl;
 extern bool enable_live_colortrans;
 extern float live_colortrans_offset;
 extern float live_colortrans_gain;
 
 osd_thread_params *p;
 
+// ---------------------------------------------------------------------------
+// LUT cache — recomputed only when gain/offset change
+// ---------------------------------------------------------------------------
+struct LutCache {
+    float    gain{0.f};
+    float    offset{0.f};
+    bool     valid{false};
+    uint8_t  lut[256]{};
+    uint16_t recip[256]{};  // recip[a] = (255*256)/a  for fast un-premultiply
+};
+
+static LutCache s_cache;
+
+static const LutCache& get_cache() {
+    float g = live_colortrans_gain;
+    float o = live_colortrans_offset;
+
+    if (s_cache.valid && g == s_cache.gain && o == s_cache.offset)
+        return s_cache;
+
+    s_cache.gain   = g;
+    s_cache.offset = o;
+
+    for (int i = 0; i < 256; i++) {
+        float x = (i / 255.f) / g - o;
+        s_cache.lut[i] = (uint8_t)(std::clamp(x, 0.f, 1.f) * 255.f + .5f);
+    }
+
+    s_cache.recip[0] = 0;
+    for (int a = 1; a < 256; a++)
+        s_cache.recip[a] = (uint16_t)((255u * 256u + a / 2) / a);
+
+    s_cache.valid = true;
+    return s_cache;
+}
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
   return (timestamp->tv_sec - last_meansure_timestamp->tv_sec) +
@@ -1873,64 +1909,50 @@ std::condition_variable cv;
 pthread_mutex_t osd_mutex;
 
 // ---------------------------------------------------------------------------
-void apply_inverse_colortrans(struct modeset_buf *dst, const uint8_t *src) {
-    uint8_t lut[256];
-    for (int i = 0; i < 256; i++) {
-        float y = i / 255.0f;
-        float x = y / live_colortrans_gain - live_colortrans_offset;
-        lut[i] = (uint8_t)(std::clamp(x, 0.0f, 1.0f) * 255.0f + 0.5f);
-    }
+void apply_inverse_colortrans(struct modeset_buf* dst, const uint8_t* src)
+{
+    const LutCache& c = get_cache();
+    const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
+    uint32_t*       d = reinterpret_cast<uint32_t*>(dst->map);
+    const int npix = dst->width * dst->height;
 
-    const uint32_t *s = (const uint32_t *)src;
-    uint32_t *d = (uint32_t *)dst->map;
-    int npix = dst->width * dst->height;
     for (int i = 0; i < npix; i++) {
-        uint32_t px = s[i];
-        uint8_t a = (px >> 24) & 0xFF;
-        if (a == 0) {
-            d[i] = 0;
-            continue;
-        }
-        d[i] = ((uint32_t)a << 24)
-              | ((uint32_t)lut[(px >> 16) & 0xFF] << 16)
-              | ((uint32_t)lut[(px >>  8) & 0xFF] <<  8)
-              |  (uint32_t)lut[ px        & 0xFF];
+        uint32_t p = s[i];
+        uint8_t  a = p >> 24;
+        if (!a) { d[i] = 0; continue; }
+        d[i] = ((uint32_t)a                     << 24)
+             | ((uint32_t)c.lut[(p>>16)&0xFF]   << 16)
+             | ((uint32_t)c.lut[(p>> 8)&0xFF]   <<  8)
+             |  (uint32_t)c.lut[ p     &0xFF];
     }
 }
 
-void apply_inverse_colortrans_inplace(struct modeset_buf *buf) {
-    uint8_t lut[256];
-    for (int i = 0; i < 256; i++) {
-        float y = i / 255.0f;
-        float x = y / live_colortrans_gain - live_colortrans_offset;
-        if (x < 0.0f) x = 0.0f;
-        if (x > 1.0f) x = 1.0f;
-        lut[i] = (uint8_t)(x * 255.0f + 0.5f);
-    }
+/**
+ * apply_inverse_colortrans_inplace_rga(buf)
+ *
+ * Drop-in for apply_inverse_colortrans_inplace(buf).
+ * Applies un-premul → LUT → re-premul in place.
+ * Skips fully transparent pixels.
+ */
+void apply_inverse_colortrans_inplace(struct modeset_buf* buf)
+{
+    const LutCache& c = get_cache();
+    uint32_t* px = reinterpret_cast<uint32_t*>(buf->map);
+    const int npix = buf->width * buf->height;
 
-    uint32_t *pixels = (uint32_t *)buf->map;
-    int npix = buf->width * buf->height;
     for (int i = 0; i < npix; i++) {
-        uint32_t px = pixels[i];
-        uint8_t a = (px >> 24) & 0xFF;
-        if (a == 0) continue;
-
-        // un-premultiply
-        uint8_t r = ((px >> 16) & 0xFF) * 255 / a;
-        uint8_t g = ((px >>  8) & 0xFF) * 255 / a;
-        uint8_t b = ( px        & 0xFF) * 255 / a;
-
-        // apply inverse transform on straight alpha values
-        r = lut[r];
-        g = lut[g];
-        b = lut[b];
-
-        // re-premultiply
-        r = r * a / 255;
-        g = g * a / 255;
-        b = b * a / 255;
-
-        pixels[i] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+        uint32_t p = px[i];
+        uint8_t  a = p >> 24;
+        if (!a) continue;
+        uint16_t inv = c.recip[a];
+        uint8_t r = (uint8_t)std::min(255u, (uint32_t)(((p>>16)&0xFF) * inv >> 8));
+        uint8_t g = (uint8_t)std::min(255u, (uint32_t)(((p>> 8)&0xFF) * inv >> 8));
+        uint8_t b = (uint8_t)std::min(255u, (uint32_t)(( p     &0xFF) * inv >> 8));
+        r = c.lut[r]; g = c.lut[g]; b = c.lut[b];
+        px[i] = ((uint32_t) a                 << 24)
+              | ((uint32_t)((r*a+127) / 255)  << 16)
+              | ((uint32_t)((g*a+127) / 255)  <<  8)
+              |  (uint32_t)((b*a+127) / 255);
     }
 }
 
@@ -1991,21 +2013,25 @@ cairo_surface_t * surface_from_embedded_png(const char * png, size_t length)
 
 void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_map)
 {
-    // pick the osd_buf DRM is NOT currently scanning out
-    int next_idx = p->out->osd_buf_switch ^ 1;
-    struct modeset_buf *dst = &p->out->osd_bufs[next_idx];
 
-    if (enable_live_colortrans) {
-        apply_inverse_colortrans(dst,lvgl_shadow_map);
+    struct modeset_buf *buf1 = &p->out->osd_bufs[0];
+    struct modeset_buf *buf2 = &p->out->osd_bufs[1];
+	int ret = pthread_mutex_lock(&osd_mutex);
+	assert(!ret);	
+    if (px_map == buf1->map) {
+		p->out->osd_buf_switch = 0;
+    } else if (px_map == buf2->map) {
+		p->out->osd_buf_switch = 1;
     } else {
-		memcpy(dst->map, lvgl_shadow_map, dst->size);
+        spdlog::error("Unknown buffer being flushed");
+    }
+
+	if (enable_live_colortrans) {
+		p->out->osd_bufs[p->out->osd_buf_switch].gl_fb_id = osd_gl_process(&p->out->osd_bufs[p->out->osd_buf_switch]);
 	}
 
-    int ret = pthread_mutex_lock(&osd_mutex);
-    assert(!ret);
-    p->out->osd_buf_switch = next_idx;
-    ret = pthread_mutex_unlock(&osd_mutex);
-    assert(!ret);
+	ret = pthread_mutex_unlock(&osd_mutex);
+	assert(!ret);
 
 	// tell the display thread that we have a update
 	ret = pthread_mutex_lock(&video_mutex);
@@ -2033,17 +2059,16 @@ void setup_lvgl(osd_thread_params *p) {
 	/* Initialize LVGL. */
     lv_init();
 
-    struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
-    // allocate shadow buffer - same size as osd_bufs
-    lvgl_shadow_map = (uint8_t *)malloc(buf->size);
-    assert(lvgl_shadow_map);
-    memset(lvgl_shadow_map, 0, buf->size);
-
 	// create the display
+    struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
 	display = lv_display_create(buf->width, buf->height);
 
-	// Set the buffer in LVGL
-	lv_display_set_buffers(display, lvgl_shadow_map, NULL, buf->size, LV_DISPLAY_RENDER_MODE_DIRECT);
+	// Get the first two buffers from the OSD buffers
+	struct modeset_buf *buf1 = &p->out->osd_bufs[0];
+	struct modeset_buf *buf2 = &p->out->osd_bufs[1];
+
+	// Set the buffers in LVGL
+	lv_display_set_buffers(display, buf1->map, buf2->map, buf1->size, LV_DISPLAY_RENDER_MODE_DIRECT);
 
 	lv_display_set_flush_cb(display, my_flush_cb);
 
@@ -2069,6 +2094,11 @@ void *__OSD_THREAD__(void *param) {
 	struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
 	ret = modeset_perform_modeset(p->fd, p->out, p->out->osd_request, &p->out->osd_plane,
 								  buf->fb, buf->width, buf->height, osd_zpos);
+
+	if (!osd_gl.init(p->fd, buf->width, buf->height,
+						live_colortrans_gain, live_colortrans_offset)) {
+		spdlog::warn("OSD GL: init failed");
+	}
 
 	if (gsmenu_enabled) {
 		setup_lvgl(p);
@@ -2115,7 +2145,7 @@ void *__OSD_THREAD__(void *param) {
 				modeset_paint_buffer(buf, osd);
 
 				if (enable_live_colortrans) {
-					apply_inverse_colortrans_inplace(buf);
+					buf->gl_fb_id = osd_gl.process(buf);
 				}
 
 				int ret = pthread_mutex_lock(&osd_mutex);
@@ -2254,6 +2284,10 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 	mk_tags(tags, n_tags, &fact_tags);
 	publish(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
 };
+
+uint32_t osd_gl_process(struct modeset_buf* buf){
+	return osd_gl.process(buf);
+}
 
 #ifdef __cplusplus
 }

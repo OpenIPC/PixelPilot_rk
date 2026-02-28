@@ -146,6 +146,7 @@ set(LIB_SOURCE_FILES
         src/osd.cpp
         src/os_mon.hpp
         src/os_mon.cpp
+        src/osd_gl.cpp
         src/dvr.h
         src/dvr.cpp
         src/mavlink.h
@@ -177,6 +178,9 @@ else()
   find_package(yaml-cpp REQUIRED)
   pkg_check_modules(LIBGPIOD REQUIRED libgpiod)
   include_directories(${LIBGPIOD_INCLUDE_DIR})
+
+  find_path(RGA_INCLUDE_DIRS NAMES rga.h rga/rga.h)
+  find_library(RGA_LIBRARIES NAMES rga librga)
   
   # GStreamer setup
   find_package(PkgConfig REQUIRED)
@@ -196,6 +200,7 @@ else()
       ${PROJECT_SOURCE_DIR}
       ${PROJECT_SOURCE_DIR}/lvgl
       ${LIBDRM_INCLUDE_DIRS}
+      ${RGA_INCLUDE_DIRS}
   )
   
   target_link_libraries(${PROJECT_NAME} 
@@ -216,6 +221,8 @@ else()
       PkgConfig::gstreamer-app
       PkgConfig::gstnet
       PkgConfig::gio
+      ${RGA_LIBRARIES}
+      EGL GLESv2 gbm
   )
 endif()
 

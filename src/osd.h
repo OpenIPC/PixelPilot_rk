@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "drm.h"
 
 extern int enable_osd;
 extern bool osd_custom_message;
@@ -35,6 +36,8 @@ void osd_publish_int_fact(char const *name, osd_tag *tags, int n_tags, long valu
 void osd_publish_uint_fact(char const *name, osd_tag *tags, int n_tags, ulong value);
 void osd_publish_double_fact(char const *name, osd_tag *tags, int n_tags, double value);
 void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const char *value);
+
+uint32_t osd_gl_process(struct modeset_buf* buf);
 #ifdef __cplusplus
 }
 #endif

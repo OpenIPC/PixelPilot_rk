@@ -42,6 +42,8 @@ struct modeset_buf {
 	uint32_t handle;
 	uint8_t *map;
 	uint32_t fb;
+	int prime_fd;
+	uint32_t gl_fb_id;
 };
 
 struct modeset_output {
