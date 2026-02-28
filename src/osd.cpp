@@ -1908,54 +1908,6 @@ std::mutex mtx;
 std::condition_variable cv;
 pthread_mutex_t osd_mutex;
 
-// ---------------------------------------------------------------------------
-void apply_inverse_colortrans(struct modeset_buf* dst, const uint8_t* src)
-{
-    const LutCache& c = get_cache();
-    const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
-    uint32_t*       d = reinterpret_cast<uint32_t*>(dst->map);
-    const int npix = dst->width * dst->height;
-
-    for (int i = 0; i < npix; i++) {
-        uint32_t p = s[i];
-        uint8_t  a = p >> 24;
-        if (!a) { d[i] = 0; continue; }
-        d[i] = ((uint32_t)a                     << 24)
-             | ((uint32_t)c.lut[(p>>16)&0xFF]   << 16)
-             | ((uint32_t)c.lut[(p>> 8)&0xFF]   <<  8)
-             |  (uint32_t)c.lut[ p     &0xFF];
-    }
-}
-
-/**
- * apply_inverse_colortrans_inplace_rga(buf)
- *
- * Drop-in for apply_inverse_colortrans_inplace(buf).
- * Applies un-premul → LUT → re-premul in place.
- * Skips fully transparent pixels.
- */
-void apply_inverse_colortrans_inplace(struct modeset_buf* buf)
-{
-    const LutCache& c = get_cache();
-    uint32_t* px = reinterpret_cast<uint32_t*>(buf->map);
-    const int npix = buf->width * buf->height;
-
-    for (int i = 0; i < npix; i++) {
-        uint32_t p = px[i];
-        uint8_t  a = p >> 24;
-        if (!a) continue;
-        uint16_t inv = c.recip[a];
-        uint8_t r = (uint8_t)std::min(255u, (uint32_t)(((p>>16)&0xFF) * inv >> 8));
-        uint8_t g = (uint8_t)std::min(255u, (uint32_t)(((p>> 8)&0xFF) * inv >> 8));
-        uint8_t b = (uint8_t)std::min(255u, (uint32_t)(( p     &0xFF) * inv >> 8));
-        r = c.lut[r]; g = c.lut[g]; b = c.lut[b];
-        px[i] = ((uint32_t) a                 << 24)
-              | ((uint32_t)((r*a+127) / 255)  << 16)
-              | ((uint32_t)((g*a+127) / 255)  <<  8)
-              |  (uint32_t)((b*a+127) / 255);
-    }
-}
-
 void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
 	unsigned int j,k,off;
 	cairo_t* cr;
