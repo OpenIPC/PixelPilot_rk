@@ -26,6 +26,8 @@
 
 #define OSD_BUF_COUNT	2
 
+struct modeset_output;
+
 struct drm_object {
 	drmModeObjectProperties *props;
 	drmModePropertyRes **props_info;
@@ -75,6 +77,16 @@ struct modeset_output {
 	bool cleanup;
 };
 
+// Structure to hold gamma LUT state
+typedef struct {
+    int drm_fd;
+    struct modeset_output* output_list;  // Use struct keyword
+    uint32_t gamma_lut_blob_id;
+    float last_offset;
+    float last_gain;
+    bool is_enabled;
+} gamma_lut_controller;
+
 
 int modeset_open(int *out, const char *node);
 
@@ -117,5 +129,15 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 void restore_planes_zpos(int fd, struct modeset_output *output_list);
 
 void modeset_cleanup(int fd, struct modeset_output *output_list);
+
+// Gamma LUT controller functions
+void gamma_lut_controller_init(gamma_lut_controller* ctrl, int drm_fd, struct modeset_output* output_list);
+bool gamma_lut_enable(gamma_lut_controller* ctrl, float offset, float gain);
+bool gamma_lut_disable(gamma_lut_controller* ctrl);
+bool gamma_lut_reenable(gamma_lut_controller* ctrl);
+bool gamma_lut_toggle(gamma_lut_controller* ctrl);
+bool gamma_lut_is_enabled(gamma_lut_controller* ctrl);
+void gamma_lut_get_params(gamma_lut_controller* ctrl, float* offset, float* gain);
+void gamma_lut_cleanup(gamma_lut_controller* ctrl);
 
 #endif

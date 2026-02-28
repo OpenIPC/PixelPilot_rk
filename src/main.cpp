@@ -121,6 +121,11 @@ uint32_t osd_plane_id_override = 0;
 WiFiRSSIMonitor wifi_monitor;
 extern enum RXMode RXMODE;
 
+bool enable_live_colortrans = false;
+float live_colortrans_offset = -0.15f;
+float live_colortrans_gain = 2.5f;
+gamma_lut_controller lut_ctrl;
+
 void init_buffer(MppFrame frame) {
 	output_list->video_frm_width = mpp_frame_get_width(frame);
 	output_list->video_frm_height = mpp_frame_get_height(frame);
@@ -724,6 +729,8 @@ void printHelp() {
     "\n"
     "    --disable-gregidr      - Disable last-hop probing and IDR requests\n"
     "\n"
+    "    --live-colortrans      - Apply colortrans LUT to live display via DRM gamma\n"	
+    "\n"
     "    --screen-mode-list     - Print the list of supported screen modes and exit.\n"
     "\n"
     "    --wfb-api-port         - Port of wfb-server for cli statistics. (Default: 8003)\n"
@@ -904,6 +911,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("--screen-mode-list") {
 		print_modelist = 1;
+		continue;
+	}
+
+	__OnArgument("--live-colortrans") {
+		enable_live_colortrans = true;
 		continue;
 	}
 
@@ -1088,6 +1100,14 @@ int main(int argc, char **argv)
 		fprintf(stderr,
 				"cannot initialize display. Is display connected? Is --screen-mode correct?\n");
 		return -2;
+	}
+
+	gamma_lut_controller_init(&lut_ctrl, drm_fd, output_list);
+
+	if (enable_live_colortrans) {
+		if (gamma_lut_enable(&lut_ctrl, live_colortrans_offset, live_colortrans_gain)) {
+			spdlog::info("Gamma LUT enabled with offset={}, gain={}", live_colortrans_offset, live_colortrans_gain);
+		}
 	}
 	
 	////////////////////////////////// MPI SETUP

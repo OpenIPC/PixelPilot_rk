@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../main.h"
+#include "../drm.h"
 #include "../gstrtpreceiver.h"
 #include "gs_system.h"
 #include "lvgl/lvgl.h"
@@ -22,6 +23,9 @@ lv_obj_t * rec_fps;
 lv_obj_t * vsync_disabled;
 lv_obj_t * gs_request_idr;
 lv_obj_t * video_scale;
+lv_obj_t * gs_live_colortrans;
+lv_obj_t * gs_dvr_colortrans;
+
 
 extern lv_obj_t * ap_fpv_ssid;
 extern lv_obj_t * ap_fpv_password;
@@ -33,6 +37,10 @@ void dvr_set_video_framerate(Dvr* dvr,int f);
 extern Dvr *dvr;
 extern int dvr_enabled;
 extern bool disable_vsync;
+extern bool enable_live_colortrans;
+extern float live_colortrans_gain;
+extern float live_colortrans_offset;
+extern gamma_lut_controller lut_ctrl;
 
 void gs_system_page_load_callback(lv_obj_t * page)
 {
@@ -53,6 +61,9 @@ void gs_system_page_load_callback(lv_obj_t * page)
 
     if (idr_get_enabled()) lv_obj_add_state(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), LV_STATE_CHECKED);
+
+    if (enable_live_colortrans) lv_obj_add_state(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), LV_STATE_CHECKED);
+    else lv_obj_clear_state(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), LV_STATE_CHECKED);
 }
 
 void toggle_rec_enabled()
@@ -97,6 +108,26 @@ void gs_request_idr_cb(lv_event_t *e) {
     if (event == LV_EVENT_VALUE_CHANGED) {
         lv_obj_t *ta = lv_event_get_target(e);
         idr_set_enabled(lv_obj_has_state(ta, LV_STATE_CHECKED));
+    }
+}
+
+void gs_live_colortrans_cb(lv_event_t *e) {
+    lv_event_code_t event = lv_event_get_code(e);
+    if (event == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *ta = lv_event_get_target(e);
+
+        if (lv_obj_has_state(ta, LV_STATE_CHECKED)) {
+            gamma_lut_enable(&lut_ctrl, live_colortrans_offset, live_colortrans_gain);
+            enable_live_colortrans = true;
+            lv_obj_invalidate(lv_screen_active());
+            printf("Live colortrans ENABLED (offset=%f, gain=%f)\n", 
+                         live_colortrans_offset, live_colortrans_gain);
+        } else {
+            gamma_lut_disable(&lut_ctrl);
+            enable_live_colortrans = false;
+            lv_obj_invalidate(lv_screen_active());
+            printf("Live colortrans DISABLED\n");
+        }
     }
 }
 
@@ -163,6 +194,9 @@ void create_gs_system_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), disable_vsync_cb, LV_EVENT_VALUE_CHANGED,NULL);
     gs_request_idr = create_switch(cont,LV_SYMBOL_SETTINGS,"Request IDR","gs_request_idr", NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), gs_request_idr_cb, LV_EVENT_VALUE_CHANGED,NULL);
+
+    gs_live_colortrans = create_switch(cont,LV_SYMBOL_SETTINGS,"Live Colortrans","gs_live_colortrans", menu_page_data,false);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), gs_live_colortrans_cb, LV_EVENT_VALUE_CHANGED,NULL);
 
     create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
