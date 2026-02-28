@@ -2027,7 +2027,7 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
     }
 
 	if (enable_live_colortrans) {
-		p->out->osd_bufs[p->out->osd_buf_switch].gl_fb_id = osd_gl_process(&p->out->osd_bufs[p->out->osd_buf_switch]);
+		p->out->osd_bufs[p->out->osd_buf_switch].gl_fb_id = osd_gl_process(&p->out->osd_bufs[p->out->osd_buf_switch], false); // LVGL: straight alpha
 	}
 
 	ret = pthread_mutex_unlock(&osd_mutex);
@@ -2145,7 +2145,7 @@ void *__OSD_THREAD__(void *param) {
 				modeset_paint_buffer(buf, osd);
 
 				if (enable_live_colortrans) {
-					buf->gl_fb_id = osd_gl.process(buf);
+					buf->gl_fb_id = osd_gl.process(buf, true); // Cairo: premultiplied alpha
 				}
 
 				int ret = pthread_mutex_lock(&osd_mutex);
@@ -2285,8 +2285,8 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 	publish(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
 };
 
-uint32_t osd_gl_process(struct modeset_buf* buf){
-	return osd_gl.process(buf);
+uint32_t osd_gl_process(struct modeset_buf* buf, bool premultiplied){
+	return osd_gl.process(buf, premultiplied);
 }
 
 #ifdef __cplusplus

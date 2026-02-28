@@ -52,7 +52,9 @@ public:
     // Process one frame.
     // Imports buf->prime_fd as EGLImage, runs shader, returns fb_id of result.
     // Returns 0 on failure — caller should fall back to buf->fb + CPU path.
-    uint32_t process(struct modeset_buf* buf);
+    // premultiplied: true  = Cairo (CAIRO_FORMAT_ARGB32, premultiplied alpha)
+    //               false = LVGL  (LV_COLOR_FORMAT_ARGB8888, straight alpha)
+    uint32_t process(struct modeset_buf* buf, bool premultiplied = true);
 
     bool ready() const { return ready_; }
     void deinit();
@@ -84,6 +86,7 @@ private:
     GLint  loc_tex_{-1};
     GLint  loc_gain_{-1};
     GLint  loc_offset_{-1};
+    GLint  loc_premul_{-1};
 
     // Double-buffered GBM render targets
     static constexpr int kTargets = 2;

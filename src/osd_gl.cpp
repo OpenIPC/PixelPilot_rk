@@ -1,7 +1,16 @@
 /**
  * osd_gl.cpp
  *
- * GBM/EGL/GLES2 inverse colortrans processor for the Cairo OSD buffer.
+ * GBM/EGL/GLES2 inverse colortrans processor for OSD buffers.
+ *
+ * Two OSD paths with different alpha conventions feed this shader:
+ *   - Cairo  (modeset_paint_buffer): CAIRO_FORMAT_ARGB32 — premultiplied alpha
+ *   - LVGL   (my_flush_cb):          LV_COLOR_FORMAT_ARGB8888 — straight alpha
+ *
+ * Both share the same byte layout on little-endian (BGRA in memory =
+ * DRM_FORMAT_ARGB8888), but the premultiplication state differs.
+ * process() takes a `premultiplied` flag so the shader can skip the
+ * un-premultiply / re-premultiply steps for straight-alpha LVGL data.
  *
  * Pipeline per frame:
  *   1. Import buf->prime_fd (ARGB8888 dumb buffer) as EGLImage via
@@ -36,15 +45,23 @@ void main() {
 }
 )GLSL";
 
-// Inverse colortrans for premultiplied ARGB8888:
-//   un-premultiply → x = y/gain - offset → re-premultiply
-// Fully transparent pixels are passed through unchanged (alpha == 0 guard).
+// Inverse colortrans for ARGB8888 OSD buffers.
+//
+// u_premultiplied = 1.0  →  Cairo path: premultiplied alpha
+//                            un-premultiply → transform → re-premultiply
+// u_premultiplied = 0.0  →  LVGL path: straight alpha
+//                            transform only (divisor = 1.0, no mul/div by α)
+//
+// The mix() trick avoids a branch: divisor = mix(1.0, c.a, u_premultiplied)
+//   premul=1.0  → divisor = c.a   (un-premultiply and re-premultiply)
+//   premul=0.0  → divisor = 1.0   (no-op, straight alpha preserved)
 static const char* kFrag = R"GLSL(
 precision mediump float;
 varying vec2 v_uv;
 uniform sampler2D tex;
 uniform float gain;
 uniform float offset;
+uniform float u_premultiplied;  // 1.0 = premul (Cairo), 0.0 = straight (LVGL)
 
 void main() {
     vec4 c = texture2D(tex, v_uv);
@@ -52,12 +69,13 @@ void main() {
         gl_FragColor = vec4(0.0);
         return;
     }
-    // un-premultiply
-    vec3 straight = c.rgb / c.a;
+    // un-premultiply if needed (divisor = c.a for premul, 1.0 for straight)
+    float divisor = mix(1.0, c.a, u_premultiplied);
+    vec3 straight = c.rgb / divisor;
     // inverse transform: x = y/gain - offset
     vec3 corrected = clamp(straight / gain - offset, 0.0, 1.0);
-    // re-premultiply
-    gl_FragColor = vec4(corrected * c.a, c.a);
+    // re-premultiply if needed (matching divisor)
+    gl_FragColor = vec4(corrected * divisor, c.a);
 }
 )GLSL";
 
@@ -224,6 +242,7 @@ bool OsdGl::build_shader() {
     loc_tex_    = glGetUniformLocation(prog_, "tex");
     loc_gain_   = glGetUniformLocation(prog_, "gain");
     loc_offset_ = glGetUniformLocation(prog_, "offset");
+    loc_premul_ = glGetUniformLocation(prog_, "u_premultiplied");
     return true;
 }
 
@@ -303,7 +322,7 @@ void OsdGl::set_params(float gain, float offset) {
     // Uniforms are set per-draw so no extra work needed here
 }
 
-uint32_t OsdGl::process(struct modeset_buf* buf)
+uint32_t OsdGl::process(struct modeset_buf* buf, bool premultiplied)
 {
     if (!ready_ || buf->prime_fd < 0) return 0;
 
@@ -348,6 +367,7 @@ uint32_t OsdGl::process(struct modeset_buf* buf)
     glUniform1i(loc_tex_,    0);
     glUniform1f(loc_gain_,   gain_);
     glUniform1f(loc_offset_, offset_);
+    glUniform1f(loc_premul_, premultiplied ? 1.f : 0.f);
 
     const GLfloat verts[] = {
         // x,   y,    u,   v
