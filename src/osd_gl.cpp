@@ -349,14 +349,12 @@ uint32_t OsdGl::process(struct modeset_buf* buf)
     glUniform1f(loc_gain_,   gain_);
     glUniform1f(loc_offset_, offset_);
 
-    // Fullscreen quad: position + uv interleaved
-    // Note: v_uv y is flipped (1-y) because EGLImage from dma-buf is
-    // typically origin-bottom, while Cairo writes origin-top.
     const GLfloat verts[] = {
-        -1.f, -1.f,  0.f, 1.f,
-         1.f, -1.f,  1.f, 1.f,
-        -1.f,  1.f,  0.f, 0.f,
-         1.f,  1.f,  1.f, 0.f,
+        // x,   y,    u,   v
+        -1.f, -1.f,  0.f, 0.f, // Bottom Left  -> UV (0, 0)
+        1.f, -1.f,  1.f, 0.f, // Bottom Right -> UV (1, 0)
+        -1.f,  1.f,  0.f, 1.f, // Top Left     -> UV (0, 1)
+        1.f,  1.f,  1.f, 1.f, // Top Right    -> UV (1, 1)
     };
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
                           4 * sizeof(GLfloat), verts);
