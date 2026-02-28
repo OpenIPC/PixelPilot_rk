@@ -49,6 +49,7 @@ extern "C" {
 #include "osd.hpp"
 #include "wfbcli.hpp"
 #include "dvr.h"
+#include "mpp_encoder.h"
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"
 #include "time_util.h"
@@ -108,6 +109,13 @@ uint16_t listen_port = 5600;
 const char* unix_socket = NULL;
 char* dvr_template = NULL;
 Dvr *dvr = NULL;
+MppEncoder *reencoder = NULL;
+MppEncoderParams reenc_params;
+bool dvr_reenc = false;
+
+// Decoded frame geometry – updated in init_buffer(), used in __FRAME_THREAD__
+uint32_t decoded_hor_stride = 0;
+uint32_t decoded_ver_stride = 0;
 OsSensors os_sensors; // TODO: pass as argument to `main_loop`
 MenuAction airactions[MAX_ACTIONS];
 size_t airactions_count;
@@ -133,6 +141,9 @@ void init_buffer(MppFrame frame) {
 	RK_U32 ver_stride = mpp_frame_get_ver_stride(frame);
 	MppFrameFormat fmt = mpp_frame_get_fmt(frame);
 	assert((fmt == MPP_FMT_YUV420SP) || (fmt == MPP_FMT_YUV420SP_10BIT));
+
+	decoded_hor_stride = hor_stride;
+	decoded_ver_stride = ver_stride;
 
 	spdlog::info("Frame info changed {}({})x{}({})",
 				 output_list->video_frm_width, hor_stride, output_list->video_frm_height, ver_stride);
@@ -238,7 +249,8 @@ void init_buffer(MppFrame frame) {
 
 	// dvr setup
 	if (dvr != NULL){
-		dvr->set_video_params(output_list->video_frm_width, output_list->video_frm_height, codec);
+		VideoCodec dvr_codec = dvr_reenc ? reenc_params.codec : codec;
+		dvr->set_video_params(output_list->video_frm_width, output_list->video_frm_height, dvr_codec);
 	}
 }
 
@@ -287,7 +299,7 @@ void *__FRAME_THREAD__(void *param)
 					mpi.first_frame_ts = ats;
 				}
 
-				MppBuffer buffer = mpp_frame_get_buffer(frame);					
+				MppBuffer buffer = mpp_frame_get_buffer(frame);
 				if (buffer) {
 					output_list->video_poc = mpp_frame_get_poc(frame);
 					uint64_t feed_data_ts =  mpp_frame_get_pts(frame);
@@ -301,7 +313,7 @@ void *__FRAME_THREAD__(void *param)
 					assert(i!=MAX_FRAMES);
 
 					ts = ats;
-					
+
 					// send DRM FB to display thread
 					ret = pthread_mutex_lock(&video_mutex);
 					assert(!ret);
@@ -312,7 +324,26 @@ void *__FRAME_THREAD__(void *param)
 					assert(!ret);
 					ret = pthread_mutex_unlock(&video_mutex);
 					assert(!ret);
-					
+
+					if (reencoder != NULL && dvr_enabled &&
+					    decoded_hor_stride > 0 && decoded_ver_stride > 0) {
+						static uint64_t last_enc_pts = 0;
+						uint64_t enc_interval_ms = (reenc_params.fps > 0)
+						                               ? (1000u / (uint64_t)reenc_params.fps)
+						                               : 0;
+						if (enc_interval_ms == 0 || feed_data_ts == 0 ||
+						    (feed_data_ts - last_enc_pts) >= enc_interval_ms) {
+							last_enc_pts = feed_data_ts;
+							MppFrameFormat fmt = mpp_frame_get_fmt(frame);
+							mpp_buffer_inc_ref(buffer);
+							reencoder->push_frame(buffer,
+							                      output_list->video_frm_width,
+							                      output_list->video_frm_height,
+							                      decoded_hor_stride,
+							                      decoded_ver_stride,
+							                      fmt, feed_data_ts);
+						}
+					}
 				}
 			}
 			
@@ -403,6 +434,9 @@ void sig_handler(int signum)
 	if (dvr != NULL) {
 		dvr->shutdown();
 	}
+	if (reencoder != NULL) {
+		reencoder->shutdown();
+	}
 	return_value = signum;
 }
 
@@ -410,6 +444,10 @@ void sigusr1_handler(int signum) {
 	spdlog::info("Received signal {}", signum);
 	if (dvr) {
 		dvr->toggle_recording();
+		// Request IDR so the re-encoder starts the new segment with SPS/PPS
+		if (reencoder) {
+			reencoder->request_idr();
+		}
 	}
 }
 
@@ -614,7 +652,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         } else {
             stall_count = 0;
         }
-        if (dvr_enabled && dvr != NULL) {
+        if (dvr_enabled && dvr != NULL && reencoder == NULL) {
 			dvr->frame(frame);
         }
     };
@@ -719,6 +757,14 @@ void printHelp() {
     "    --dvr-framerate <rate> - Force the dvr framerate for smoother dvr, ex: 60\n"
     "\n"
     "    --dvr-fmp4             - Save the video feed as a fragmented mp4\n"
+    "\n"
+    "    --dvr-reenc            - Re-encode via MPP hardware encoder instead of passthrough\n"
+    "\n"
+    "    --dvr-reenc-codec <c>  - Re-encode codec: h264 or h265  (Default: h264)\n"
+    "\n"
+    "    --dvr-reenc-bitrate <k>- Re-encode bitrate in kbps       (Default: 8000)\n"
+    "\n"
+    "    --dvr-reenc-fps <fps>  - Re-encode output FPS            (Default: 30)\n"
     "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
@@ -832,6 +878,31 @@ int main(int argc, char **argv)
 
 	__OnArgument("--dvr-fmp4") {
 		mp4_fragmentation_mode = 1;
+		continue;
+	}
+
+	__OnArgument("--dvr-reenc") {
+		dvr_reenc = true;
+		continue;
+	}
+
+	__OnArgument("--dvr-reenc-codec") {
+		VideoCodec c = video_codec(const_cast<char*>(__ArgValue));
+		if (c == VideoCodec::UNKNOWN) {
+			fprintf(stderr, "unsupported codec for --dvr-reenc-codec (use h264 or h265)\n");
+			return -1;
+		}
+		reenc_params.codec = c;
+		continue;
+	}
+
+	__OnArgument("--dvr-reenc-bitrate") {
+		reenc_params.bitrate_kbps = atoi(__ArgValue);
+		continue;
+	}
+
+	__OnArgument("--dvr-reenc-fps") {
+		reenc_params.fps = atoi(__ArgValue);
 		continue;
 	}
 
@@ -960,8 +1031,9 @@ int main(int argc, char **argv)
 	spdlog::set_level(log_level);
 	idr_set_enabled(!disable_gregidr);
 
-	if (dvr_template != NULL && video_framerate < 0 ) {
-		printf("--dvr-framerate must be provided when dvr is enabled.\n");
+	if (dvr_template != NULL && !dvr_reenc && video_framerate < 0) {
+		printf("--dvr-framerate must be provided when dvr passthrough is enabled.\n"
+		       "Use --dvr-reenc with --dvr-reenc-fps for hardware re-encoding.\n");
 		return 0;
 	}
 
@@ -1149,20 +1221,37 @@ int main(int argc, char **argv)
 	ret = pthread_cond_init(&video_cond, NULL);
 	assert(!ret);
 
-	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_wfbcli;
+	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_enc, tid_wfbcli;
 	if (dvr_template != NULL) {
 		dvr_thread_params args;
 		args.filename_template = dvr_template;
 		args.mp4_fragmentation_mode = mp4_fragmentation_mode;
 		args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
-		args.video_framerate = video_framerate;
+		args.video_framerate = dvr_reenc ? reenc_params.fps : video_framerate;
 		args.video_p.video_frm_width = output_list->video_frm_width;
 		args.video_p.video_frm_height = output_list->video_frm_height;
-		args.video_p.codec = codec;
+		args.video_p.codec = dvr_reenc ? reenc_params.codec : codec;
 		dvr = new Dvr(args);
 		ret = pthread_create(&tid_dvr, NULL, &Dvr::__THREAD__, dvr);
+
+		if (dvr_reenc) {
+			reencoder = new MppEncoder(reenc_params, [](std::shared_ptr<std::vector<uint8_t>> nal) {
+				if (dvr_enabled && dvr != NULL) {
+					dvr->frame(nal);
+				}
+			});
+			ret = pthread_create(&tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
+			assert(!ret);
+			spdlog::info("Re-encoding recorder: codec={} fps={} bitrate={}kbps",
+			             reenc_params.codec == VideoCodec::H265 ? "h265" : "h264",
+			             reenc_params.fps, reenc_params.bitrate_kbps);
+		}
+
 		if (dvr_autostart) {
 			dvr->start_recording();
+			if (reencoder) {
+				reencoder->request_idr();
+			}
 		}
 	}
 	ret = pthread_create(&tid_frame, NULL, __FRAME_THREAD__, NULL);
@@ -1232,7 +1321,11 @@ int main(int argc, char **argv)
 		ret = pthread_join(tid_osd, NULL);
 		assert(!ret);
 	}
-	if (dvr_template != NULL ){
+	if (dvr_template != NULL) {
+		if (dvr_reenc) {
+			ret = pthread_join(tid_enc, NULL);
+			assert(!ret);
+		}
 		ret = pthread_join(tid_dvr, NULL);
 		assert(!ret);
 	}

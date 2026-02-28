@@ -149,6 +149,8 @@ set(LIB_SOURCE_FILES
         src/osd_gl.cpp
         src/dvr.h
         src/dvr.cpp
+        src/mpp_encoder.h
+        src/mpp_encoder.cpp
         src/mavlink.h
         src/mavlink.c
         src/wfbcli.hpp
