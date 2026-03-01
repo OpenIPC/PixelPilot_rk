@@ -280,7 +280,6 @@ int Dvr::start() {
 		return -1;
 	}
 	osd_publish_bool_fact("dvr.recording", NULL, 0, true);
-	dvr_enabled = 1;
 	mux = MP4E_open(0 /*sequential_mode*/, mp4_fragmentation_mode, dvr_file, write_callback);
 	return 0;
 }
@@ -296,6 +295,8 @@ void Dvr::init() {
 		dvr_file = NULL;
 	}
 	_ready_to_write = 1;
+	dvr_enabled = 1;
+	if (on_start_cb) on_start_cb();
 }
 
 void Dvr::stop() {

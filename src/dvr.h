@@ -7,6 +7,7 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <functional>
 
 #include "gstrtpreceiver.h"
 
@@ -61,6 +62,8 @@ public:
     void shutdown();
 
     static void *__THREAD__(void *context);
+
+    std::function<void()> on_start_cb;
 private:
     /* void *start(); */
     /* void *stop(); */

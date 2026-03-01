@@ -16,6 +16,7 @@
 #include <inttypes.h>
 #include <signal.h>
 #include <fstream>
+#include <atomic>
 #include <queue>
 #include <mutex>
 #include <condition_variable>
@@ -50,6 +51,8 @@ extern "C" {
 #include "wfbcli.hpp"
 #include "dvr.h"
 #include "mpp_encoder.h"
+#include <rga/im2d.h>
+#include <rga/rga.h>
 #include "gstrtpreceiver.h"
 #include "scheduling_helper.hpp"
 #include "time_util.h"
@@ -254,6 +257,163 @@ void init_buffer(MppFrame frame) {
 	}
 }
 
+// Map MPP pixel format to the corresponding RGA format for im2d DMA copies.
+static int mpp_fmt_to_rga(MppFrameFormat fmt)
+{
+    switch (fmt) {
+    case MPP_FMT_YUV420SP:        return RK_FORMAT_YCbCr_420_SP;
+    case MPP_FMT_YUV420SP_10BIT:  return RK_FORMAT_YCbCr_420_SP_10B;
+    default:                      return RK_FORMAT_YCbCr_420_SP;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EncoderPacer: feeds MppEncoder at a steady fps regardless of incoming rate.
+//
+//  - Decoder thread calls push_latest() on every decoded frame; the pacer
+//    keeps only the most recent one (dropping excess frames when source is
+//    faster than the target fps).
+//  - An internal timer thread wakes at target fps intervals and submits
+//    the latest frame — or repeats the last frame if none arrived, preventing
+//    a speedup effect when source fps < target fps.
+// ---------------------------------------------------------------------------
+
+struct EncPacerFrame {
+    MppBuffer      buffer     = nullptr;
+    uint32_t       width      = 0;
+    uint32_t       height     = 0;
+    uint32_t       hor_stride = 0;
+    uint32_t       ver_stride = 0;
+    MppFrameFormat fmt        = MPP_FMT_YUV420SP;
+    void release() {
+        if (buffer) { mpp_buffer_put(buffer); buffer = nullptr; }
+    }
+};
+
+class EncoderPacer {
+public:
+    EncoderPacer(MppEncoder *enc, int fps)
+        : encoder(enc), interval_ns(1000000000L / fps) {
+        mpp_buffer_group_get_internal(&hold_grp, MPP_BUFFER_TYPE_DRM);
+    }
+
+    ~EncoderPacer() {
+        shutdown();
+        if (last_copy) { mpp_buffer_put(last_copy); last_copy = nullptr; }
+        if (hold_grp)  { mpp_buffer_group_put(hold_grp); hold_grp = nullptr; }
+    }
+
+    // Called from decoder thread: update the latest available frame.
+    void push_latest(MppBuffer buf, uint32_t w, uint32_t h,
+                     uint32_t hs, uint32_t vs, MppFrameFormat fmt) {
+        if (!running) return;
+        mpp_buffer_inc_ref(buf);
+        EncPacerFrame nf;
+        nf.buffer = buf; nf.width = w; nf.height = h;
+        nf.hor_stride = hs; nf.ver_stride = vs; nf.fmt = fmt;
+        std::lock_guard<std::mutex> lock(mtx);
+        pending.release();   // drop any previous un-consumed frame
+        pending = nf;
+    }
+
+    void shutdown() { running = false; }
+
+    static void *__THREAD__(void *p) {
+        pthread_setname_np(pthread_self(), "__ENCPACER");
+        ((EncoderPacer *)p)->loop();
+        return nullptr;
+    }
+
+private:
+    void loop() {
+        struct timespec next;
+        clock_gettime(CLOCK_MONOTONIC, &next);
+        while (running) {
+            next.tv_nsec += interval_ns;
+            if (next.tv_nsec >= 1000000000L) {
+                next.tv_nsec -= 1000000000L;
+                next.tv_sec++;
+            }
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
+            if (!running) break;
+            if (!dvr_enabled || !encoder) continue;
+
+            // Take the latest pending frame (under mutex, then process outside).
+            EncPacerFrame fresh;
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                if (pending.buffer) {
+                    fresh = pending;
+                    pending.buffer = nullptr;
+                }
+            }
+
+            // If a new frame arrived, copy its pixels into our own hold buffer
+            // and immediately release the decoder buffer.  This ensures we never
+            // hold a slot in the decoder's fixed-size buffer pool any longer than
+            // the memcpy itself, regardless of how many times we repeat the frame.
+            if (fresh.buffer) {
+                size_t sz = (size_t)fresh.hor_stride * fresh.ver_stride;
+                sz += sz / 2;  // NV12: Y plane + UV plane
+                size_t actual = mpp_buffer_get_size(fresh.buffer);
+                if (sz > actual) sz = actual;
+
+                if (hold_grp && (!last_copy || mpp_buffer_get_size(last_copy) < sz)) {
+                    if (last_copy) { mpp_buffer_put(last_copy); last_copy = nullptr; }
+                    mpp_buffer_get(hold_grp, &last_copy, sz);
+                }
+                if (last_copy) {
+                    int rga_fmt = mpp_fmt_to_rga(fresh.fmt);
+                    rga_buffer_t src_rga = wrapbuffer_fd_t(
+                        mpp_buffer_get_fd(fresh.buffer),
+                        fresh.width, fresh.height,
+                        fresh.hor_stride, fresh.ver_stride, rga_fmt);
+                    rga_buffer_t dst_rga = wrapbuffer_fd_t(
+                        mpp_buffer_get_fd(last_copy),
+                        fresh.width, fresh.height,
+                        fresh.hor_stride, fresh.ver_stride, rga_fmt);
+                    if (imcopy(src_rga, dst_rga) != IM_STATUS_SUCCESS) {
+                        // RGA failed; fall back to CPU copy
+                        void *sp = mpp_buffer_get_ptr(fresh.buffer);
+                        void *dp = mpp_buffer_get_ptr(last_copy);
+                        if (sp && dp) memcpy(dp, sp, sz);
+                    }
+                    last_meta = fresh;
+                    last_meta.buffer = nullptr;  // geometry only
+                }
+                fresh.release();  // decoder buffer is free again
+            }
+
+            if (last_copy) {
+                mpp_buffer_inc_ref(last_copy);
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                uint64_t pts_ms = (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+                encoder->push_frame(last_copy,
+                                    last_meta.width, last_meta.height,
+                                    last_meta.hor_stride, last_meta.ver_stride,
+                                    last_meta.fmt, pts_ms);
+            }
+        }
+        // Release pending decoder buffer on exit
+        std::lock_guard<std::mutex> lock(mtx);
+        pending.release();
+    }
+
+    MppEncoder       *encoder;
+    long              interval_ns;
+    std::atomic<bool> running{true};
+    std::mutex        mtx;
+    EncPacerFrame     pending;    // latest from decoder (shared with decoder thread)
+
+    // These are only accessed from the pacer thread — no mutex needed:
+    MppBufferGroup    hold_grp  = nullptr;  // our own DRM buffer pool
+    MppBuffer         last_copy = nullptr;  // copy of last frame pixels
+    EncPacerFrame     last_meta;            // geometry/format for last_copy
+};
+
+EncoderPacer *enc_pacer = nullptr;
+
 // __FRAME_THREAD__
 //
 // - allocate DRM buffers and DRM FB based on frame size
@@ -325,24 +485,14 @@ void *__FRAME_THREAD__(void *param)
 					ret = pthread_mutex_unlock(&video_mutex);
 					assert(!ret);
 
-					if (reencoder != NULL && dvr_enabled &&
+					if (enc_pacer != nullptr &&
 					    decoded_hor_stride > 0 && decoded_ver_stride > 0) {
-						static uint64_t last_enc_pts = 0;
-						uint64_t enc_interval_ms = (reenc_params.fps > 0)
-						                               ? (1000u / (uint64_t)reenc_params.fps)
-						                               : 0;
-						if (enc_interval_ms == 0 || feed_data_ts == 0 ||
-						    (feed_data_ts - last_enc_pts) >= enc_interval_ms) {
-							last_enc_pts = feed_data_ts;
-							MppFrameFormat fmt = mpp_frame_get_fmt(frame);
-							mpp_buffer_inc_ref(buffer);
-							reencoder->push_frame(buffer,
-							                      output_list->video_frm_width,
-							                      output_list->video_frm_height,
-							                      decoded_hor_stride,
-							                      decoded_ver_stride,
-							                      fmt, feed_data_ts);
-						}
+						MppFrameFormat fmt = mpp_frame_get_fmt(frame);
+						enc_pacer->push_latest(buffer,
+						                       output_list->video_frm_width,
+						                       output_list->video_frm_height,
+						                       decoded_hor_stride,
+						                       decoded_ver_stride, fmt);
 					}
 				}
 			}
@@ -433,6 +583,9 @@ void sig_handler(int signum)
 	osd_thread_signal++;
 	if (dvr != NULL) {
 		dvr->shutdown();
+	}
+	if (enc_pacer != NULL) {
+		enc_pacer->shutdown();
 	}
 	if (reencoder != NULL) {
 		reencoder->shutdown();
@@ -1221,7 +1374,7 @@ int main(int argc, char **argv)
 	ret = pthread_cond_init(&video_cond, NULL);
 	assert(!ret);
 
-	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_enc, tid_wfbcli;
+	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_enc, tid_pacer, tid_wfbcli;
 	if (dvr_template != NULL) {
 		dvr_thread_params args;
 		args.filename_template = dvr_template;
@@ -1242,9 +1395,18 @@ int main(int argc, char **argv)
 			});
 			ret = pthread_create(&tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
 			assert(!ret);
+			enc_pacer = new EncoderPacer(reencoder, reenc_params.fps);
+			ret = pthread_create(&tid_pacer, NULL, &EncoderPacer::__THREAD__, enc_pacer);
+			assert(!ret);
 			spdlog::info("Re-encoding recorder: codec={} fps={} bitrate={}kbps",
 			             reenc_params.codec == VideoCodec::H265 ? "h265" : "h264",
 			             reenc_params.fps, reenc_params.bitrate_kbps);
+		}
+
+		if (dvr_reenc && reencoder) {
+			dvr->on_start_cb = []() {
+				if (reencoder) reencoder->request_idr();
+			};
 		}
 
 		if (dvr_autostart) {
@@ -1323,6 +1485,8 @@ int main(int argc, char **argv)
 	}
 	if (dvr_template != NULL) {
 		if (dvr_reenc) {
+			ret = pthread_join(tid_pacer, NULL);
+			assert(!ret);
 			ret = pthread_join(tid_enc, NULL);
 			assert(!ret);
 		}
