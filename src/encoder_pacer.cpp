@@ -1,0 +1,125 @@
+#include <pthread.h>
+#include <time.h>
+#include <cstring>
+
+#include <rga/im2d.h>
+#include <rga/rga.h>
+
+#include "dvr.h"
+#include "encoder_pacer.h"
+
+// Map MPP pixel format to the corresponding RGA format for im2d DMA copies.
+static int mpp_fmt_to_rga(MppFrameFormat fmt)
+{
+    switch (fmt) {
+    case MPP_FMT_YUV420SP:        return RK_FORMAT_YCbCr_420_SP;
+    case MPP_FMT_YUV420SP_10BIT:  return RK_FORMAT_YCbCr_420_SP_10B;
+    default:                      return RK_FORMAT_YCbCr_420_SP;
+    }
+}
+
+EncoderPacer::EncoderPacer(MppEncoder *enc, int fps)
+    : encoder(enc), interval_ns(1000000000L / fps) {
+    mpp_buffer_group_get_internal(&hold_grp, MPP_BUFFER_TYPE_DRM);
+}
+
+EncoderPacer::~EncoderPacer() {
+    shutdown();
+    if (last_copy) { mpp_buffer_put(last_copy); last_copy = nullptr; }
+    if (hold_grp)  { mpp_buffer_group_put(hold_grp); hold_grp = nullptr; }
+}
+
+void EncoderPacer::push_latest(MppBuffer buf, uint32_t w, uint32_t h,
+                                uint32_t hs, uint32_t vs, MppFrameFormat fmt) {
+    if (!running) return;
+    mpp_buffer_inc_ref(buf);
+    EncPacerFrame nf;
+    nf.buffer = buf; nf.width = w; nf.height = h;
+    nf.hor_stride = hs; nf.ver_stride = vs; nf.fmt = fmt;
+    std::lock_guard<std::mutex> lock(mtx);
+    pending.release();   // drop any previous un-consumed frame
+    pending = nf;
+}
+
+void EncoderPacer::shutdown() { running = false; }
+
+void *EncoderPacer::__THREAD__(void *p) {
+    pthread_setname_np(pthread_self(), "__ENCPACER");
+    ((EncoderPacer *)p)->loop();
+    return nullptr;
+}
+
+void EncoderPacer::loop() {
+    struct timespec next;
+    clock_gettime(CLOCK_MONOTONIC, &next);
+    while (running) {
+        next.tv_nsec += interval_ns;
+        if (next.tv_nsec >= 1000000000L) {
+            next.tv_nsec -= 1000000000L;
+            next.tv_sec++;
+        }
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
+        if (!running) break;
+        if (!dvr_enabled || !encoder) continue;
+
+        // Take the latest pending frame (under mutex, then process outside).
+        EncPacerFrame fresh;
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            if (pending.buffer) {
+                fresh = pending;
+                pending.buffer = nullptr;
+            }
+        }
+
+        // If a new frame arrived, copy its pixels into our own hold buffer
+        // and immediately release the decoder buffer.  This ensures we never
+        // hold a slot in the decoder's fixed-size buffer pool any longer than
+        // the copy itself, regardless of how many times we repeat the frame.
+        if (fresh.buffer) {
+            size_t sz = (size_t)fresh.hor_stride * fresh.ver_stride;
+            sz += sz / 2;  // NV12: Y plane + UV plane
+            size_t actual = mpp_buffer_get_size(fresh.buffer);
+            if (sz > actual) sz = actual;
+
+            if (hold_grp && (!last_copy || mpp_buffer_get_size(last_copy) < sz)) {
+                if (last_copy) { mpp_buffer_put(last_copy); last_copy = nullptr; }
+                mpp_buffer_get(hold_grp, &last_copy, sz);
+            }
+            if (last_copy) {
+                int rga_fmt = mpp_fmt_to_rga(fresh.fmt);
+                rga_buffer_t src_rga = wrapbuffer_fd_t(
+                    mpp_buffer_get_fd(fresh.buffer),
+                    fresh.width, fresh.height,
+                    fresh.hor_stride, fresh.ver_stride, rga_fmt);
+                rga_buffer_t dst_rga = wrapbuffer_fd_t(
+                    mpp_buffer_get_fd(last_copy),
+                    fresh.width, fresh.height,
+                    fresh.hor_stride, fresh.ver_stride, rga_fmt);
+                if (imcopy(src_rga, dst_rga) != IM_STATUS_SUCCESS) {
+                    // RGA failed; fall back to CPU copy
+                    void *sp = mpp_buffer_get_ptr(fresh.buffer);
+                    void *dp = mpp_buffer_get_ptr(last_copy);
+                    if (sp && dp) memcpy(dp, sp, sz);
+                }
+                last_meta = fresh;
+                last_meta.buffer = nullptr;  // geometry only
+            }
+            fresh.release();  // decoder buffer is free again
+        }
+
+        if (last_copy) {
+            mpp_buffer_inc_ref(last_copy);
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            uint64_t pts_ms = (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+            encoder->push_frame(last_copy,
+                                last_meta.width, last_meta.height,
+                                last_meta.hor_stride, last_meta.ver_stride,
+                                last_meta.fmt, pts_ms);
+        }
+    }
+    // Release pending decoder buffer on exit
+    std::lock_guard<std::mutex> lock(mtx);
+    pending.release();
+}
