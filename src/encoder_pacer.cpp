@@ -43,6 +43,14 @@ void EncoderPacer::push_latest(MppBuffer buf, uint32_t w, uint32_t h,
 
 void EncoderPacer::shutdown() { running = false; }
 
+void EncoderPacer::set_color_correction(float gain, float offset, int drm_fd) {
+    cc_gain_    = gain;
+    cc_offset_  = offset;
+    cc_drm_fd_  = drm_fd;
+    color_correct_ = true;
+    // Actual EGL/GL init happens lazily on the pacer thread (first frame)
+}
+
 void *EncoderPacer::__THREAD__(void *p) {
     pthread_setname_np(pthread_self(), "__ENCPACER");
     ((EncoderPacer *)p)->loop();
@@ -87,23 +95,41 @@ void EncoderPacer::loop() {
                 mpp_buffer_get(hold_grp, &last_copy, sz);
             }
             if (last_copy) {
-                int rga_fmt = mpp_fmt_to_rga(fresh.fmt);
-                rga_buffer_t src_rga = wrapbuffer_fd_t(
-                    mpp_buffer_get_fd(fresh.buffer),
-                    fresh.width, fresh.height,
-                    fresh.hor_stride, fresh.ver_stride, rga_fmt);
-                rga_buffer_t dst_rga = wrapbuffer_fd_t(
-                    mpp_buffer_get_fd(last_copy),
-                    fresh.width, fresh.height,
-                    fresh.hor_stride, fresh.ver_stride, rga_fmt);
-                if (imcopy(src_rga, dst_rga) != IM_STATUS_SUCCESS) {
-                    // RGA failed; fall back to CPU copy
-                    void *sp = mpp_buffer_get_ptr(fresh.buffer);
-                    void *dp = mpp_buffer_get_ptr(last_copy);
-                    if (sp && dp) memcpy(dp, sp, sz);
+                // Lazy GL init on first frame (must run on pacer thread, try once)
+                if (color_correct_ && !cc_init_done_) {
+                    cc_init_done_ = true;
+                    color_gl_.init(cc_drm_fd_, fresh.width, fresh.height,
+                                   cc_gain_, cc_offset_);
+                }
+
+                bool copied = false;
+                if (color_gl_.ready()) {
+                    // GPU path: NV12 → corrected RGBA (shader) → NV12 (RGA CSC)
+                    copied = color_gl_.process(
+                        mpp_buffer_get_fd(fresh.buffer),
+                        fresh.width, fresh.height,
+                        fresh.hor_stride, fresh.ver_stride,
+                        mpp_buffer_get_fd(last_copy));
+                }
+                if (!copied) {
+                    // Fallback: plain RGA copy (no color correction)
+                    int rga_fmt = mpp_fmt_to_rga(fresh.fmt);
+                    rga_buffer_t src_rga = wrapbuffer_fd_t(
+                        mpp_buffer_get_fd(fresh.buffer),
+                        fresh.width, fresh.height,
+                        fresh.hor_stride, fresh.ver_stride, rga_fmt);
+                    rga_buffer_t dst_rga = wrapbuffer_fd_t(
+                        mpp_buffer_get_fd(last_copy),
+                        fresh.width, fresh.height,
+                        fresh.hor_stride, fresh.ver_stride, rga_fmt);
+                    if (imcopy(src_rga, dst_rga) != IM_STATUS_SUCCESS) {
+                        void *sp = mpp_buffer_get_ptr(fresh.buffer);
+                        void *dp = mpp_buffer_get_ptr(last_copy);
+                        if (sp && dp) memcpy(dp, sp, sz);
+                    }
                 }
                 last_meta = fresh;
-                last_meta.buffer = nullptr;  // geometry only
+                last_meta.buffer = nullptr;
             }
             fresh.release();  // decoder buffer is free again
         }

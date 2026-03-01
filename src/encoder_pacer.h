@@ -8,6 +8,7 @@
 #include <rockchip/rk_mpi.h>
 
 #include "mpp_encoder.h"
+#include "frame_colorcorrect.h"
 
 // ---------------------------------------------------------------------------
 // EncoderPacer: feeds MppEncoder at a steady fps regardless of incoming rate.
@@ -43,6 +44,10 @@ public:
 
     void shutdown();
 
+    // Enable GPU color correction using the DRM gamma formula y = clamp((x+offset)*gain, 0, 1).
+    // Must be called before pthread_create.  drm_fd is used to create the GBM/EGL context.
+    void set_color_correction(float gain, float offset, int drm_fd);
+
     static void *__THREAD__(void *p);
 
 private:
@@ -58,6 +63,13 @@ private:
     MppBufferGroup    hold_grp  = nullptr;  // our own DRM buffer pool
     MppBuffer         last_copy = nullptr;  // copy of last frame pixels
     EncPacerFrame     last_meta;            // geometry/format for last_copy
+
+    // Color correction — lazy-initialized on the pacer thread on first frame
+    bool               color_correct_{false};
+    bool               cc_init_done_{false};   // only attempt init once
+    float              cc_gain_{1.f}, cc_offset_{0.f};
+    int                cc_drm_fd_{-1};
+    FrameColorCorrect  color_gl_;
 };
 
 #endif // ENCODER_PACER_H

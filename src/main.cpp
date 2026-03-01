@@ -1240,6 +1240,12 @@ int main(int argc, char **argv)
 			ret = pthread_create(&tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
 			assert(!ret);
 			enc_pacer = new EncoderPacer(reencoder, reenc_params.fps);
+			if (enable_live_colortrans) {
+				enc_pacer->set_color_correction(live_colortrans_gain,
+				                                live_colortrans_offset, drm_fd);
+				spdlog::info("Encoder color correction enabled: gain={} offset={}",
+				             live_colortrans_gain, live_colortrans_offset);
+			}
 			ret = pthread_create(&tid_pacer, NULL, &EncoderPacer::__THREAD__, enc_pacer);
 			assert(!ret);
 			spdlog::info("Re-encoding recorder: codec={} fps={} bitrate={}kbps",
