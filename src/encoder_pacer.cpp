@@ -25,8 +25,9 @@ EncoderPacer::EncoderPacer(MppEncoder *enc, int fps)
 
 EncoderPacer::~EncoderPacer() {
     shutdown();
-    if (last_copy) { mpp_buffer_put(last_copy); last_copy = nullptr; }
-    if (hold_grp)  { mpp_buffer_group_put(hold_grp); hold_grp = nullptr; }
+    if (last_copy)   { mpp_buffer_put(last_copy);   last_copy   = nullptr; }
+    if (blend_rgba_) { mpp_buffer_put(blend_rgba_); blend_rgba_ = nullptr; }
+    if (hold_grp)    { mpp_buffer_group_put(hold_grp); hold_grp = nullptr; }
 }
 
 void EncoderPacer::push_latest(MppBuffer buf, uint32_t w, uint32_t h,
@@ -42,6 +43,14 @@ void EncoderPacer::push_latest(MppBuffer buf, uint32_t w, uint32_t h,
 }
 
 void EncoderPacer::shutdown() { running = false; }
+
+void EncoderPacer::set_osd_blend(int prime_fd, uint32_t w, uint32_t h, uint32_t stride_px) {
+    std::lock_guard<std::mutex> lock(osd_mtx_);
+    osd_info_.prime_fd   = prime_fd;
+    osd_info_.width      = w;
+    osd_info_.height     = h;
+    osd_info_.stride_px  = stride_px;
+}
 
 void EncoderPacer::set_color_correction(float gain, float offset, int drm_fd) {
     cc_gain_    = gain;
@@ -132,6 +141,48 @@ void EncoderPacer::loop() {
                 last_meta.buffer = nullptr;
             }
             fresh.release();  // decoder buffer is free again
+        }
+
+        // OSD blend: composite the latest OSD frame (BGRA) over last_copy (NV12).
+        // RGA alpha blending requires both buffers in an RGB-family format, so we
+        // use a BGRA intermediate: NV12 → BGRA → blend OSD → BGRA → NV12.
+        if (last_copy) {
+            OsdInfo osd_snap;
+            {
+                std::lock_guard<std::mutex> lock(osd_mtx_);
+                osd_snap = osd_info_;
+            }
+            if (osd_snap.prime_fd >= 0 && osd_snap.width > 0 && osd_snap.height > 0) {
+                // Ensure the BGRA intermediate buffer is large enough.
+                size_t bgra_sz = (size_t)last_meta.hor_stride * last_meta.ver_stride * 4;
+                if (!blend_rgba_ || mpp_buffer_get_size(blend_rgba_) < bgra_sz) {
+                    if (blend_rgba_) { mpp_buffer_put(blend_rgba_); blend_rgba_ = nullptr; }
+                    mpp_buffer_get(hold_grp, &blend_rgba_, bgra_sz);
+                }
+                if (blend_rgba_) {
+                    rga_buffer_t nv12 = wrapbuffer_fd_t(
+                        mpp_buffer_get_fd(last_copy),
+                        last_meta.width, last_meta.height,
+                        last_meta.hor_stride, last_meta.ver_stride,
+                        RK_FORMAT_YCbCr_420_SP);
+                    rga_buffer_t bgra = wrapbuffer_fd_t(
+                        mpp_buffer_get_fd(blend_rgba_),
+                        last_meta.width, last_meta.height,
+                        last_meta.hor_stride, last_meta.ver_stride,
+                        RK_FORMAT_BGRA_8888);
+                    rga_buffer_t osd = wrapbuffer_fd_t(
+                        osd_snap.prime_fd,
+                        osd_snap.width, osd_snap.height,
+                        osd_snap.stride_px, osd_snap.height,
+                        RK_FORMAT_BGRA_8888);
+                    // Step 1: convert video NV12 → BGRA
+                    imcvtcolor(nv12, bgra, RK_FORMAT_YCbCr_420_SP, RK_FORMAT_BGRA_8888);
+                    // Step 2: alpha-blend OSD over video (both BGRA)
+                    imblend(osd, bgra, IM_ALPHA_BLEND_SRC_OVER);
+                    // Step 3: convert result back BGRA → NV12
+                    imcvtcolor(bgra, nv12, RK_FORMAT_BGRA_8888, RK_FORMAT_YCbCr_420_SP);
+                }
+            }
         }
 
         if (last_copy) {

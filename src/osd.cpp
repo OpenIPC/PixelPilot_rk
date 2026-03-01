@@ -78,6 +78,10 @@ extern bool enable_live_colortrans;
 extern float live_colortrans_offset;
 extern float live_colortrans_gain;
 
+#include "encoder_pacer.h"
+extern EncoderPacer *enc_pacer;
+extern bool dvr_osd;
+
 osd_thread_params *p;
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
@@ -1949,6 +1953,13 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
 	ret = pthread_mutex_unlock(&osd_mutex);
 	assert(!ret);
 
+	{
+		struct modeset_buf *osd_buf = &p->out->osd_bufs[p->out->osd_buf_switch];
+		if (dvr_osd && enc_pacer)
+			enc_pacer->set_osd_blend(osd_buf->prime_fd, osd_buf->width, osd_buf->height,
+			                         osd_buf->stride / 4);
+	}
+
 	// tell the display thread that we have a update
 	ret = pthread_mutex_lock(&video_mutex);
 	assert(!ret);
@@ -2069,6 +2080,10 @@ void *__OSD_THREAD__(void *param) {
 				p->out->osd_buf_switch = buf_idx;
 				ret = pthread_mutex_unlock(&osd_mutex);
 				assert(!ret);
+
+				if (dvr_osd && enc_pacer)
+					enc_pacer->set_osd_blend(buf->prime_fd, buf->width, buf->height,
+					                         buf->stride / 4);
 
 				// tell the display thread that we have a update
 				ret = pthread_mutex_lock(&video_mutex);

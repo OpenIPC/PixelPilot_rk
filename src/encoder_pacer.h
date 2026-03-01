@@ -48,6 +48,12 @@ public:
     // Must be called before pthread_create.  drm_fd is used to create the GBM/EGL context.
     void set_color_correction(float gain, float offset, int drm_fd);
 
+    // Called from the OSD thread each time a new OSD frame is ready.
+    // prime_fd  — DMA-buf fd of the OSD modeset_buf (BGRA/ARGB8888)
+    // w, h      — OSD pixel dimensions
+    // stride_px — row stride in pixels (= buf->stride / 4)
+    void set_osd_blend(int prime_fd, uint32_t w, uint32_t h, uint32_t stride_px);
+
     static void *__THREAD__(void *p);
 
 private:
@@ -61,8 +67,17 @@ private:
 
     // These are only accessed from the pacer thread — no mutex needed:
     MppBufferGroup    hold_grp  = nullptr;  // our own DRM buffer pool
-    MppBuffer         last_copy = nullptr;  // copy of last frame pixels
-    EncPacerFrame     last_meta;            // geometry/format for last_copy
+    MppBuffer         last_copy   = nullptr;  // copy of last frame pixels
+    MppBuffer         blend_rgba_ = nullptr;  // BGRA intermediate for OSD compositing
+    EncPacerFrame     last_meta;              // geometry/format for last_copy
+
+    // OSD blend — shared between OSD thread (writer) and pacer thread (reader)
+    struct OsdInfo {
+        int      prime_fd{-1};
+        uint32_t width{0}, height{0}, stride_px{0};
+    };
+    std::mutex  osd_mtx_;
+    OsdInfo     osd_info_;      // latest OSD frame descriptor
 
     // Color correction — lazy-initialized on the pacer thread on first frame
     bool               color_correct_{false};

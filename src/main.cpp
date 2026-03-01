@@ -114,6 +114,7 @@ Dvr *dvr = NULL;
 MppEncoder *reencoder = NULL;
 MppEncoderParams reenc_params;
 bool dvr_reenc = false;
+bool dvr_osd   = false;
 
 // Decoded frame geometry – updated in init_buffer(), used in __FRAME_THREAD__
 uint32_t decoded_hor_stride = 0;
@@ -763,6 +764,8 @@ void printHelp() {
     "\n"
     "    --dvr-reenc-fps <fps>  - Re-encode output FPS            (Default: 30)\n"
     "\n"
+    "    --dvr-osd              - Blend the OSD into the DVR recording\n"
+    "\n"
     "    --screen-mode <mode>   - Override default screen mode. <width>x<heigth>@<fps> ex: 1920x1080@120\n"
     "\n"
     "    --video-plane-id       - Override default drm plane used for video by plane-id\n"
@@ -900,6 +903,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("--dvr-reenc-fps") {
 		reenc_params.fps = atoi(__ArgValue);
+		continue;
+	}
+
+	__OnArgument("--dvr-osd") {
+		dvr_osd = true;
 		continue;
 	}
 
