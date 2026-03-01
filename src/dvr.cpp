@@ -17,6 +17,31 @@ extern "C" {
 
 namespace fs = std::filesystem;
 
+// Strip H265 AUD (type 35), PREFIX_SEI (type 39), and SUFFIX_SEI (type 40)
+// from an Annex-B bitstream before handing it to minimp4, which rejects these
+// NAL types and would otherwise fail to write any frame.
+static std::shared_ptr<std::vector<uint8_t>>
+hevc_strip_supplemental(const uint8_t *data, size_t len)
+{
+    auto out = std::make_shared<std::vector<uint8_t>>();
+    out->reserve(len);
+    const uint8_t *p   = data;
+    const uint8_t *end = data + len;
+    for (;; p++) {
+        int nal_size;
+        p = find_nal_unit(p, (int)(end - p), &nal_size);
+        if (!nal_size)
+            break;
+        int nal_type = (p[0] >> 1) & 0x3f;
+        if (nal_type != 35 && nal_type != 39 && nal_type != 40) {
+            static const uint8_t sc[] = {0, 0, 0, 1};
+            out->insert(out->end(), sc, sc + 4);
+            out->insert(out->end(), p, p + nal_size);
+        }
+    }
+    return out->empty() ? nullptr : out;
+}
+
 int dvr_enabled = 0;
 const int SEQUENCE_PADDING = 4; // Configurable padding for sequence numbers
 
@@ -172,9 +197,13 @@ void Dvr::loop() {
 						break;
 					}
 					std::shared_ptr<std::vector<uint8_t>> frame = rpc.frame;
+					if (codec == VideoCodec::H265) {
+						frame = hevc_strip_supplemental(frame->data(), frame->size());
+						if (!frame) break;
+					}
 					auto res = mp4_h26x_write_nal(mp4wr, frame->data(), frame->size(), 90000/video_framerate);
-					if (!(MP4E_STATUS_OK == res || MP4E_STATUS_BAD_ARGUMENTS == res)) {
-						spdlog::warn("mp4_h26x_write_nal failed with error {}", res);
+					if (MP4E_STATUS_OK != res) {
+						spdlog::warn("mp4_h26x_write_nal returned {} for frame size={}", res, frame->size());
 					}
 					break;
 				}

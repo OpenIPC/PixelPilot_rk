@@ -72,6 +72,8 @@ private:
 
     bool initialized = false;
     bool idr_pending = true;
+    bool headers_sent = false;
+    std::vector<uint8_t> extra_data; // VPS/SPS/PPS from MPP_ENC_GET_EXTRA_INFO
     uint32_t enc_width = 0;
     uint32_t enc_height = 0;
     uint32_t enc_hor_stride = 0;
