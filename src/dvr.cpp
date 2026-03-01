@@ -60,7 +60,7 @@ Dvr::Dvr(dvr_thread_params params) {
 	video_frm_height = params.video_p.video_frm_height;
 	codec = params.video_p.codec;
 	dvr_file = NULL;
-	mp4wr = (mp4_h26x_writer_t *)malloc(sizeof(mp4_h26x_writer_t));
+	mp4wr = nullptr;
 }
 
 Dvr::~Dvr() {}
@@ -286,6 +286,8 @@ int Dvr::start() {
 
 void Dvr::init() {
 	spdlog::info("setting up dvr and mux to {}x{}", video_frm_width, video_frm_height);
+	if (!mp4wr)
+		mp4wr = (mp4_h26x_writer_t *)malloc(sizeof(mp4_h26x_writer_t));
 	if (MP4E_STATUS_OK != mp4_h26x_write_init(mp4wr, mux,
 											  video_frm_width,
 											  video_frm_height,
@@ -301,7 +303,9 @@ void Dvr::init() {
 
 void Dvr::stop() {
 	MP4E_close(mux);
-	mp4_h26x_write_close(mp4wr);
+	mux = nullptr;
+	mp4_h26x_write_close(mp4wr);  // frees the struct (minimp4 API)
+	mp4wr = nullptr;
 	fclose(dvr_file);
 	dvr_file = NULL;
 	osd_publish_bool_fact("dvr.recording", NULL, 0, false);

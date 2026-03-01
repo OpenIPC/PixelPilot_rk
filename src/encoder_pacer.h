@@ -48,6 +48,11 @@ public:
     // Must be called before pthread_create.  drm_fd is used to create the GBM/EGL context.
     void set_color_correction(float gain, float offset, int drm_fd);
 
+    // Called from the frame thread before freeing the decoder buffer group
+    // (on resolution change).  Releases any pending decoder buffer ref and
+    // waits for any in-flight copy to finish so the group can be freed safely.
+    void drain_decoder_refs();
+
     // Called from the OSD thread each time a new OSD frame is ready.
     // prime_fd  — DMA-buf fd of the OSD modeset_buf (BGRA/ARGB8888)
     // w, h      — OSD pixel dimensions
@@ -62,8 +67,9 @@ private:
     MppEncoder       *encoder;
     long              interval_ns;
     std::atomic<bool> running{true};
-    std::mutex        mtx;
-    EncPacerFrame     pending;    // latest from decoder (shared with decoder thread)
+    std::mutex        mtx;       // guards pending (shared with frame/decoder thread)
+    std::mutex        copy_mtx_; // held by pacer while it uses a decoder buffer
+    EncPacerFrame     pending;   // latest from decoder (shared with decoder thread)
 
     // These are only accessed from the pacer thread — no mutex needed:
     MppBufferGroup    hold_grp  = nullptr;  // our own DRM buffer pool
@@ -82,6 +88,7 @@ private:
     // Color correction — lazy-initialized on the pacer thread on first frame
     bool               color_correct_{false};
     bool               cc_init_done_{false};   // only attempt init once
+    uint32_t           cc_width_{0}, cc_height_{0}; // dimensions at last init
     float              cc_gain_{1.f}, cc_offset_{0.f};
     int                cc_drm_fd_{-1};
     FrameColorCorrect  color_gl_;

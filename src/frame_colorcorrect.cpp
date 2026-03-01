@@ -292,6 +292,10 @@ bool FrameColorCorrect::process(int src_fd, uint32_t width, uint32_t height,
     glEnableVertexAttribArray(1);
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    // glFinish() instead of glFlush(): Panfrost does not reliably signal the
+    // DMA-buf implicit fence before glFlush() returns, so the RGA imcvtcolor()
+    // below would read the GBM BO before the GPU is done writing it, producing
+    // mixed old/new frame data that appears as jitter at motion boundaries.
     glFinish();
 
     glDeleteTextures(1, &src_tex);
@@ -337,10 +341,24 @@ void FrameColorCorrect::deinit() {
     if (ctx_ != EGL_NO_CONTEXT)
         eglMakeCurrent(dpy_, surf_, surf_, ctx_);
 
+    // glFlush() in process() submits commands to the Panfrost batch but does not
+    // wait for completion.  If we destroy the GBM BOs while the batch is still
+    // in-flight, the next eglMakeCurrent() in init() will try to flush and unbind
+    // the old context (via _mesa_make_current → panfrost_flush_all_batches) and
+    // crash in panfrost_batch_add_bo_old because the backing GEM memory is freed.
+    // glFinish() drains the batch queue before we touch any resources.
+    glFinish();
+
     destroy_targets();
 
     if (prog_) { glDeleteProgram(prog_); prog_ = 0; }
+
+    // Explicitly detach the context from this thread before destroying it.
+    // Without this the thread is left with a stale "current" context, and the
+    // next eglMakeCurrent() call (in init() after a resolution change) will
+    // attempt to flush and unbind it — crashing because the GBM BOs are gone.
     if (ctx_ != EGL_NO_CONTEXT) {
+        eglMakeCurrent(dpy_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         eglDestroyContext(dpy_, ctx_); ctx_ = EGL_NO_CONTEXT;
     }
     if (surf_ != EGL_NO_SURFACE) {

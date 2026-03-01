@@ -44,6 +44,17 @@ void EncoderPacer::push_latest(MppBuffer buf, uint32_t w, uint32_t h,
 
 void EncoderPacer::shutdown() { running = false; }
 
+void EncoderPacer::drain_decoder_refs() {
+    // Drop any pending decoder buffer so the caller can free the group.
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        pending.release();
+    }
+    // Wait for any in-flight copy (which holds a decoder buffer ref) to finish.
+    std::lock_guard<std::mutex> copy_lock(copy_mtx_);
+    // At this point no decoder buffers are referenced by the pacer.
+}
+
 void EncoderPacer::set_osd_blend(int prime_fd, uint32_t w, uint32_t h, uint32_t stride_px) {
     std::lock_guard<std::mutex> lock(osd_mtx_);
     osd_info_.prime_fd   = prime_fd;
@@ -93,7 +104,12 @@ void EncoderPacer::loop() {
         // and immediately release the decoder buffer.  This ensures we never
         // hold a slot in the decoder's fixed-size buffer pool any longer than
         // the copy itself, regardless of how many times we repeat the frame.
+        //
+        // copy_mtx_ is held for the entire duration so drain_decoder_refs()
+        // can safely wait for us to finish before the caller frees the group.
         if (fresh.buffer) {
+            std::lock_guard<std::mutex> copy_lock(copy_mtx_);
+
             size_t sz = (size_t)fresh.hor_stride * fresh.ver_stride;
             sz += sz / 2;  // NV12: Y plane + UV plane
             size_t actual = mpp_buffer_get_size(fresh.buffer);
@@ -104,9 +120,17 @@ void EncoderPacer::loop() {
                 mpp_buffer_get(hold_grp, &last_copy, sz);
             }
             if (last_copy) {
+                // Re-init color correction if frame dimensions changed.
+                if (cc_init_done_ &&
+                    (fresh.width != cc_width_ || fresh.height != cc_height_)) {
+                    color_gl_.deinit();
+                    cc_init_done_ = false;
+                }
                 // Lazy GL init on first frame (must run on pacer thread, try once)
                 if (color_correct_ && !cc_init_done_) {
                     cc_init_done_ = true;
+                    cc_width_  = fresh.width;
+                    cc_height_ = fresh.height;
                     color_gl_.init(cc_drm_fd_, fresh.width, fresh.height,
                                    cc_gain_, cc_offset_);
                 }

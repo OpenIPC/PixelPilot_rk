@@ -115,6 +115,7 @@ MppEncoder *reencoder = NULL;
 MppEncoderParams reenc_params;
 bool dvr_reenc = false;
 bool dvr_osd   = false;
+EncoderPacer *enc_pacer = nullptr;
 
 // Decoded frame geometry – updated in init_buffer(), used in __FRAME_THREAD__
 uint32_t decoded_hor_stride = 0;
@@ -159,9 +160,14 @@ void init_buffer(MppFrame frame) {
 	osd_publish_uint_fact("video.width", NULL, 0, output_list->video_frm_width);
 	osd_publish_uint_fact("video.height", NULL, 0, output_list->video_frm_height);
 
+	// Drain any decoder-buffer refs held by the encoder pacer before freeing
+	// the group.  Without this the group teardown races with the pacer's copy
+	// loop and the buffer fds become invalid while still in use.
+	if (enc_pacer) enc_pacer->drain_decoder_refs();
+
 	if (mpi.frm_grp) {
 		spdlog::debug("Freeing current mpp_buffer_group");
-		
+
 		// First clean up all DRM resources for existing frames
 		for (int i = 0; i < MAX_FRAMES; i++) {
 			if (mpi.frame_to_drm[i].fb_id) {
@@ -256,8 +262,6 @@ void init_buffer(MppFrame frame) {
 		dvr->set_video_params(output_list->video_frm_width, output_list->video_frm_height, dvr_codec);
 	}
 }
-
-EncoderPacer *enc_pacer = nullptr;
 
 // __FRAME_THREAD__
 //
