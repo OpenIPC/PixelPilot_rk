@@ -80,42 +80,6 @@ extern float live_colortrans_gain;
 
 osd_thread_params *p;
 
-// ---------------------------------------------------------------------------
-// LUT cache — recomputed only when gain/offset change
-// ---------------------------------------------------------------------------
-struct LutCache {
-    float    gain{0.f};
-    float    offset{0.f};
-    bool     valid{false};
-    uint8_t  lut[256]{};
-    uint16_t recip[256]{};  // recip[a] = (255*256)/a  for fast un-premultiply
-};
-
-static LutCache s_cache;
-
-static const LutCache& get_cache() {
-    float g = live_colortrans_gain;
-    float o = live_colortrans_offset;
-
-    if (s_cache.valid && g == s_cache.gain && o == s_cache.offset)
-        return s_cache;
-
-    s_cache.gain   = g;
-    s_cache.offset = o;
-
-    for (int i = 0; i < 256; i++) {
-        float x = (i / 255.f) / g - o;
-        s_cache.lut[i] = (uint8_t)(std::clamp(x, 0.f, 1.f) * 255.f + .5f);
-    }
-
-    s_cache.recip[0] = 0;
-    for (int a = 1; a < 256; a++)
-        s_cache.recip[a] = (uint16_t)((255u * 256u + a / 2) / a);
-
-    s_cache.valid = true;
-    return s_cache;
-}
-
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
   return (timestamp->tv_sec - last_meansure_timestamp->tv_sec) +
        (timestamp->tv_nsec - last_meansure_timestamp->tv_nsec) / 1000000000.;
