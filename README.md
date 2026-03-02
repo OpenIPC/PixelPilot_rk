@@ -9,6 +9,13 @@
 WFB-ng client (Video Decoder) for Rockchip platform powered by the [Rockchip MPP library](https://github.com/rockchip-linux/mpp).
 It also displays a simple cairo based OSD that shows the bandwidth, decoding latency, and framerate of the decoded video, and wfb-ng link statistics.
 
+Additional features:
+- **GPU color correction** — live linear color transform applied to video and OSD via EGL/GLES2 (configurable gain/offset, e.g. for FPV color grading)
+- **DVR re-encoding with OSD overlay** — records video via Rockchip MPP hardware encoder with the OSD blended in; supports live bitrate, FPS and codec changes
+- **Frame pacer** — feeds the re-encoder at a steady target FPS, dropping excess frames or repeating the last frame as needed
+- **Image flip** — upside-down display support via DRM
+- **GSMenu** — on-screen ground station control menu for live air-unit and link settings
+
 This project is based on a unique frozen development [FPVue_rk](https://github.com/gehee/FPVue_rk) by [Gee He](https://github.com/gehee).
 
 Tested on RK3566 (Radxa Zero 3W) and RK3588s (Orange Pi 5).
@@ -76,6 +83,12 @@ Build on the Rockchip linux system directly.
 
 ```
 sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
+```
+
+- EGL/GLES2 and RGA (required for GPU color correction and DVR re-encoding)
+
+```
+sudo apt install libegl-dev libgles2-mesa-dev libgbm-dev librga-dev
 ```
 
 - gstreamer
@@ -341,6 +354,24 @@ Specific widgets expect quite concrete facts as input:
 * `{"type": "IconSelectorWidget", "ranges_and_icons": [{"range": [0, 10], "icon_path": "0_10.png"}, {"range": [11, 20], ...}]}` - shows
   different icon depending on the range where the value lands to.
 
+## Color Correction
+
+PixelPilot supports a real-time GPU-accelerated color transform applied to the live video feed.
+The transform formula is:
+
+```
+output = clamp((input + offset) * gain, 0, 1)
+```
+
+Default values are `offset = -0.15` and `gain = 2.5`, which produce a high-contrast FPV look.
+The transform is applied via an EGL/GLES2 shader directly on the DRM buffer (NV12), so there is no CPU copy overhead.
+
+When color correction is active, the OSD overlay is also GPU-processed with the **inverse** transform so that OSD elements remain visually correct.
+
+If DVR re-encoding is enabled alongside color correction, the recorded video uses the same color-corrected frames.
+
+Parameters can be adjusted live through the GSMenu.
+
 ## GSMenu
 
 The gsmenu provides a ui to modify air and ground settings.
@@ -391,8 +422,11 @@ It uses [Direct Rendering Manager (DRM)](https://en.wikipedia.org/wiki/Direct_Re
 display video on the screen, see `drm.c`.
 It uses `mavlink` decoder to read Mavlink telemetry from telemetry UDP (if enabled), see `mavlink.c`
 It uses `cairo` library to draw OSD elements (if enabled), see `osd.c`.
-It uses `lvgl`to draw the gsmenu.
+It uses `lvgl` to draw the gsmenu.
 It writes non-decoded MPEG stream to file as DVR (if enabled) using `minimp4.h` library.
+It uses EGL/GLES2 (via `frame_colorcorrect.cpp`) to apply a GPU color transform to decoded frames before display and recording.
+It uses Rockchip MPP hardware encoder (`mpp_encoder.cpp`) to optionally re-encode the color-corrected video with OSD blended in for DVR recording.
+The `EncoderPacer` (`encoder_pacer.cpp`) decouples the decoder from the re-encoder, ensuring the encoder receives frames at a steady target FPS.
 
 Pixelpilot starts several threads:
 
@@ -425,6 +459,12 @@ Pixelpilot starts several threads:
   periodically draws widgets on a buffer inside `output_list` using Cairo library.
   There exists legacy OSD, is based on `osd_vars`, draws using Cairo library, to be removed.
   The loop yields on queue's mutex with timeout (timeout in order to re-draw OSD at fixed intervals).
+* ENCODER_PACER_THREAD (if DVR re-encoding is enabled):
+  wakes at the target FPS interval and submits the most recent decoded frame to the MPP re-encoder.
+  Drops frames when the source is faster than the target FPS; repeats the last frame when slower.
+* MPP_ENCODER_THREAD (if DVR re-encoding is enabled):
+  receives frames via an RPC queue from the pacer and encodes them with the Rockchip MPP hardware
+  encoder. Handles live bitrate, FPS, and codec changes without full re-initialisation where possible.
 
 ## Release
 
