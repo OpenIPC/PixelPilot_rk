@@ -44,9 +44,18 @@ public:
 
     void shutdown();
 
+    // Live-update the pacing interval (thread-safe).
+    void set_fps(int fps) { interval_ns.store(1000000000L / fps, std::memory_order_relaxed); }
+
     // Enable GPU color correction using the DRM gamma formula y = clamp((x+offset)*gain, 0, 1).
-    // Must be called before pthread_create.  drm_fd is used to create the GBM/EGL context.
+    // Safe to call from any thread.  drm_fd is used to create the GBM/EGL context (lazy).
     void set_color_correction(float gain, float offset, int drm_fd);
+
+    // Enable/disable color correction at runtime without changing the stored params.
+    // Thread-safe: safe to toggle from the UI thread while the pacer is running.
+    void set_color_correction_enabled(bool on) {
+        color_correct_.store(on, std::memory_order_relaxed);
+    }
 
     // Called from the frame thread before freeing the decoder buffer group
     // (on resolution change).  Releases any pending decoder buffer ref and
@@ -64,9 +73,9 @@ public:
 private:
     void loop();
 
-    MppEncoder       *encoder;
-    long              interval_ns;
-    std::atomic<bool> running{true};
+    MppEncoder            *encoder;
+    std::atomic<long>     interval_ns;
+    std::atomic<bool>     running{true};
     std::mutex        mtx;       // guards pending (shared with frame/decoder thread)
     std::mutex        copy_mtx_; // held by pacer while it uses a decoder buffer
     EncPacerFrame     pending;   // latest from decoder (shared with decoder thread)
@@ -85,8 +94,10 @@ private:
     std::mutex  osd_mtx_;
     OsdInfo     osd_info_;      // latest OSD frame descriptor
 
-    // Color correction — lazy-initialized on the pacer thread on first frame
-    bool               color_correct_{false};
+    // Color correction — lazy-initialized on the pacer thread on first frame.
+    // Written by UI thread (set_color_correction / set_color_correction_enabled),
+    // read by pacer thread — must be atomic.
+    std::atomic<bool>  color_correct_{false};
     bool               cc_init_done_{false};   // only attempt init once
     uint32_t           cc_width_{0}, cc_height_{0}; // dimensions at last init
     float              cc_gain_{1.f}, cc_offset_{0.f};

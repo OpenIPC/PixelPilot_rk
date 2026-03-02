@@ -23,6 +23,9 @@ struct EncRpc {
     enum {
         RPC_FRAME,
         RPC_IDR,
+        RPC_SET_BITRATE,  // live bitrate change (no reinit)
+        RPC_SET_CODEC,    // codec change (forces reinit on next frame)
+        RPC_SET_FPS,      // fps change (forces reinit on next frame)
         RPC_SHUTDOWN
     } command;
 
@@ -34,6 +37,12 @@ struct EncRpc {
     uint32_t ver_stride = 0;
     MppFrameFormat fmt = MPP_FMT_YUV420SP;
     uint64_t pts = 0;
+
+    // For RPC_SET_BITRATE / RPC_SET_FPS
+    int new_bitrate = 0;
+    int new_fps     = 0;
+    // For RPC_SET_CODEC
+    VideoCodec new_codec = VideoCodec::UNKNOWN;
 };
 
 class MppEncoder {
@@ -49,6 +58,11 @@ public:
                     MppFrameFormat fmt, uint64_t pts);
     void request_idr();
     void shutdown();
+
+    // Live parameter changes — enqueued to the encoder thread (thread-safe).
+    void set_bitrate(int kbps);   // update RC bitrate without reinit
+    void set_codec(VideoCodec c); // change codec — forces reinit on next frame
+    void set_fps(int fps);        // change fps — forces reinit on next frame
 
     VideoCodec get_codec() const { return params.codec; }
 

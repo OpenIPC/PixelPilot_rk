@@ -871,6 +871,31 @@ case "$@" in
             : #noop
         fi
         ;;
+    "values gs system dvr_reenc_codec"*)
+        echo -n -e "h264\nh265"
+        ;;
+    "values gs system dvr_reenc_fps"*)
+        echo -n -e "30\n60"
+        ;;
+    "values gs system dvr_reenc_bitrate"*)
+        echo -n -e "2000\n4000\n6000\n8000\n10000\n12000\n16000\n18000\n20000\n22000\n24000"
+        ;;
+
+    "set gs system dvr_reenc_enabled"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_codec"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_fps"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_bitrate"*)
+        : # noop
+        ;;
+    "set gs system dvr_osd"*)
+        : # noop
+        ;;
     "get gs system video_scale")
         grep "^video_scale =" /config/setup.txt | cut -d '=' -f2 | xargs
         ;;

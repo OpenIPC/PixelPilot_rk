@@ -75,10 +75,10 @@ void Dvr::frame(std::shared_ptr<std::vector<uint8_t>> frame) {
 
 void Dvr::set_video_params(uint32_t video_frm_w,
 						   uint32_t video_frm_h,
-						   VideoCodec codec) {
+						   VideoCodec new_codec) {
 	video_frm_width = video_frm_w;
 	video_frm_height = video_frm_h;
-	codec = codec;
+	codec = new_codec;
 	dvr_rpc rpc = {
 		.command = dvr_rpc::RPC_SET_PARAMS
 	};

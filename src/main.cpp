@@ -116,6 +116,9 @@ MppEncoderParams reenc_params;
 bool dvr_reenc = false;
 bool dvr_osd   = false;
 EncoderPacer *enc_pacer = nullptr;
+// Thread handles for the encoder and pacer — file-scope so live mode toggle can join them.
+static pthread_t g_tid_enc   = 0;
+static pthread_t g_tid_pacer = 0;
 
 // Decoded frame geometry – updated in init_buffer(), used in __FRAME_THREAD__
 uint32_t decoded_hor_stride = 0;
@@ -470,6 +473,131 @@ void sigusr2_handler(int signum) {
 
     // Log the new state of disable_vsync
     spdlog::info("disable_vsync: {}", disable_vsync);
+}
+
+// Helper for async encoder+pacer teardown so we never join from the LVGL task.
+struct EncoderShutdownCtx {
+    EncoderPacer *p;
+    MppEncoder   *e;
+    pthread_t     tp, te;
+};
+
+static void *encoder_shutdown_worker(void *arg) {
+    auto *ctx = static_cast<EncoderShutdownCtx *>(arg);
+    if (ctx->tp) pthread_join(ctx->tp, nullptr);
+    if (ctx->te) pthread_join(ctx->te, nullptr);
+    delete ctx->p;
+    delete ctx->e;
+    delete ctx;
+    return nullptr;
+}
+
+// C-compatible interface for gsmenu live control of the DVR re-encoder.
+extern "C" {
+    void dvr_reenc_set_fps(int fps) {
+        if (dvr) dvr->stop_recording();
+        reenc_params.fps = fps;
+        if (dvr) dvr->set_video_framerate(fps);
+        if (enc_pacer) enc_pacer->set_fps(fps);      // update pacer pacing interval
+        if (reencoder) reencoder->set_fps(fps);      // force encoder reinit (RC fps + GOP)
+    }
+    void dvr_reenc_set_osd(int enabled) {
+        dvr_osd = (bool)enabled;
+        // When disabling, clear the pacer's cached OSD frame so it stops
+        // blending the still-live OSD buffer into subsequent recorded frames.
+        if (!enabled && enc_pacer)
+            enc_pacer->set_osd_blend(-1, 0, 0, 0);
+    }
+
+    // Called by gs_live_colortrans_cb whenever the live color-transform toggle changes.
+    // Keeps the encoder pacer in sync with the display-side colortrans state.
+    void dvr_reenc_notify_colortrans(int enabled) {
+        if (!enc_pacer) return;
+        if (enabled)
+            enc_pacer->set_color_correction(live_colortrans_gain, live_colortrans_offset, drm_fd);
+        else
+            enc_pacer->set_color_correction_enabled(false);
+    }
+    int dvr_reenc_get_fps(void)     { return reenc_params.fps; }
+    int dvr_reenc_get_bitrate(void) { return reenc_params.bitrate_kbps; }
+    int dvr_reenc_is_reenc(void)    { return (int)dvr_reenc; }
+    int dvr_reenc_get_osd(void)     { return (int)dvr_osd; }
+    int dvr_reenc_get_codec(void)   { return (int)reenc_params.codec - 1; } // 0=h264, 1=h265
+
+    // Live bitrate change — no encoder reinit required.
+    void dvr_reenc_set_bitrate(int kbps) {
+        reenc_params.bitrate_kbps = kbps;
+        if (reencoder) reencoder->set_bitrate(kbps);
+    }
+
+    // Live codec change — stops recording, encoder will reinit on the next frame.
+    // idx: 0 = h264, 1 = h265 (matches dropdown order)
+    void dvr_reenc_set_codec(int idx) {
+        if (dvr) dvr->stop_recording();
+        VideoCodec vc = (idx == 1) ? VideoCodec::H265 : VideoCodec::H264;
+        reenc_params.codec = vc;
+        if (reencoder) reencoder->set_codec(vc);
+        if (dvr && output_list)
+            dvr->set_video_params(output_list->video_frm_width,
+                                  output_list->video_frm_height, vc);
+    }
+
+    // Toggle re-encode mode on/off at runtime.
+    // Both paths stop any active recording — the user must restart it manually.
+    void dvr_reenc_set_mode(int enabled) {
+        if (enabled && !dvr_reenc) {
+            // Stop recording: DVR was set up for passthrough codec, must reinit.
+            if (dvr) dvr->stop_recording();
+            // Tell DVR to use the re-encoder codec on next recording start.
+            if (dvr && output_list)
+                dvr->set_video_params(output_list->video_frm_width,
+                                      output_list->video_frm_height,
+                                      reenc_params.codec);
+            dvr_reenc = true;
+            reencoder = new MppEncoder(reenc_params,
+                             [](std::shared_ptr<std::vector<uint8_t>> nal) {
+                                 if (dvr_enabled && dvr) dvr->frame(nal);
+                             });
+            pthread_create(&g_tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
+            enc_pacer = new EncoderPacer(reencoder, reenc_params.fps);
+            if (enable_live_colortrans)
+                enc_pacer->set_color_correction(live_colortrans_gain,
+                                                live_colortrans_offset, drm_fd);
+            pthread_create(&g_tid_pacer, NULL, &EncoderPacer::__THREAD__, enc_pacer);
+            if (dvr)
+                dvr->on_start_cb = []() { if (reencoder) reencoder->request_idr(); };
+            spdlog::info("DVR re-encoder enabled: codec={} fps={} bitrate={}kbps",
+                         reenc_params.codec == VideoCodec::H265 ? "h265" : "h264",
+                         reenc_params.fps, reenc_params.bitrate_kbps);
+        } else if (!enabled && dvr_reenc) {
+            if (dvr) dvr->stop_recording();
+            // Zero globals before sending shutdown so the frame thread stops
+            // pushing frames to the pacer immediately.
+            EncoderPacer *p  = enc_pacer;
+            MppEncoder   *e  = reencoder;
+            pthread_t     tp = g_tid_pacer;
+            pthread_t     te = g_tid_enc;
+            enc_pacer   = nullptr;
+            reencoder   = nullptr;
+            g_tid_pacer = 0;
+            g_tid_enc   = 0;
+            dvr_reenc   = false;
+            if (dvr) dvr->on_start_cb = nullptr;
+            // Restore DVR to the original stream codec for passthrough recordings.
+            if (dvr && output_list)
+                dvr->set_video_params(output_list->video_frm_width,
+                                      output_list->video_frm_height,
+                                      codec); // 'codec' = global stream codec
+            if (p) p->shutdown();
+            if (e) e->shutdown();
+            // Join in a detached thread — never block the LVGL task.
+            auto *ctx = new EncoderShutdownCtx{p, e, tp, te};
+            pthread_t cleanup_tid;
+            pthread_create(&cleanup_tid, NULL, encoder_shutdown_worker, ctx);
+            pthread_detach(cleanup_tid);
+            spdlog::info("DVR re-encoder disabled");
+        }
+    }
 }
 
 int decoder_stalled_count=0;
@@ -1230,7 +1358,7 @@ int main(int argc, char **argv)
 	ret = pthread_cond_init(&video_cond, NULL);
 	assert(!ret);
 
-	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_enc, tid_pacer, tid_wfbcli;
+	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_dvr, tid_wfbcli;
 	if (dvr_template != NULL) {
 		dvr_thread_params args;
 		args.filename_template = dvr_template;
@@ -1249,7 +1377,7 @@ int main(int argc, char **argv)
 					dvr->frame(nal);
 				}
 			});
-			ret = pthread_create(&tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
+			ret = pthread_create(&g_tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
 			assert(!ret);
 			enc_pacer = new EncoderPacer(reencoder, reenc_params.fps);
 			if (enable_live_colortrans) {
@@ -1258,7 +1386,7 @@ int main(int argc, char **argv)
 				spdlog::info("Encoder color correction enabled: gain={} offset={}",
 				             live_colortrans_gain, live_colortrans_offset);
 			}
-			ret = pthread_create(&tid_pacer, NULL, &EncoderPacer::__THREAD__, enc_pacer);
+			ret = pthread_create(&g_tid_pacer, NULL, &EncoderPacer::__THREAD__, enc_pacer);
 			assert(!ret);
 			spdlog::info("Re-encoding recorder: codec={} fps={} bitrate={}kbps",
 			             reenc_params.codec == VideoCodec::H265 ? "h265" : "h264",
@@ -1347,9 +1475,9 @@ int main(int argc, char **argv)
 	}
 	if (dvr_template != NULL) {
 		if (dvr_reenc) {
-			ret = pthread_join(tid_pacer, NULL);
+			ret = pthread_join(g_tid_pacer, NULL);
 			assert(!ret);
-			ret = pthread_join(tid_enc, NULL);
+			ret = pthread_join(g_tid_enc, NULL);
 			assert(!ret);
 		}
 		ret = pthread_join(tid_dvr, NULL);

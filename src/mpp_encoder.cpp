@@ -39,6 +39,27 @@ void MppEncoder::shutdown() {
     enqueue(std::move(rpc));
 }
 
+void MppEncoder::set_bitrate(int kbps) {
+    EncRpc rpc;
+    rpc.command     = EncRpc::RPC_SET_BITRATE;
+    rpc.new_bitrate = kbps;
+    enqueue(std::move(rpc));
+}
+
+void MppEncoder::set_codec(VideoCodec c) {
+    EncRpc rpc;
+    rpc.command   = EncRpc::RPC_SET_CODEC;
+    rpc.new_codec = c;
+    enqueue(std::move(rpc));
+}
+
+void MppEncoder::set_fps(int fps) {
+    EncRpc rpc;
+    rpc.command = EncRpc::RPC_SET_FPS;
+    rpc.new_fps = fps;
+    enqueue(std::move(rpc));
+}
+
 void MppEncoder::enqueue(EncRpc rpc) {
     {
         std::lock_guard<std::mutex> lock(mtx);
@@ -70,6 +91,36 @@ void MppEncoder::loop() {
 
         case EncRpc::RPC_FRAME:
             encode_frame(rpc);
+            break;
+
+        case EncRpc::RPC_SET_BITRATE:
+            params.bitrate_kbps = rpc.new_bitrate;
+            if (initialized && ctx) {
+                MppEncCfg cfg = nullptr;
+                mpp_enc_cfg_init(&cfg);
+                if (mpi->control(ctx, MPP_ENC_GET_CFG, cfg) == MPP_OK) {
+                    int bps = rpc.new_bitrate * 1000;
+                    mpp_enc_cfg_set_s32(cfg, "rc:bps_target", bps);
+                    mpp_enc_cfg_set_s32(cfg, "rc:bps_max",    bps * 12 / 10);
+                    mpp_enc_cfg_set_s32(cfg, "rc:bps_min",    bps * 8  / 10);
+                    mpi->control(ctx, MPP_ENC_SET_CFG, cfg);
+                }
+                mpp_enc_cfg_deinit(cfg);
+                spdlog::info("Encoder bitrate updated to {}kbps", rpc.new_bitrate);
+            }
+            break;
+
+        case EncRpc::RPC_SET_CODEC:
+            params.codec = rpc.new_codec;
+            cleanup_encoder(); // will reinit on the next RPC_FRAME
+            spdlog::info("Encoder codec changed to {}, reinit pending",
+                         params.codec == VideoCodec::H265 ? "h265" : "h264");
+            break;
+
+        case EncRpc::RPC_SET_FPS:
+            params.fps = rpc.new_fps;
+            cleanup_encoder(); // will reinit on the next RPC_FRAME with correct RC fps/gop
+            spdlog::info("Encoder fps changed to {}, reinit pending", rpc.new_fps);
             break;
 
         case EncRpc::RPC_SHUTDOWN:

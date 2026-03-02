@@ -67,7 +67,7 @@ void EncoderPacer::set_color_correction(float gain, float offset, int drm_fd) {
     cc_gain_    = gain;
     cc_offset_  = offset;
     cc_drm_fd_  = drm_fd;
-    color_correct_ = true;
+    color_correct_.store(true, std::memory_order_relaxed);
     // Actual EGL/GL init happens lazily on the pacer thread (first frame)
 }
 
@@ -81,7 +81,7 @@ void EncoderPacer::loop() {
     struct timespec next;
     clock_gettime(CLOCK_MONOTONIC, &next);
     while (running) {
-        next.tv_nsec += interval_ns;
+        next.tv_nsec += interval_ns.load(std::memory_order_relaxed);
         if (next.tv_nsec >= 1000000000L) {
             next.tv_nsec -= 1000000000L;
             next.tv_sec++;
@@ -127,7 +127,7 @@ void EncoderPacer::loop() {
                     cc_init_done_ = false;
                 }
                 // Lazy GL init on first frame (must run on pacer thread, try once)
-                if (color_correct_ && !cc_init_done_) {
+                if (color_correct_.load(std::memory_order_relaxed) && !cc_init_done_) {
                     cc_init_done_ = true;
                     cc_width_  = fresh.width;
                     cc_height_ = fresh.height;
@@ -136,7 +136,7 @@ void EncoderPacer::loop() {
                 }
 
                 bool copied = false;
-                if (color_gl_.ready()) {
+                if (color_correct_.load(std::memory_order_relaxed) && color_gl_.ready()) {
                     // GPU path: NV12 → corrected RGBA (shader) → NV12 (RGA CSC)
                     copied = color_gl_.process(
                         mpp_buffer_get_fd(fresh.buffer),
