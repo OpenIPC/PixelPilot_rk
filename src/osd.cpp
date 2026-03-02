@@ -863,7 +863,7 @@ public:
 protected:
     enum class TokenType {
         Literal,
-        Bool,
+        Boolean,
         Int,
         Uint,
         Float,
@@ -902,7 +902,7 @@ protected:
                     msg << '?'; // Append '?' for undefined facts
                 } else {
                     switch (token.type) {
-                    case TokenType::Bool:
+                    case TokenType::Boolean:
                         msg << (facts[fact_i].getBoolValue() ? 't' : 'f');
                         break;
                     case TokenType::Int:
@@ -938,7 +938,7 @@ protected:
             } else if (match[0] == '%') {
                 if (match.size() == 2) { // Simple placeholder like %b, %i, %u, %s, %f
                     if (match[1] == 'b') {
-                        tokens.emplace_back(TokenType::Bool);
+                        tokens.emplace_back(TokenType::Boolean);
                     } else if (match[1] == 'i' || match[1] == 'd') {
                         tokens.emplace_back(TokenType::Int);
                     } else if (match[1] == 'u') {
