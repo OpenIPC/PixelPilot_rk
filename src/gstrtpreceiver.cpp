@@ -173,7 +173,11 @@ namespace {
 
     static void update_restream_valve(bool enabled) {
         std::lock_guard<std::mutex> lock(g_restream_mutex);
-        set_restream_valve_locked(enabled);
+        // Only force-close when disabling. Opening is handled by maybe_update_restream_target
+        // once a valid target IP is confirmed, to avoid briefly streaming to 127.0.0.1.
+        if (!enabled) {
+            set_restream_valve_locked(false);
+        }
     }
 
     static void clear_restream_valve() {
@@ -220,9 +224,9 @@ namespace {
 
     static std::string create_restream_branch() {
         std::stringstream ss;
-        ss << " rtp_tee. ! queue ! valve name=restream_valve drop="
-           << (g_restream_enabled.load(std::memory_order_relaxed) ? "false" : "true")
-           << " ! udpsink name=restream_sink host=" << kRestreamDefaultHost
+        ss << " rtp_tee. ! queue leaky=downstream max-size-buffers=10 max-size-bytes=0 max-size-time=0"
+              " ! valve name=restream_valve drop=true"
+              " ! udpsink name=restream_sink host=" << kRestreamDefaultHost
            << " port=" << kRestreamUdpPort
            << " sync=false async=false qos=false";
         return ss.str();
@@ -944,7 +948,7 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
         ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! tee name=rtp_tee ";
     else
         ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! tee name=rtp_tee ";
-    ss<<"rtp_tee. ! queue leaky=downstream max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! ";
+    ss<<"rtp_tee. ! ";
     ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec);
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
