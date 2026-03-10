@@ -110,6 +110,7 @@ namespace {
     static GstElement* g_restream_sink = nullptr;
     static std::atomic<bool> g_restream_enabled{false};
     static std::string g_restream_target_ip;
+    static std::string g_restream_manual_ip; // empty = auto-discover
 
     static std::mutex g_last_hop_mutex;
     static std::string g_last_hop_ip;
@@ -227,6 +228,23 @@ namespace {
         return ss.str();
     }
 
+    // Returns all valid ARP entries from any interface (no interface filter).
+    static std::vector<std::string> scan_arp_all_clients() {
+        std::ifstream arp_file("/proc/net/arp");
+        if (!arp_file.is_open()) return {};
+        std::string line;
+        std::getline(arp_file, line); // skip header
+        std::vector<std::string> result;
+        while (std::getline(arp_file, line)) {
+            std::istringstream iss(line);
+            std::string ip, hw_type, flags, hw_address, mask, device;
+            if (!(iss >> ip >> hw_type >> flags >> hw_address >> mask >> device)) continue;
+            if (flags == "0x0" || hw_address == "00:00:00:00:00:00") continue;
+            result.push_back(ip);
+        }
+        return result;
+    }
+
     static std::string find_first_hotspot_client_ip() {
         std::ifstream arp_file("/proc/net/arp");
         if (!arp_file.is_open()) {
@@ -289,10 +307,12 @@ namespace {
             return;
         }
 
-        const std::string next_ip = find_first_hotspot_client_ip();
+        const std::string next_ip = g_restream_manual_ip.empty()
+            ? find_first_hotspot_client_ip()
+            : g_restream_manual_ip;
         if (next_ip.empty()) {
             if (!g_restream_target_ip.empty()) {
-                spdlog::info("[RESTREAM] No hotspot clients connected; stopping unicast restream");
+                spdlog::info("[RESTREAM] No target client found; stopping unicast restream");
                 g_restream_target_ip.clear();
             }
             set_restream_valve_locked(false);
@@ -302,10 +322,9 @@ namespace {
         if (next_ip != g_restream_target_ip) {
             g_restream_target_ip = next_ip;
             g_object_set(G_OBJECT(g_restream_sink), "host", g_restream_target_ip.c_str(), NULL);
-            spdlog::info("[RESTREAM] Streaming to {}:{} via {}",
+            spdlog::info("[RESTREAM] Streaming to {}:{}",
                          g_restream_target_ip,
-                         kRestreamUdpPort,
-                         kRestreamWifiInterface);
+                         kRestreamUdpPort);
         }
 
         set_restream_valve_locked(true);
@@ -1360,6 +1379,31 @@ const char* restream_get_target_ip() {
         return "None";
     }
     strncpy(buf, g_restream_target_ip.c_str(), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    return buf;
+}
+
+void restream_scan_clients(char* buf, size_t buf_len) {
+    const auto ips = scan_arp_all_clients();
+    std::string combined = "Auto";
+    for (const auto& ip : ips) {
+        combined += '\n';
+        combined += ip;
+    }
+    strncpy(buf, combined.c_str(), buf_len - 1);
+    buf[buf_len - 1] = '\0';
+}
+
+void restream_set_manual_ip(const char* ip) {
+    std::lock_guard<std::mutex> lock(g_restream_mutex);
+    g_restream_manual_ip = (ip && ip[0] != '\0' && strcmp(ip, "Auto") != 0) ? ip : "";
+    g_restream_target_ip.clear(); // force retarget on next probe
+}
+
+const char* restream_get_manual_ip() {
+    std::lock_guard<std::mutex> lock(g_restream_mutex);
+    static char buf[64];
+    strncpy(buf, g_restream_manual_ip.c_str(), sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0';
     return buf;
 }

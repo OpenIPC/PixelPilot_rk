@@ -24,7 +24,8 @@ lv_obj_t * password;
 lv_obj_t * wlan;
 lv_obj_t * hotspot;
 lv_obj_t * restream;
-lv_obj_t * ipinfo;
+lv_obj_t * ip_dropdown_row;
+lv_obj_t * ip_dropdown;
 
 void wifi_page_load_callback(lv_obj_t * page)
 {
@@ -35,9 +36,33 @@ void wifi_page_load_callback(lv_obj_t * page)
     if (restream_get_enabled()) lv_obj_add_state(lv_obj_get_child_by_type(restream,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(restream,0,&lv_switch_class), LV_STATE_CHECKED);
     {
-        char ip_buf[80];
-        snprintf(ip_buf, sizeof(ip_buf), "Phone IP: %s", restream_get_target_ip());
-        lv_label_set_text(lv_obj_get_child_by_type(ipinfo, 0, &lv_label_class), ip_buf);
+        char clients[512];
+        restream_scan_clients(clients, sizeof(clients));
+        lv_dropdown_set_options(ip_dropdown, clients);
+        const char* manual = restream_get_manual_ip();
+        if (manual[0] == '\0') {
+            lv_dropdown_set_selected(ip_dropdown, 0);
+        } else {
+            uint16_t idx = 0, i = 0;
+            char* p = clients;
+            while (p && *p) {
+                char* nl = strchr(p, '\n');
+                size_t len = nl ? (size_t)(nl - p) : strlen(p);
+                if (strncmp(p, manual, len) == 0 && strlen(manual) == len) { idx = i; break; }
+                i++;
+                p = nl ? nl + 1 : NULL;
+            }
+            lv_dropdown_set_selected(ip_dropdown, idx);
+        }
+    }
+}
+
+static void ip_dropdown_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t * dd = lv_event_get_target(e);
+        char buf[64];
+        lv_dropdown_get_selected_str(dd, buf, sizeof(buf));
+        restream_set_manual_ip(buf);
     }
 }
 
@@ -163,7 +188,24 @@ void create_wifi_menu(lv_obj_t * parent) {
     restream = create_switch(cont,LV_SYMBOL_VIDEO,"Phone Restream",NULL, NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(restream,0,&lv_switch_class), restream_switch_callback, LV_EVENT_VALUE_CHANGED,NULL);
 
-    ipinfo = create_text(cont, LV_SYMBOL_WIFI, "Phone IP: None", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    ip_dropdown_row = lv_menu_cont_create(cont);
+    lv_obj_t * dd_icon = lv_image_create(ip_dropdown_row);
+    lv_image_set_src(dd_icon, LV_SYMBOL_WIFI);
+    lv_obj_t * dd_label = lv_label_create(ip_dropdown_row);
+    lv_label_set_text(dd_label, "Stream To");
+    lv_obj_set_flex_grow(dd_label, 1);
+    ip_dropdown = lv_dropdown_create(ip_dropdown_row);
+    lv_dropdown_set_options(ip_dropdown, "Auto");
+    lv_dropdown_set_dir(ip_dropdown, LV_DIR_RIGHT);
+    lv_dropdown_set_symbol(ip_dropdown, LV_SYMBOL_RIGHT);
+    lv_obj_set_width(ip_dropdown, 200);
+    lv_obj_add_style(ip_dropdown, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_add_style(ip_dropdown, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_t * dd_list = lv_dropdown_get_list(ip_dropdown);
+    lv_obj_add_style(dd_list, &style_openipc, LV_PART_SELECTED | LV_STATE_CHECKED);
+    lv_obj_add_style(dd_list, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(ip_dropdown, ip_dropdown_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_group_add_obj(menu_page_data->indev_group, ip_dropdown);
 
 
     lv_group_set_default(default_group);
