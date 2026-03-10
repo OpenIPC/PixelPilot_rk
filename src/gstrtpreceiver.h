@@ -94,6 +94,9 @@ extern "C" {
 #endif
 void idr_set_enabled(bool enabled);
 bool idr_get_enabled();
+void restream_set_enabled(bool enabled);
+bool restream_get_enabled();
+const char* restream_get_target_ip();
 void idr_request_record_start();
 void idr_request_decoder_issue(const char* reason);
 void idr_notify_decoded_frame();

@@ -19,6 +19,7 @@
 #include <memory>
 #include <utility>
 #include <functional>
+#include <fstream>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -81,6 +82,10 @@ namespace pipeline {
 
 namespace {
     static constexpr int kIdrUdpPort = 11223;
+    static constexpr int kRestreamUdpPort = 5600;
+    static constexpr const char* kRestreamDefaultHost = "127.0.0.1";
+    static constexpr const char* kRestreamWifiInterface = "wlan0";
+    static constexpr const char* kRestreamWifiLocalIp = "192.168.4.1";
     static constexpr int kIdrBurstCount = 3;
     static constexpr int kIdrBurstSpacingMs = 100;
     static constexpr int kIdrRepeatCount = 3;
@@ -99,6 +104,12 @@ namespace {
     static std::mutex g_idr_sock_mutex;
     static int g_idr_sock = -1;
     static std::atomic<bool> g_idr_sock_ready{false};
+
+    static std::mutex g_restream_mutex;
+    static GstElement* g_restream_valve = nullptr;
+    static GstElement* g_restream_sink = nullptr;
+    static std::atomic<bool> g_restream_enabled{false};
+    static std::string g_restream_target_ip;
 
     static std::mutex g_last_hop_mutex;
     static std::string g_last_hop_ip;
@@ -150,6 +161,154 @@ namespace {
         g_idr_sock_ready.store(true, std::memory_order_release);
         spdlog::info("[IDR] UDP socket ready");
         return true;
+    }
+
+    static void set_restream_valve_locked(bool enabled) {
+        if (!g_restream_valve) {
+            return;
+        }
+        g_object_set(G_OBJECT(g_restream_valve), "drop", enabled ? FALSE : TRUE, NULL);
+    }
+
+    static void update_restream_valve(bool enabled) {
+        std::lock_guard<std::mutex> lock(g_restream_mutex);
+        set_restream_valve_locked(enabled);
+    }
+
+    static void clear_restream_valve() {
+        std::lock_guard<std::mutex> lock(g_restream_mutex);
+        if (!g_restream_valve) {
+            if (!g_restream_sink) {
+                return;
+            }
+        }
+        if (g_restream_valve) {
+            gst_object_unref(g_restream_valve);
+            g_restream_valve = nullptr;
+        }
+        if (g_restream_sink) {
+            gst_object_unref(g_restream_sink);
+            g_restream_sink = nullptr;
+        }
+        g_restream_target_ip.clear();
+    }
+
+    static void bind_restream_valve(GstElement* pipeline) {
+        clear_restream_valve();
+        if (!pipeline || !GST_IS_BIN(pipeline)) {
+            return;
+        }
+
+        GstElement* valve = gst_bin_get_by_name(GST_BIN(pipeline), "restream_valve");
+        if (!valve) {
+            return;
+        }
+
+        GstElement* sink = gst_bin_get_by_name(GST_BIN(pipeline), "restream_sink");
+        if (!sink) {
+            gst_object_unref(valve);
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(g_restream_mutex);
+        g_restream_valve = valve;
+        g_restream_sink = sink;
+        g_restream_target_ip.clear();
+        set_restream_valve_locked(g_restream_enabled.load(std::memory_order_relaxed));
+    }
+
+    static std::string create_restream_branch() {
+        std::stringstream ss;
+        ss << " rtp_tee. ! queue ! valve name=restream_valve drop="
+           << (g_restream_enabled.load(std::memory_order_relaxed) ? "false" : "true")
+           << " ! udpsink name=restream_sink host=" << kRestreamDefaultHost
+           << " port=" << kRestreamUdpPort
+           << " sync=false async=false qos=false";
+        return ss.str();
+    }
+
+    static std::string find_first_hotspot_client_ip() {
+        std::ifstream arp_file("/proc/net/arp");
+        if (!arp_file.is_open()) {
+            return "";
+        }
+
+        std::string line;
+        std::getline(arp_file, line);
+
+        std::string first_ip;
+        bool current_ip_still_present = false;
+
+        while (std::getline(arp_file, line)) {
+            std::istringstream iss(line);
+            std::string ip;
+            std::string hw_type;
+            std::string flags;
+            std::string hw_address;
+            std::string mask;
+            std::string device;
+            if (!(iss >> ip >> hw_type >> flags >> hw_address >> mask >> device)) {
+                continue;
+            }
+
+            if (device != kRestreamWifiInterface || ip == kRestreamWifiLocalIp) {
+                continue;
+            }
+            if (flags == "0x0" || hw_address == "00:00:00:00:00:00") {
+                continue;
+            }
+
+            if (first_ip.empty()) {
+                first_ip = ip;
+            }
+            if (ip == g_restream_target_ip) {
+                current_ip_still_present = true;
+            }
+        }
+
+        if (current_ip_still_present) {
+            return g_restream_target_ip;
+        }
+        return first_ip;
+    }
+
+    static void maybe_update_restream_target() {
+        static uint64_t last_probe_ms = 0;
+        const uint64_t now = now_ms();
+        if ((now - last_probe_ms) < 1000) {
+            return;
+        }
+        last_probe_ms = now;
+
+        std::lock_guard<std::mutex> lock(g_restream_mutex);
+        if (!g_restream_valve || !g_restream_sink) {
+            return;
+        }
+        if (!g_restream_enabled.load(std::memory_order_relaxed)) {
+            set_restream_valve_locked(false);
+            return;
+        }
+
+        const std::string next_ip = find_first_hotspot_client_ip();
+        if (next_ip.empty()) {
+            if (!g_restream_target_ip.empty()) {
+                spdlog::info("[RESTREAM] No hotspot clients connected; stopping unicast restream");
+                g_restream_target_ip.clear();
+            }
+            set_restream_valve_locked(false);
+            return;
+        }
+
+        if (next_ip != g_restream_target_ip) {
+            g_restream_target_ip = next_ip;
+            g_object_set(G_OBJECT(g_restream_sink), "host", g_restream_target_ip.c_str(), NULL);
+            spdlog::info("[RESTREAM] Streaming to {}:{} via {}",
+                         g_restream_target_ip,
+                         kRestreamUdpPort,
+                         kRestreamWifiInterface);
+        }
+
+        set_restream_valve_locked(true);
     }
 
     static uint32_t secure_random_u32() {
@@ -753,6 +912,7 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
             }
             gst_sample_unref(sample);
         }
+        maybe_update_restream_target();
         tick_stream_presence();
     }
 }
@@ -762,13 +922,15 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
 {
     std::stringstream ss;
     if (! unix_socket)
-        ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
+        ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! tee name=rtp_tee ";
     else
-        ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! ";
+        ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! tee name=rtp_tee ";
+    ss<<"rtp_tee. ! queue leaky=downstream max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! ";
     ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec);
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
-    ss<<" appsink drop=true name=out_appsink";
+    ss<<"appsink drop=true name=out_appsink";
+    ss<<create_restream_branch();
     return ss.str();
 }
 
@@ -888,6 +1050,7 @@ void GstRtpReceiver::stop_receiving() {
     }
     
     if (m_gst_pipeline != nullptr) {
+        clear_restream_valve();
         gst_element_send_event((GstElement*)m_gst_pipeline, gst_event_new_eos());
         gst_element_set_state(m_gst_pipeline, GST_STATE_PAUSED);
         gst_element_set_state(m_gst_pipeline, GST_STATE_NULL);
@@ -958,6 +1121,7 @@ void GstRtpReceiver::switch_to_stream() {
     }
 
     attach_last_hop_probes(m_gst_pipeline);
+    bind_restream_valve(m_gst_pipeline);
 
     // If using Unix socket, setup appsrc with buffer pool
     if (unix_socket) {
@@ -1178,6 +1342,26 @@ void idr_set_enabled(bool enabled) {
 
 bool idr_get_enabled() {
     return g_idr_enabled.load(std::memory_order_relaxed);
+}
+
+void restream_set_enabled(bool enabled) {
+    g_restream_enabled.store(enabled, std::memory_order_relaxed);
+    update_restream_valve(enabled);
+}
+
+bool restream_get_enabled() {
+    return g_restream_enabled.load(std::memory_order_relaxed);
+}
+
+const char* restream_get_target_ip() {
+    std::lock_guard<std::mutex> lock(g_restream_mutex);
+    static char buf[64];
+    if (g_restream_target_ip.empty()) {
+        return "None";
+    }
+    strncpy(buf, g_restream_target_ip.c_str(), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    return buf;
 }
 
 void idr_request_record_start() {
