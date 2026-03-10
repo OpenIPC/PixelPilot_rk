@@ -181,16 +181,12 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_ALL,kb);
     lv_keyboard_set_textarea(kb, NULL);
 
-    create_text(parent, NULL, "Network", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "Phone Restream", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
 
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-
-    ipinfo = create_text(cont, LV_SYMBOL_SETTINGS, "Network", "IP", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_obj_t * ipinfo_label = lv_obj_get_child_by_type(ipinfo,0, &lv_label_class);
-    lv_group_add_obj(menu_page_data->indev_group,ipinfo_label);
 
     restream = create_switch(cont,LV_SYMBOL_VIDEO,"Phone Restream",NULL, NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(restream,0,&lv_switch_class), restream_switch_callback, LV_EVENT_VALUE_CHANGED,NULL);
@@ -211,8 +207,22 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_t * dd_list = lv_dropdown_get_list(ip_dropdown);
     lv_obj_add_style(dd_list, &style_openipc, LV_PART_SELECTED | LV_STATE_CHECKED);
     lv_obj_add_style(dd_list, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(ip_dropdown, dropdown_event_handler, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ip_dropdown, ip_dropdown_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(ip_dropdown, generic_back_event_handler, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(ip_dropdown, on_focus, LV_EVENT_FOCUSED, NULL);
     lv_group_add_obj(menu_page_data->indev_group, ip_dropdown);
+
+    create_text(parent, NULL, "Network", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    section = lv_menu_section_create(parent);
+    lv_obj_add_style(section, &style_openipc_section, 0);
+
+    cont = lv_menu_cont_create(section);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    ipinfo = create_text(cont, LV_SYMBOL_SETTINGS, "Network", "IP", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_obj_t * ipinfo_label = lv_obj_get_child_by_type(ipinfo,0, &lv_label_class);
+    lv_group_add_obj(menu_page_data->indev_group,ipinfo_label);
 
 
     lv_group_set_default(default_group);
