@@ -10,11 +10,6 @@
 #include "executor.h"
 #include "gs_wifi.h"
 
-static void scan_wifi_event_handler(lv_event_t * e);
-static void connect_wifi_event_handler(lv_event_t * e);
-static void disconnect_wifi_event_handler(lv_event_t * e);
-static void ta_event_cb(lv_event_t * e);
-
 extern lv_obj_t * menu;
 extern gsmenu_control_mode_t control_mode;
 extern lv_group_t * default_group;
@@ -25,8 +20,29 @@ lv_obj_t * wlan;
 lv_obj_t * hotspot;
 lv_obj_t * ipinfo;
 lv_obj_t * restream;
-lv_obj_t * ip_dropdown_row;
 lv_obj_t * ip_dropdown;
+
+static uint16_t find_dropdown_option_index(const char * options, const char * value)
+{
+    if (!value || value[0] == '\0') {
+        return 0;
+    }
+
+    uint16_t idx = 0;
+    const char * option = options;
+
+    while (option && *option) {
+        const char * nl = strchr(option, '\n');
+        size_t len = nl ? (size_t)(nl - option) : strlen(option);
+        if (strlen(value) == len && strncmp(option, value, len) == 0) {
+            return idx;
+        }
+        idx++;
+        option = nl ? nl + 1 : NULL;
+    }
+
+    return 0;
+}
 
 void wifi_page_load_callback(lv_obj_t * page)
 {
@@ -42,21 +58,7 @@ void wifi_page_load_callback(lv_obj_t * page)
         char clients[512];
         restream_scan_clients(clients, sizeof(clients));
         lv_dropdown_set_options(ip_dropdown, clients);
-        const char* manual = restream_get_manual_ip();
-        if (manual[0] == '\0') {
-            lv_dropdown_set_selected(ip_dropdown, 0);
-        } else {
-            uint16_t idx = 0, i = 0;
-            char* p = clients;
-            while (p && *p) {
-                char* nl = strchr(p, '\n');
-                size_t len = nl ? (size_t)(nl - p) : strlen(p);
-                if (strncmp(p, manual, len) == 0 && strlen(manual) == len) { idx = i; break; }
-                i++;
-                p = nl ? nl + 1 : NULL;
-            }
-            lv_dropdown_set_selected(ip_dropdown, idx);
-        }
+        lv_dropdown_set_selected(ip_dropdown, find_dropdown_option_index(clients, restream_get_manual_ip()));
     }
 }
 
@@ -191,7 +193,7 @@ void create_wifi_menu(lv_obj_t * parent) {
     restream = create_switch(cont,LV_SYMBOL_VIDEO,"Phone Restream",NULL, NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(restream,0,&lv_switch_class), restream_switch_callback, LV_EVENT_VALUE_CHANGED,NULL);
 
-    ip_dropdown_row = lv_menu_cont_create(cont);
+    lv_obj_t * ip_dropdown_row = lv_menu_cont_create(cont);
     lv_obj_t * dd_icon = lv_image_create(ip_dropdown_row);
     lv_image_set_src(dd_icon, LV_SYMBOL_WIFI);
     lv_obj_t * dd_label = lv_label_create(ip_dropdown_row);

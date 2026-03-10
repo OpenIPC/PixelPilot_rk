@@ -96,7 +96,6 @@ void idr_set_enabled(bool enabled);
 bool idr_get_enabled();
 void restream_set_enabled(bool enabled);
 bool restream_get_enabled();
-const char* restream_get_target_ip();
 void restream_scan_clients(char* buf, size_t buf_len);
 void restream_set_manual_ip(const char* ip);
 const char* restream_get_manual_ip();

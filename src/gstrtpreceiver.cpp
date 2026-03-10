@@ -12,6 +12,7 @@
 #include "spdlog/spdlog.h"
 #include <gio/gio.h>
 #include <cstring>
+#include <algorithm>
 #include <stdexcept>
 #include <cassert>
 #include <sstream>
@@ -134,6 +135,11 @@ namespace {
     }
 
     static void request_idr_bursts(const char* reason, int request_count, bool allow_pending);
+    static void maybe_update_restream_target(bool force);
+
+    static bool contains_ip(const std::vector<std::string>& ips, const std::string& ip) {
+        return !ip.empty() && std::find(ips.begin(), ips.end(), ip) != ips.end();
+    }
 
     static bool is_stream_idr_reason(const char* reason) {
         return reason && !strcmp(reason, "stream-up");
@@ -215,11 +221,15 @@ namespace {
             return;
         }
 
-        std::lock_guard<std::mutex> lock(g_restream_mutex);
-        g_restream_valve = valve;
-        g_restream_sink = sink;
-        g_restream_target_ip.clear();
-        set_restream_valve_locked(g_restream_enabled.load(std::memory_order_relaxed));
+        {
+            std::lock_guard<std::mutex> lock(g_restream_mutex);
+            g_restream_valve = valve;
+            g_restream_sink = sink;
+            g_restream_target_ip.clear();
+            set_restream_valve_locked(false);
+        }
+
+        maybe_update_restream_target(true);
     }
 
     static std::string create_restream_branch() {
@@ -232,8 +242,7 @@ namespace {
         return ss.str();
     }
 
-    // Returns all valid ARP entries from any interface (no interface filter).
-    static std::vector<std::string> scan_arp_all_clients() {
+    static std::vector<std::string> scan_hotspot_clients() {
         std::ifstream arp_file("/proc/net/arp");
         if (!arp_file.is_open()) return {};
         std::string line;
@@ -243,6 +252,7 @@ namespace {
             std::istringstream iss(line);
             std::string ip, hw_type, flags, hw_address, mask, device;
             if (!(iss >> ip >> hw_type >> flags >> hw_address >> mask >> device)) continue;
+            if (device != kRestreamWifiInterface || ip == kRestreamWifiLocalIp) continue;
             if (flags == "0x0" || hw_address == "00:00:00:00:00:00") continue;
             result.push_back(ip);
         }
@@ -250,54 +260,17 @@ namespace {
     }
 
     static std::string find_first_hotspot_client_ip() {
-        std::ifstream arp_file("/proc/net/arp");
-        if (!arp_file.is_open()) {
-            return "";
-        }
-
-        std::string line;
-        std::getline(arp_file, line);
-
-        std::string first_ip;
-        bool current_ip_still_present = false;
-
-        while (std::getline(arp_file, line)) {
-            std::istringstream iss(line);
-            std::string ip;
-            std::string hw_type;
-            std::string flags;
-            std::string hw_address;
-            std::string mask;
-            std::string device;
-            if (!(iss >> ip >> hw_type >> flags >> hw_address >> mask >> device)) {
-                continue;
-            }
-
-            if (device != kRestreamWifiInterface || ip == kRestreamWifiLocalIp) {
-                continue;
-            }
-            if (flags == "0x0" || hw_address == "00:00:00:00:00:00") {
-                continue;
-            }
-
-            if (first_ip.empty()) {
-                first_ip = ip;
-            }
-            if (ip == g_restream_target_ip) {
-                current_ip_still_present = true;
-            }
-        }
-
-        if (current_ip_still_present) {
+        const auto clients = scan_hotspot_clients();
+        if (contains_ip(clients, g_restream_target_ip)) {
             return g_restream_target_ip;
         }
-        return first_ip;
+        return clients.empty() ? "" : clients.front();
     }
 
-    static void maybe_update_restream_target() {
+    static void maybe_update_restream_target(bool force) {
         static uint64_t last_probe_ms = 0;
         const uint64_t now = now_ms();
-        if ((now - last_probe_ms) < 1000) {
+        if (!force && (now - last_probe_ms) < 1000) {
             return;
         }
         last_probe_ms = now;
@@ -935,7 +908,7 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
             }
             gst_sample_unref(sample);
         }
-        maybe_update_restream_target();
+        maybe_update_restream_target(false);
         tick_stream_presence();
     }
 }
@@ -1376,23 +1349,26 @@ bool restream_get_enabled() {
     return g_restream_enabled.load(std::memory_order_relaxed);
 }
 
-const char* restream_get_target_ip() {
-    std::lock_guard<std::mutex> lock(g_restream_mutex);
-    static char buf[64];
-    if (g_restream_target_ip.empty()) {
-        return "None";
-    }
-    strncpy(buf, g_restream_target_ip.c_str(), sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
-    return buf;
-}
-
 void restream_scan_clients(char* buf, size_t buf_len) {
-    const auto ips = scan_arp_all_clients();
+    if (!buf || buf_len == 0) {
+        return;
+    }
+
+    const auto ips = scan_hotspot_clients();
+    std::string manual_ip;
+    {
+        std::lock_guard<std::mutex> lock(g_restream_mutex);
+        manual_ip = g_restream_manual_ip;
+    }
+
     std::string combined = "Auto";
     for (const auto& ip : ips) {
         combined += '\n';
         combined += ip;
+    }
+    if (!manual_ip.empty() && !contains_ip(ips, manual_ip)) {
+        combined += '\n';
+        combined += manual_ip;
     }
     strncpy(buf, combined.c_str(), buf_len - 1);
     buf[buf_len - 1] = '\0';
