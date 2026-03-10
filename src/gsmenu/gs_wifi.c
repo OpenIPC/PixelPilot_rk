@@ -23,6 +23,7 @@ lv_obj_t * ssid;
 lv_obj_t * password;
 lv_obj_t * wlan;
 lv_obj_t * hotspot;
+lv_obj_t * ipinfo;
 lv_obj_t * restream;
 lv_obj_t * ip_dropdown_row;
 lv_obj_t * ip_dropdown;
@@ -33,6 +34,8 @@ void wifi_page_load_callback(lv_obj_t * page)
     reload_switch_value(page,wlan);
     reload_textarea_value(page,ssid);
     reload_textarea_value(page,password);
+    reload_label_value(page,ipinfo);
+
     if (restream_get_enabled()) lv_obj_add_state(lv_obj_get_child_by_type(restream,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(restream,0,&lv_switch_class), LV_STATE_CHECKED);
     {
@@ -184,6 +187,10 @@ void create_wifi_menu(lv_obj_t * parent) {
 
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    ipinfo = create_text(cont, LV_SYMBOL_SETTINGS, "Network", "IP", menu_page_data, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_obj_t * ipinfo_label = lv_obj_get_child_by_type(ipinfo,0, &lv_label_class);
+    lv_group_add_obj(menu_page_data->indev_group,ipinfo_label);
 
     restream = create_switch(cont,LV_SYMBOL_VIDEO,"Phone Restream",NULL, NULL,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(restream,0,&lv_switch_class), restream_switch_callback, LV_EVENT_VALUE_CHANGED,NULL);
