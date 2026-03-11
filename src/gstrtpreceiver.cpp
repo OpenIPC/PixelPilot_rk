@@ -83,8 +83,6 @@ namespace pipeline {
 
 namespace {
     static constexpr int kIdrUdpPort = 11223;
-    static constexpr int kRestreamUdpPort = 5600;
-    static constexpr const char* kRestreamDefaultHost = "127.0.0.1";
     static constexpr int kIdrBurstCount = 3;
     static constexpr int kIdrBurstSpacingMs = 100;
     static constexpr int kIdrRepeatCount = 3;
@@ -234,9 +232,7 @@ namespace {
         std::stringstream ss;
         ss << " rtp_tee. ! queue leaky=downstream max-size-buffers=10 max-size-bytes=0 max-size-time=0"
               " ! valve name=restream_valve drop=true"
-              " ! udpsink name=restream_sink host=" << kRestreamDefaultHost
-           << " port=" << kRestreamUdpPort
-           << " sync=false async=false qos=false";
+              " ! udpsink name=restream_sink host=0.0.0.0 port=5600 sync=false async=false qos=false";
         return ss.str();
     }
 
@@ -299,7 +295,7 @@ namespace {
             g_object_set(G_OBJECT(g_restream_sink), "host", g_restream_target_ip.c_str(), NULL);
             spdlog::info("[RESTREAM] Streaming to {}:{}",
                          g_restream_target_ip,
-                         kRestreamUdpPort);
+                         5600);
         }
 
         set_restream_valve_locked(true);
