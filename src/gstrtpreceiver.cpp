@@ -85,8 +85,6 @@ namespace {
     static constexpr int kIdrUdpPort = 11223;
     static constexpr int kRestreamUdpPort = 5600;
     static constexpr const char* kRestreamDefaultHost = "127.0.0.1";
-    static constexpr const char* kRestreamWifiInterface = "wlan0";
-    static constexpr const char* kRestreamWifiLocalIp = "192.168.4.1";
     static constexpr int kIdrBurstCount = 3;
     static constexpr int kIdrBurstSpacingMs = 100;
     static constexpr int kIdrRepeatCount = 3;
@@ -252,7 +250,7 @@ namespace {
             std::istringstream iss(line);
             std::string ip, hw_type, flags, hw_address, mask, device;
             if (!(iss >> ip >> hw_type >> flags >> hw_address >> mask >> device)) continue;
-            if (device != kRestreamWifiInterface || ip == kRestreamWifiLocalIp) continue;
+            if (device != "wlan0" && device != "usb0") continue;
             if (flags == "0x0" || hw_address == "00:00:00:00:00:00") continue;
             result.push_back(ip);
         }
