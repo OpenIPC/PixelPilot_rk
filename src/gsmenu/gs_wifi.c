@@ -10,6 +10,11 @@
 #include "executor.h"
 #include "gs_wifi.h"
 
+static void scan_wifi_event_handler(lv_event_t * e);
+static void connect_wifi_event_handler(lv_event_t * e);
+static void disconnect_wifi_event_handler(lv_event_t * e);
+static void ta_event_cb(lv_event_t * e);
+
 extern lv_obj_t * menu;
 extern gsmenu_control_mode_t control_mode;
 extern lv_group_t * default_group;
