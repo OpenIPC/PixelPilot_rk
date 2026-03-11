@@ -62,6 +62,18 @@ void wifi_page_load_callback(lv_obj_t * page)
     }
 }
 
+static void ip_dropdown_opened_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        lv_obj_t * dd = lv_event_get_target(e);
+        char clients[512];
+        restream_scan_clients(clients, sizeof(clients));
+        const char * current = restream_get_manual_ip();
+        uint16_t sel = find_dropdown_option_index(clients, current);
+        lv_dropdown_set_options(dd, clients);
+        lv_dropdown_set_selected(dd, sel);
+    }
+}
+
 static void ip_dropdown_cb(lv_event_t * e) {
     if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
         lv_obj_t * dd = lv_event_get_target(e);
@@ -210,6 +222,7 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_add_style(dd_list, &style_openipc, LV_PART_SELECTED | LV_STATE_CHECKED);
     lv_obj_add_style(dd_list, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_event_cb(ip_dropdown, dropdown_event_handler, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ip_dropdown, ip_dropdown_opened_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ip_dropdown, ip_dropdown_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ip_dropdown, generic_back_event_handler, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(ip_dropdown, on_focus, LV_EVENT_FOCUSED, NULL);
