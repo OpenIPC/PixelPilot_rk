@@ -115,6 +115,7 @@ MppEncoder *reencoder = NULL;
 MppEncoderParams reenc_params;
 bool dvr_reenc = false;
 bool dvr_osd   = false;
+static int video_framerate = -1;
 EncoderPacer *enc_pacer = nullptr;
 // Thread handles for the encoder and pacer — file-scope so live mode toggle can join them.
 static pthread_t g_tid_enc   = 0;
@@ -549,10 +550,13 @@ extern "C" {
             // Stop recording: DVR was set up for passthrough codec, must reinit.
             if (dvr) dvr->stop_recording();
             // Tell DVR to use the re-encoder codec on next recording start.
-            if (dvr && output_list)
-                dvr->set_video_params(output_list->video_frm_width,
-                                      output_list->video_frm_height,
-                                      reenc_params.codec);
+            if (dvr) {
+                if (output_list)
+                    dvr->set_video_params(output_list->video_frm_width,
+                                          output_list->video_frm_height,
+                                          reenc_params.codec);
+                dvr->set_video_framerate(reenc_params.fps);
+            }
             dvr_reenc = true;
             reencoder = new MppEncoder(reenc_params,
                              [](std::shared_ptr<std::vector<uint8_t>> nal) {
@@ -583,11 +587,14 @@ extern "C" {
             g_tid_enc   = 0;
             dvr_reenc   = false;
             if (dvr) dvr->on_start_cb = nullptr;
-            // Restore DVR to the original stream codec for passthrough recordings.
-            if (dvr && output_list)
-                dvr->set_video_params(output_list->video_frm_width,
-                                      output_list->video_frm_height,
-                                      codec); // 'codec' = global stream codec
+            // Restore DVR to the original stream codec and framerate for passthrough recordings.
+            if (dvr) {
+                if (output_list)
+                    dvr->set_video_params(output_list->video_frm_width,
+                                          output_list->video_frm_height,
+                                          codec); // 'codec' = global stream codec
+                dvr->set_video_framerate(video_framerate);
+            }
             if (p) p->shutdown();
             if (e) e->shutdown();
             // Join in a detached thread — never block the LVGL task.
@@ -935,7 +942,7 @@ int main(int argc, char **argv)
 	int print_modelist = 0;
 	int dvr_autostart = 0;
 	bool dvr_filenames_with_sequence = false;
-	int video_framerate = -1;
+
 	int mp4_fragmentation_mode = 0;
 	uint16_t wfb_port = 8003;
 	const char *wfb_api_host = "127.0.0.1";
