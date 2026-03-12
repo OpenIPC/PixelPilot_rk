@@ -116,12 +116,12 @@ void EncoderPacer::loop() {
                 auto waited_us = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - t0).count();
                 if (pending.buffer) {
-                    spdlog::warn("Grace period: frame arrived after {} us", waited_us);
+                    spdlog::debug("Grace period: frame arrived after {} us", waited_us);
                     // Frame arrived during grace period — re-anchor the
                     // timer so the next tick is a full interval from now.
                     clock_gettime(CLOCK_MONOTONIC, &next);
                 } else {
-                    spdlog::warn("Grace period: expired after {} us, repeating frame", waited_us);
+                    spdlog::debug("Grace period: expired after {} us, repeating frame", waited_us);
                 }
             }
             if (pending.buffer) {
