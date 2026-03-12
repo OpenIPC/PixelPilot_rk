@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <atomic>
+#include <condition_variable>
 #include <mutex>
 
 #include <rockchip/rk_mpi.h>
@@ -76,8 +77,9 @@ private:
     MppEncoder            *encoder;
     std::atomic<long>     interval_ns;
     std::atomic<bool>     running{true};
-    std::mutex        mtx;       // guards pending (shared with frame/decoder thread)
-    std::mutex        copy_mtx_; // held by pacer while it uses a decoder buffer
+    std::mutex              mtx;       // guards pending (shared with frame/decoder thread)
+    std::condition_variable cv_;       // signalled by push_latest(); pacer waits on grace period
+    std::mutex              copy_mtx_; // held by pacer while it uses a decoder buffer
     EncPacerFrame     pending;   // latest from decoder (shared with decoder thread)
 
     // These are only accessed from the pacer thread — no mutex needed:

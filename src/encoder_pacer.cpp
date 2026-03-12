@@ -1,6 +1,9 @@
 #include <pthread.h>
 #include <time.h>
+#include <chrono>
 #include <cstring>
+
+#include "spdlog/spdlog.h"
 
 #include <rga/im2d.h>
 #include <rga/rga.h>
@@ -37,12 +40,18 @@ void EncoderPacer::push_latest(MppBuffer buf, uint32_t w, uint32_t h,
     EncPacerFrame nf;
     nf.buffer = buf; nf.width = w; nf.height = h;
     nf.hor_stride = hs; nf.ver_stride = vs; nf.fmt = fmt;
-    std::lock_guard<std::mutex> lock(mtx);
-    pending.release();   // drop any previous un-consumed frame
-    pending = nf;
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        pending.release();   // drop any previous un-consumed frame
+        pending = nf;
+    }
+    cv_.notify_one();  // wake pacer if in grace-period wait
 }
 
-void EncoderPacer::shutdown() { running = false; }
+void EncoderPacer::shutdown() {
+    running = false;
+    cv_.notify_one();
+}
 
 void EncoderPacer::drain_decoder_refs() {
     // Drop any pending decoder buffer so the caller can free the group.
@@ -91,9 +100,30 @@ void EncoderPacer::loop() {
         if (!dvr_enabled || !encoder) continue;
 
         // Take the latest pending frame (under mutex, then process outside).
+        // If none arrived yet, wait a grace period (half frame interval) to
+        // absorb scheduling jitter before falling back to frame repetition.
+        // If the grace period was used, re-anchor the timer so the next
+        // interval is measured from now, keeping even frame spacing.
         EncPacerFrame fresh;
         {
-            std::lock_guard<std::mutex> lock(mtx);
+            std::unique_lock<std::mutex> lock(mtx);
+            if (!pending.buffer) {
+                auto t0 = std::chrono::steady_clock::now();
+                auto grace = std::chrono::nanoseconds(
+                    interval_ns.load(std::memory_order_relaxed) / 2);
+                cv_.wait_for(lock, grace,
+                             [&]{ return pending.buffer != nullptr || !running; });
+                auto waited_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - t0).count();
+                if (pending.buffer) {
+                    spdlog::warn("Grace period: frame arrived after {} us", waited_us);
+                    // Frame arrived during grace period — re-anchor the
+                    // timer so the next tick is a full interval from now.
+                    clock_gettime(CLOCK_MONOTONIC, &next);
+                } else {
+                    spdlog::warn("Grace period: expired after {} us, repeating frame", waited_us);
+                }
+            }
             if (pending.buffer) {
                 fresh = pending;
                 pending.buffer = nullptr;
