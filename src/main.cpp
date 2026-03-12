@@ -100,6 +100,10 @@ extern bool osd_update_ready;
 extern bool gsmenu_enabled;
 int video_zpos = 1;
 
+void set_mpp_decoding_parameters(MppApi * mpi, MppCtx ctx);
+static pthread_mutex_t mpp_reinit_mutex = PTHREAD_MUTEX_INITIALIZER;
+static std::atomic<bool> mpp_reinit_pending{false};
+
 bool mavlink_dvr_on_arm = false;
 bool osd_custom_message = false;
 bool disable_vsync = false;
@@ -282,9 +286,25 @@ void *__FRAME_THREAD__(void *param)
 
 	while (!frm_eos) {
 		struct timespec ts, ats;
-		
+
 		assert(!frame);
+		pthread_mutex_lock(&mpp_reinit_mutex);
+		if (mpp_reinit_pending.load(std::memory_order_acquire)) {
+			// Decoder is being reinitialized — release lock and wait
+			pthread_mutex_unlock(&mpp_reinit_mutex);
+			usleep(5000);
+			continue;
+		}
 		ret = mpi.mpi->decode_get_frame(mpi.ctx, &frame);
+		pthread_mutex_unlock(&mpp_reinit_mutex);
+		if (mpp_reinit_pending.load(std::memory_order_acquire)) {
+			// Reinit started while we were blocked — discard result
+			if (frame) {
+				mpp_frame_deinit(&frame);
+				frame = NULL;
+			}
+			continue;
+		}
 		assert(!ret);
 		clock_gettime(CLOCK_MONOTONIC, &ats);
 		if (frame) {
@@ -632,11 +652,46 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
 }
 
 std::unique_ptr<GstRtpReceiver> receiver;
+static MppCodingType current_mpp_type = MPP_VIDEO_CodingHEVC;
+static MppCodingType stream_mpp_type  = MPP_VIDEO_CodingHEVC;
+
+static void reinit_mpp_decoder(MppCodingType new_type) {
+    if (new_type == current_mpp_type) return;
+    spdlog::info("Reinitializing MPP decoder: {} -> {}",
+                 current_mpp_type == MPP_VIDEO_CodingHEVC ? "H.265" : "H.264",
+                 new_type == MPP_VIDEO_CodingHEVC ? "H.265" : "H.264");
+    // Signal frame thread to release the lock, then acquire it
+    mpp_reinit_pending.store(true, std::memory_order_release);
+    mpi.mpi->reset(mpi.ctx);
+    pthread_mutex_lock(&mpp_reinit_mutex);
+
+    mpp_destroy(mpi.ctx);
+    mpi.ctx = nullptr;
+    mpi.mpi = nullptr;
+    int ret = mpp_create(&mpi.ctx, &mpi.mpi);
+    assert(!ret);
+    set_mpp_decoding_parameters(mpi.mpi, mpi.ctx);
+    ret = mpp_init(mpi.ctx, MPP_CTX_DEC, new_type);
+    assert(!ret);
+    set_mpp_decoding_parameters(mpi.mpi, mpi.ctx);
+    int param = MPP_POLL_BLOCK;
+    ret = mpi.mpi->control(mpi.ctx, MPP_SET_OUTPUT_BLOCK, &param);
+    assert(!ret);
+    current_mpp_type = new_type;
+
+    mpp_reinit_pending.store(false, std::memory_order_release);
+    pthread_mutex_unlock(&mpp_reinit_mutex);
+}
+
 void switch_pipeline_source(const char * source_type, const char * source_path) {
     if (strcmp(source_type, "file") == 0) {
-        receiver->switch_to_file_playback(source_path);
+        VideoCodec file_codec = receiver->switch_to_file_playback(source_path);
+        MppCodingType new_type = (file_codec == VideoCodec::H265)
+            ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingAVC;
+        reinit_mpp_decoder(new_type);
     } else if (strcmp(source_type, "stream") == 0) {
         receiver->switch_to_stream();
+        reinit_mpp_decoder(stream_mpp_type);
     } else {
         spdlog::error("Unknown source type: {}", source_type);
     }
@@ -1299,6 +1354,8 @@ int main(int argc, char **argv)
 	if(codec==VideoCodec::H264) {
 		mpp_type = MPP_VIDEO_CodingAVC;
 	}
+	current_mpp_type = mpp_type;
+	stream_mpp_type  = mpp_type;
 	ret = mpp_check_support_format(MPP_CTX_DEC, mpp_type);
 	assert(!ret);
 	
