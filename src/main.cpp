@@ -1014,6 +1014,11 @@ int main(int argc, char **argv)
 		}
 		}
 
+		if (config["restream"] && config["restream"]["manual_ip"]) {
+			std::string ip = config["restream"]["manual_ip"].as<std::string>();
+			restream_set_manual_ip(ip.c_str());
+		}
+
 		if (config["os_sensors"] && config["os_sensors"].IsMap()) {
 			if (config["os_sensors"]["cpu"]) {
 				auto cpu = config["os_sensors"]["cpu"];

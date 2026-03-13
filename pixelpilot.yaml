@@ -59,3 +59,9 @@ os_sensors:
 #   cpu: auto
 #   power: auto
 #   temperature: auto
+
+# Phone restream target IP (optional)
+# If set, this IP is always added to the "Stream To" dropdown and pre-selected.
+# Remove or comment out to use auto-discovery only.
+# restream:
+#   manual_ip: 192.168.1.100
