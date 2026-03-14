@@ -61,7 +61,10 @@ os_sensors:
 #   temperature: auto
 
 # Phone restream target IP (optional)
-# If set, this IP is always added to the "Stream To" dropdown and pre-selected.
-# Remove or comment out to use auto-discovery only.
+# manual_ip: permanently pins this IP in the "Stream To" dropdown so it is always
+#   visible, even after the user switches away to "Auto". Auto-discovery continues
+#   to work normally; this IP is simply guaranteed to appear in the list.
+# default: if true, this IP is also pre-selected on startup instead of "Auto".
 # restream:
 #   manual_ip: 192.168.1.100
+#   default: true

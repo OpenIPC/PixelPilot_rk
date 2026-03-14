@@ -108,6 +108,7 @@ namespace {
     static std::atomic<bool> g_restream_enabled{false};
     static std::string g_restream_target_ip;
     static std::string g_restream_manual_ip; // empty = auto-discover
+    static std::string g_restream_pinned_ip;  // always shown in dropdown, set from config
 
     static std::mutex g_last_hop_mutex;
     static std::string g_last_hop_ip;
@@ -1358,9 +1359,11 @@ void restream_scan_clients(char* buf, size_t buf_len) {
 
     const auto ips = scan_hotspot_clients();
     std::string manual_ip;
+    std::string pinned_ip;
     {
         std::lock_guard<std::mutex> lock(g_restream_mutex);
         manual_ip = g_restream_manual_ip;
+        pinned_ip = g_restream_pinned_ip;
     }
 
     std::string combined = "Auto";
@@ -1368,7 +1371,14 @@ void restream_scan_clients(char* buf, size_t buf_len) {
         combined += '\n';
         combined += ip;
     }
-    if (!manual_ip.empty() && !contains_ip(ips, manual_ip)) {
+    // Always include the pinned IP from config so it stays in the list
+    // regardless of whether the user currently has it selected.
+    if (!pinned_ip.empty() && !contains_ip(ips, pinned_ip)) {
+        combined += '\n';
+        combined += pinned_ip;
+    }
+    // Also include the active manual IP if it differs from the pinned one.
+    if (!manual_ip.empty() && manual_ip != pinned_ip && !contains_ip(ips, manual_ip)) {
         combined += '\n';
         combined += manual_ip;
     }
@@ -1380,6 +1390,11 @@ void restream_set_manual_ip(const char* ip) {
     std::lock_guard<std::mutex> lock(g_restream_mutex);
     g_restream_manual_ip = (ip && ip[0] != '\0' && strcmp(ip, "Auto") != 0) ? ip : "";
     g_restream_target_ip.clear(); // force retarget on next probe
+}
+
+void restream_set_pinned_ip(const char* ip) {
+    std::lock_guard<std::mutex> lock(g_restream_mutex);
+    g_restream_pinned_ip = (ip && ip[0] != '\0') ? ip : "";
 }
 
 const char* restream_get_manual_ip() {
