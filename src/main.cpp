@@ -1017,10 +1017,6 @@ int main(int argc, char **argv)
 		if (config["restream"] && config["restream"]["manual_ip"]) {
 			std::string ip = config["restream"]["manual_ip"].as<std::string>();
 			restream_set_pinned_ip(ip.c_str());
-			bool is_default = config["restream"]["default"] && config["restream"]["default"].as<bool>();
-			if (is_default) {
-				restream_set_default_ip(ip.c_str());
-			}
 		}
 
 		if (config["os_sensors"] && config["os_sensors"].IsMap()) {

@@ -107,9 +107,8 @@ namespace {
     static GstElement* g_restream_sink = nullptr;
     static std::atomic<bool> g_restream_enabled{false};
     static std::string g_restream_target_ip;
-    static std::string g_restream_manual_ip;  // user's active selection; empty = none
+    static std::string g_restream_manual_ip; // user's active selection; empty = auto-discover
     static std::string g_restream_pinned_ip;  // always shown in dropdown, set from config
-    static std::string g_restream_default_ip; // pre-selected on page load, set from config (default: true)
 
     static std::mutex g_last_hop_mutex;
     static std::string g_last_hop_ip;
@@ -282,18 +281,10 @@ namespace {
                 return;
             }
 
-            // Routing priority:
-            //   1. User picked a specific IP from the dropdown
-            //   2. No user selection yet → try config default IP
-            //   3. No config default or user explicitly chose "Auto" → auto-discover
-            std::string next_ip;
-            if (!g_restream_manual_ip.empty() && g_restream_manual_ip != "Auto") {
-                next_ip = g_restream_manual_ip;
-            } else if (g_restream_manual_ip.empty() && !g_restream_default_ip.empty()) {
-                next_ip = g_restream_default_ip;
-            } else {
-                next_ip = find_first_hotspot_client_ip();
-            }
+            // If the user picked a specific IP use it, otherwise auto-discover.
+            const std::string next_ip = !g_restream_manual_ip.empty()
+                ? g_restream_manual_ip
+                : find_first_hotspot_client_ip();
             if (next_ip.empty()) {
                 if (!g_restream_target_ip.empty()) {
                     spdlog::info("[RESTREAM] No target client found; stopping unicast restream");
@@ -1399,9 +1390,7 @@ void restream_scan_clients(char* buf, size_t buf_len) {
 
 void restream_set_manual_ip(const char* ip) {
     std::lock_guard<std::mutex> lock(g_restream_mutex);
-    // Store "Auto" literally so we can distinguish "user chose Auto" from "no selection yet".
-    // Empty / null / truly-empty string → clear (no selection).
-    g_restream_manual_ip = (ip && ip[0] != '\0') ? ip : "";
+    g_restream_manual_ip = (ip && ip[0] != '\0' && strcmp(ip, "Auto") != 0) ? ip : "";
     g_restream_target_ip.clear(); // force retarget on next probe
 }
 
@@ -1410,20 +1399,10 @@ void restream_set_pinned_ip(const char* ip) {
     g_restream_pinned_ip = (ip && ip[0] != '\0') ? ip : "";
 }
 
-void restream_set_default_ip(const char* ip) {
-    std::lock_guard<std::mutex> lock(g_restream_mutex);
-    g_restream_default_ip = (ip && ip[0] != '\0') ? ip : "";
-}
-
 const char* restream_get_manual_ip() {
     std::lock_guard<std::mutex> lock(g_restream_mutex);
     static char buf[64];
-    // For display purposes: if the user hasn't made a selection yet, fall back
-    // to the config default so the dropdown pre-selects the right entry.
-    const std::string& display_ip = !g_restream_manual_ip.empty()
-        ? g_restream_manual_ip
-        : g_restream_default_ip;
-    strncpy(buf, display_ip.c_str(), sizeof(buf) - 1);
+    strncpy(buf, g_restream_manual_ip.c_str(), sizeof(buf) - 1);
     buf[sizeof(buf) - 1] = '\0';
     return buf;
 }

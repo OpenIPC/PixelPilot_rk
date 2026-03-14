@@ -100,7 +100,6 @@ void restream_scan_clients(char* buf, size_t buf_len);
 void restream_set_manual_ip(const char* ip);
 const char* restream_get_manual_ip();
 void restream_set_pinned_ip(const char* ip);
-void restream_set_default_ip(const char* ip);
 void idr_request_record_start();
 void idr_request_decoder_issue(const char* reason);
 void idr_notify_decoded_frame();
