@@ -11,6 +11,8 @@
 
 #include "gstrtpreceiver.h"
 
+enum DvrMode { DVR_MODE_RAW = 0, DVR_MODE_REENCODE = 1, DVR_MODE_BOTH = 2 };
+
 struct MP4E_mux_tag;
 struct mp4_h26x_writer_tag;
 

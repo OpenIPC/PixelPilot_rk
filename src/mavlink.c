@@ -25,11 +25,9 @@
 #include "mavlink.h"
 #include "osd.h"
 
-// Declare the C-compatible interface to cpp dvr functions
-typedef struct Dvr* Dvr; // Forward declaration
-void dvr_start_recording(Dvr* dvr);
-void dvr_stop_recording(Dvr* dvr);
-extern Dvr *dvr;
+// C-compatible interface to DVR control (defined in main.cpp)
+void dvr_start_all(void);
+void dvr_stop_all(void);
 
 #define earthRadiusKm 6371.0
 #define BILLION 1000000000L
@@ -149,9 +147,9 @@ void* __MAVLINK_THREAD__(void* arg) {
                   current_arm_state = received_arm_state;
                   if (mavlink_dvr_on_arm) {
                     if (received_arm_state) {
-                      dvr_start_recording(dvr);
+                      dvr_start_all();
                     } else {
-                      dvr_stop_recording(dvr);
+                      dvr_stop_all();
                     }
                   }
               }

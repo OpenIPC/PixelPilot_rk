@@ -871,6 +871,15 @@ case "$@" in
             : #noop
         fi
         ;;
+    "values gs system dvr_mode"*)
+        echo -n -e "raw\nreencode\nboth"
+        ;;
+    "get gs system dvr_mode"*)
+        echo "raw"
+        ;;
+    "set gs system dvr_mode"*)
+        : # noop
+        ;;
     "values gs system dvr_reenc_codec"*)
         echo -n -e "h264\nh265"
         ;;
@@ -882,10 +891,6 @@ case "$@" in
         ;;
     "values gs system dvr_reenc_bitrate"*)
         echo -n -e "2000\n4000\n6000\n8000\n10000\n12000\n16000\n18000\n20000\n22000\n24000"
-        ;;
-
-    "set gs system dvr_reenc_enabled"*)
-        : # noop
         ;;
     "set gs system dvr_reenc_codec"*)
         : # noop
