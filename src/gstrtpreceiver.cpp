@@ -231,7 +231,7 @@ namespace {
     static std::string create_restream_branch() {
         std::stringstream ss;
         ss << " rtp_tee. ! valve name=restream_valve drop=true"
-              " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=1000000000 silent=true"
+              " ! queue leaky=downstream max-size-buffers=10 max-size-bytes=0 max-size-time=0 silent=true"
               " ! udpsink name=restream_sink host=0.0.0.0 port=5600 sync=false async=false qos=false";
         return ss.str();
     }
@@ -269,36 +269,44 @@ namespace {
         }
         last_probe_ms = now;
 
-        std::lock_guard<std::mutex> lock(g_restream_mutex);
-        if (!g_restream_valve || !g_restream_sink) {
-            return;
-        }
-        if (!g_restream_enabled.load(std::memory_order_relaxed)) {
-            set_restream_valve_locked(false);
-            return;
-        }
-
-        const std::string next_ip = g_restream_manual_ip.empty()
-            ? find_first_hotspot_client_ip()
-            : g_restream_manual_ip;
-        if (next_ip.empty()) {
-            if (!g_restream_target_ip.empty()) {
-                spdlog::info("[RESTREAM] No target client found; stopping unicast restream");
-                g_restream_target_ip.clear();
+        bool new_target = false;
+        {
+            std::lock_guard<std::mutex> lock(g_restream_mutex);
+            if (!g_restream_valve || !g_restream_sink) {
+                return;
             }
-            set_restream_valve_locked(false);
-            return;
+            if (!g_restream_enabled.load(std::memory_order_relaxed)) {
+                set_restream_valve_locked(false);
+                return;
+            }
+
+            const std::string next_ip = g_restream_manual_ip.empty()
+                ? find_first_hotspot_client_ip()
+                : g_restream_manual_ip;
+            if (next_ip.empty()) {
+                if (!g_restream_target_ip.empty()) {
+                    spdlog::info("[RESTREAM] No target client found; stopping unicast restream");
+                    g_restream_target_ip.clear();
+                }
+                set_restream_valve_locked(false);
+                return;
+            }
+
+            if (next_ip != g_restream_target_ip) {
+                g_restream_target_ip = next_ip;
+                g_object_set(G_OBJECT(g_restream_sink), "host", g_restream_target_ip.c_str(), NULL);
+                spdlog::info("[RESTREAM] Streaming to {}:{}",
+                             g_restream_target_ip,
+                             5600);
+                new_target = true;
+            }
+
+            set_restream_valve_locked(true);
         }
 
-        if (next_ip != g_restream_target_ip) {
-            g_restream_target_ip = next_ip;
-            g_object_set(G_OBJECT(g_restream_sink), "host", g_restream_target_ip.c_str(), NULL);
-            spdlog::info("[RESTREAM] Streaming to {}:{}",
-                         g_restream_target_ip,
-                         5600);
+        if (new_target) {
+            request_idr_bursts("restream-start", kIdrRepeatCount, false);
         }
-
-        set_restream_valve_locked(true);
     }
 
     static uint32_t secure_random_u32() {
