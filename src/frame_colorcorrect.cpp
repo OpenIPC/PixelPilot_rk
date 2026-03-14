@@ -230,22 +230,23 @@ bool FrameColorCorrect::create_targets() {
     return true;
 }
 
-bool FrameColorCorrect::process(int src_fd, uint32_t width, uint32_t height,
-                                 uint32_t hor_stride, uint32_t ver_stride,
-                                 int dst_fd)
+bool FrameColorCorrect::process(int src_fd, uint32_t src_w, uint32_t src_h,
+                                 uint32_t src_hs, uint32_t src_vs,
+                                 int dst_fd, uint32_t dst_w, uint32_t dst_h,
+                                 uint32_t dst_hs, uint32_t dst_vs)
 {
     // --- Import NV12 source as EGLImage (two-plane) -------------------------
-    EGLint uv_offset = (EGLint)((size_t)hor_stride * ver_stride);
+    EGLint uv_offset = (EGLint)((size_t)src_hs * src_vs);
     const EGLint src_attrs[] = {
-        EGL_WIDTH,                       (EGLint)width,
-        EGL_HEIGHT,                      (EGLint)height,
+        EGL_WIDTH,                       (EGLint)src_w,
+        EGL_HEIGHT,                      (EGLint)src_h,
         EGL_LINUX_DRM_FOURCC_EXT,        (EGLint)DRM_FORMAT_NV12,
         EGL_DMA_BUF_PLANE0_FD_EXT,       src_fd,
         EGL_DMA_BUF_PLANE0_OFFSET_EXT,   0,
-        EGL_DMA_BUF_PLANE0_PITCH_EXT,    (EGLint)hor_stride,
+        EGL_DMA_BUF_PLANE0_PITCH_EXT,    (EGLint)src_hs,
         EGL_DMA_BUF_PLANE1_FD_EXT,       src_fd,
         EGL_DMA_BUF_PLANE1_OFFSET_EXT,   uv_offset,
-        EGL_DMA_BUF_PLANE1_PITCH_EXT,    (EGLint)hor_stride,
+        EGL_DMA_BUF_PLANE1_PITCH_EXT,    (EGLint)src_hs,
         EGL_NONE
     };
     EGLImageKHR src_img = eglCreateImageKHR_(dpy_, EGL_NO_CONTEXT,
@@ -303,6 +304,7 @@ bool FrameColorCorrect::process(int src_fd, uint32_t width, uint32_t height,
 
     // --- RGA: convert RGBA target → NV12 destination -----------------------
     // DRM_FORMAT_ARGB8888 is BGRA in memory on little-endian → RK_FORMAT_BGRA_8888
+    // When dst dimensions differ from src, RGA performs resize + CSC in one pass.
     rga_buffer_t src_rga = wrapbuffer_fd_t(
         tgt.prime_fd,
         (int)width_, (int)height_,
@@ -310,8 +312,8 @@ bool FrameColorCorrect::process(int src_fd, uint32_t width, uint32_t height,
         RK_FORMAT_BGRA_8888);
     rga_buffer_t dst_rga = wrapbuffer_fd_t(
         dst_fd,
-        (int)width, (int)height,
-        (int)hor_stride, (int)ver_stride,
+        (int)dst_w, (int)dst_h,
+        (int)dst_hs, (int)dst_vs,
         RK_FORMAT_YCbCr_420_SP);
 
     if (imcvtcolor(src_rga, dst_rga, RK_FORMAT_BGRA_8888,

@@ -41,10 +41,12 @@ public:
 
     // Apply color correction: read src NV12 DMA-buf, write corrected NV12
     // into dst DMA-buf.  Both fds come from mpp_buffer_get_fd().
+    // dst dimensions may differ from src — RGA performs resize + CSC in one pass.
     // Returns false on failure — caller should fall back to plain copy.
-    bool process(int src_fd, uint32_t width, uint32_t height,
-                 uint32_t hor_stride, uint32_t ver_stride,
-                 int dst_fd);
+    bool process(int src_fd, uint32_t src_w, uint32_t src_h,
+                 uint32_t src_hs, uint32_t src_vs,
+                 int dst_fd, uint32_t dst_w, uint32_t dst_h,
+                 uint32_t dst_hs, uint32_t dst_vs);
 
 private:
     bool build_shader();

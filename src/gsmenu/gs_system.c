@@ -31,6 +31,7 @@ static lv_obj_t * dvr_reenc_enabled;
 static lv_obj_t * dvr_reenc_codec;
 static lv_obj_t * dvr_reenc_fps;
 static lv_obj_t * dvr_reenc_bitrate;
+static lv_obj_t * dvr_reenc_resolution;
 static lv_obj_t * dvr_reenc_osd;
 
 extern lv_obj_t * ap_fpv_ssid;
@@ -54,12 +55,14 @@ void dvr_reenc_set_fps(int fps);
 void dvr_reenc_set_osd(int enabled);
 void dvr_reenc_set_bitrate(int kbps);
 void dvr_reenc_set_codec(int idx);
+void dvr_reenc_set_resolution(int idx);
 void dvr_reenc_set_mode(int enabled);
 int  dvr_reenc_get_fps(void);
 int  dvr_reenc_get_bitrate(void);
 int  dvr_reenc_is_reenc(void);
 int  dvr_reenc_get_osd(void);
 int  dvr_reenc_get_codec(void);
+int  dvr_reenc_get_resolution(void);
 
 // Enable/disable widgets based on whether re-encoding is active.
 // Re-enc ON  → raw DVR fps greyed out; re-encoder controls active.
@@ -73,6 +76,7 @@ static void update_reenc_widget_states(void)
     lv_obj_t *codec_dd   = lv_obj_get_child_by_type(dvr_reenc_codec,   0, &lv_dropdown_class);
     lv_obj_t *fps_dd     = lv_obj_get_child_by_type(dvr_reenc_fps,     0, &lv_dropdown_class);
     lv_obj_t *bitrate_dd = lv_obj_get_child_by_type(dvr_reenc_bitrate, 0, &lv_dropdown_class);
+    lv_obj_t *res_dd     = lv_obj_get_child_by_type(dvr_reenc_resolution, 0, &lv_dropdown_class);
     lv_obj_t *osd_sw     = lv_obj_get_child_by_type(dvr_reenc_osd,     0, &lv_switch_class);
 
     if (reenc) {
@@ -80,12 +84,14 @@ static void update_reenc_widget_states(void)
         lv_obj_clear_state(codec_dd,   LV_STATE_DISABLED);
         lv_obj_clear_state(fps_dd,     LV_STATE_DISABLED);
         lv_obj_clear_state(bitrate_dd, LV_STATE_DISABLED);
+        lv_obj_clear_state(res_dd,     LV_STATE_DISABLED);
         lv_obj_clear_state(osd_sw,     LV_STATE_DISABLED);
     } else {
         lv_obj_clear_state(raw_fps_dd, LV_STATE_DISABLED);
         lv_obj_add_state(codec_dd,   LV_STATE_DISABLED);
         lv_obj_add_state(fps_dd,     LV_STATE_DISABLED);
         lv_obj_add_state(bitrate_dd, LV_STATE_DISABLED);
+        lv_obj_add_state(res_dd,     LV_STATE_DISABLED);
         lv_obj_add_state(osd_sw,     LV_STATE_DISABLED);
     }
 }
@@ -119,6 +125,9 @@ void gs_system_page_load_callback(lv_obj_t * page)
 
     lv_obj_t * obj = lv_obj_get_child_by_type(dvr_reenc_codec,0,&lv_dropdown_class);
     lv_dropdown_set_selected(obj,dvr_reenc_get_codec());
+
+    obj = lv_obj_get_child_by_type(dvr_reenc_resolution,0,&lv_dropdown_class);
+    lv_dropdown_set_selected(obj,dvr_reenc_get_resolution());
 
     obj = lv_obj_get_child_by_type(dvr_reenc_fps,0,&lv_dropdown_class);
     char str[8];
@@ -303,6 +312,19 @@ void dvr_reenc_codec_cb(lv_event_t *e) {
     }
 }
 
+void dvr_reenc_resolution_cb(lv_event_t *e) {
+    lv_event_code_t event = lv_event_get_code(e);
+    if (event == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *ta = lv_event_get_target(e);
+        int idx = lv_dropdown_get_selected(ta); // 0=720p, 1=1080p
+#ifndef USE_SIMULATOR
+        dvr_reenc_set_resolution(idx);
+#else
+        printf("dvr_reenc_set_resolution(%d);\n", idx);
+#endif
+    }
+}
+
 void dvr_reenc_mode_cb(lv_event_t *e) {
     lv_event_code_t event = lv_event_get_code(e);
     if (event == LV_EVENT_VALUE_CHANGED) {
@@ -392,6 +414,8 @@ void create_gs_system_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_reenc_enabled,0,&lv_switch_class), dvr_reenc_mode_cb, LV_EVENT_VALUE_CHANGED, NULL);
     dvr_reenc_codec   = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Codec", "","dvr_reenc_codec", menu_page_data, false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_reenc_codec,0,&lv_dropdown_class), dvr_reenc_codec_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    dvr_reenc_resolution = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Resolution", "","dvr_reenc_resolution", menu_page_data, false);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_reenc_resolution,0,&lv_dropdown_class), dvr_reenc_resolution_cb, LV_EVENT_VALUE_CHANGED, NULL);
     dvr_reenc_fps     = create_dropdown(cont, LV_SYMBOL_SETTINGS, "FPS", "","dvr_reenc_fps", menu_page_data, false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_reenc_fps,0,&lv_dropdown_class), dvr_reenc_fps_cb, LV_EVENT_VALUE_CHANGED, NULL);
     dvr_reenc_bitrate = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Bitrate (kbps)", "","dvr_reenc_bitrate", menu_page_data, false);

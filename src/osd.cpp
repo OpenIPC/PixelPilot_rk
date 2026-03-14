@@ -78,8 +78,8 @@ extern bool enable_live_colortrans;
 extern float live_colortrans_offset;
 extern float live_colortrans_gain;
 
-#include "encoder_pacer.h"
-extern EncoderPacer *enc_pacer;
+#include "frame_processor.h"
+extern FrameProcessor *frame_proc;
 extern bool dvr_osd;
 
 osd_thread_params *p;
@@ -1955,8 +1955,8 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
 
 	{
 		struct modeset_buf *osd_buf = &p->out->osd_bufs[p->out->osd_buf_switch];
-		if (dvr_osd && enc_pacer)
-			enc_pacer->set_osd_blend(osd_buf->prime_fd, osd_buf->width, osd_buf->height,
+		if (dvr_osd && frame_proc)
+			frame_proc->set_osd_blend(osd_buf->prime_fd, osd_buf->width, osd_buf->height,
 			                         osd_buf->stride / 4);
 	}
 
@@ -2081,8 +2081,8 @@ void *__OSD_THREAD__(void *param) {
 				ret = pthread_mutex_unlock(&osd_mutex);
 				assert(!ret);
 
-				if (dvr_osd && enc_pacer)
-					enc_pacer->set_osd_blend(buf->prime_fd, buf->width, buf->height,
+				if (dvr_osd && frame_proc)
+					frame_proc->set_osd_blend(buf->prime_fd, buf->width, buf->height,
 					                         buf->stride / 4);
 
 				// tell the display thread that we have a update

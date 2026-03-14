@@ -151,8 +151,8 @@ set(LIB_SOURCE_FILES
         src/dvr.cpp
         src/mpp_encoder.h
         src/mpp_encoder.cpp
-        src/encoder_pacer.h
-        src/encoder_pacer.cpp
+        src/frame_processor.h
+        src/frame_processor.cpp
         src/frame_colorcorrect.h
         src/frame_colorcorrect.cpp
         src/mavlink.h

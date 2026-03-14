@@ -874,6 +874,9 @@ case "$@" in
     "values gs system dvr_reenc_codec"*)
         echo -n -e "h264\nh265"
         ;;
+    "values gs system dvr_reenc_resolution"*)
+        echo -n -e "720p\n1080p"
+        ;;
     "values gs system dvr_reenc_fps"*)
         echo -n -e "30\n60"
         ;;
@@ -885,6 +888,9 @@ case "$@" in
         : # noop
         ;;
     "set gs system dvr_reenc_codec"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_resolution"*)
         : # noop
         ;;
     "set gs system dvr_reenc_fps"*)
