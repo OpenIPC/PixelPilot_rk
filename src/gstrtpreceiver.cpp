@@ -232,7 +232,7 @@ namespace {
     static std::string create_restream_branch() {
         std::stringstream ss;
         ss << " rtp_tee. ! valve name=restream_valve drop=true"
-              " ! queue leaky=downstream max-size-buffers=10 max-size-bytes=0 max-size-time=0 silent=true"
+              " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=1000000000 silent=true"
               " ! udpsink name=restream_sink host=0.0.0.0 port=5600 sync=false async=false qos=false";
         return ss.str();
     }
