@@ -27,6 +27,7 @@ lv_obj_t * gs_dvr_colortrans;
 // DVR widgets (unified section)
 lv_obj_t * rec_enabled;
 static lv_obj_t * dvr_mode_dd;
+static lv_obj_t * dvr_max_size;
 lv_obj_t * rec_fps;
 static lv_obj_t * dvr_reenc_codec;
 static lv_obj_t * dvr_reenc_fps;
@@ -60,6 +61,8 @@ int  dvr_reenc_get_bitrate(void);
 int  dvr_reenc_get_osd(void);
 int  dvr_reenc_get_codec(void);
 int  dvr_reenc_get_resolution(void);
+void dvr_set_max_size(int mb);
+int  dvr_get_max_size(void);
 
 // Raw FPS setter (defined in dvr.cpp)
 typedef struct Dvr* Dvr;
@@ -132,6 +135,14 @@ void gs_system_page_load_callback(lv_obj_t * page)
     snprintf(str, sizeof(str), "%d", dvr_reenc_get_bitrate());
     index = lv_dropdown_get_option_index(obj,str);
     lv_dropdown_set_selected(obj,index);
+
+    obj = lv_obj_get_child_by_type(dvr_max_size,0,&lv_slider_class);
+    lv_slider_set_value(obj, dvr_get_max_size() / 100, LV_ANIM_OFF);
+    {
+        lv_obj_t *lbl = lv_obj_get_child_by_type(dvr_max_size,1,&lv_label_class);
+        snprintf(str, sizeof(str), "%d", dvr_get_max_size());
+        lv_label_set_text(lbl, str);
+    }
 
     if (dvr_reenc_get_osd()) lv_obj_add_state(lv_obj_get_child_by_type(dvr_reenc_osd,0,&lv_switch_class), LV_STATE_CHECKED);
     else lv_obj_clear_state(lv_obj_get_child_by_type(dvr_reenc_osd,0,&lv_switch_class), LV_STATE_CHECKED);
@@ -316,6 +327,24 @@ void dvr_reenc_resolution_cb(lv_event_t *e) {
     }
 }
 
+void dvr_max_size_label_cb(lv_event_t *e) {
+    lv_obj_t *slider = lv_event_get_target(e);
+    lv_obj_t *label = lv_obj_get_child_by_type(lv_obj_get_parent(slider), 1, &lv_label_class);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", lv_slider_get_value(slider) * 100);
+    lv_label_set_text(label, buf);
+}
+
+void dvr_max_size_cb(lv_event_t *e) {
+    lv_obj_t *slider = lv_event_get_target(e);
+    int mb = lv_slider_get_value(slider) * 100;
+#ifndef USE_SIMULATOR
+    dvr_set_max_size(mb);
+#else
+    printf("dvr_set_max_size(%d);\n", mb);
+#endif
+}
+
 void dvr_mode_cb(lv_event_t *e) {
     lv_event_code_t event = lv_event_get_code(e);
     if (event == LV_EVENT_VALUE_CHANGED) {
@@ -394,6 +423,10 @@ void create_gs_system_menu(lv_obj_t * parent) {
 
     dvr_mode_dd = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Mode", "","dvr_mode", menu_page_data, false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_mode_dd,0,&lv_dropdown_class), dvr_mode_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    dvr_max_size = create_slider(cont, LV_SYMBOL_SETTINGS, "Max file size (MB)", "dvr_max_size", menu_page_data, false, 0);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_max_size,0,&lv_slider_class), dvr_max_size_label_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_max_size,0,&lv_slider_class), dvr_max_size_cb, LV_EVENT_CLICKED, NULL);
 
     rec_fps = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Raw FPS", "","rec_fps",menu_page_data,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(rec_fps,0,&lv_dropdown_class), rec_fps_cb, LV_EVENT_VALUE_CHANGED,NULL);

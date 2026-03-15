@@ -880,6 +880,15 @@ case "$@" in
     "set gs system dvr_mode"*)
         : # noop
         ;;
+    "values gs system dvr_max_size"*)
+        echo -n "1 40" # will be multiplied by 100
+        ;;
+    "get gs system dvr_max_size"*)
+        echo -n "40" # will be multiplied by 100
+        ;;
+    "set gs system dvr_max_size"*)
+        : # noop needs division by 100
+        ;;
     "values gs system dvr_reenc_codec"*)
         echo -n -e "h264\nh265"
         ;;

@@ -123,6 +123,7 @@ bool dvr_osd   = false;
 static int video_framerate = -1;
 static bool dvr_filenames_with_sequence = false;
 static int mp4_fragmentation_mode = 0;
+static int64_t dvr_max_file_size = 4000000000LL;  // 4 GB (decimal), safe margin for VFAT 4 GiB limit
 FrameProcessor *frame_proc = nullptr;
 // Thread handles for the encoder and pacer — file-scope so live mode toggle can join them.
 static pthread_t g_tid_enc   = 0;
@@ -585,6 +586,14 @@ extern "C" {
     // Deprecated — use dvr_get_mode() instead
     int  dvr_reenc_is_reenc(void) { return dvr_mode != DVR_MODE_RAW; }
 
+    void dvr_set_max_size(int mb) {
+        dvr_max_file_size = (int64_t)mb * 1000000LL;
+        if (dvr_raw) dvr_raw->set_max_file_size(dvr_max_file_size);
+        if (dvr_reenc_inst) dvr_reenc_inst->set_max_file_size(dvr_max_file_size);
+        spdlog::info("DVR max file size set to {} MB", mb);
+    }
+    int dvr_get_max_size(void) { return (int)(dvr_max_file_size / 1000000LL); }
+
     void dvr_reenc_set_resolution(int idx) {
         if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
         reenc_params.resolution = (EncResolution)idx;
@@ -685,6 +694,7 @@ extern "C" {
             args.mp4_fragmentation_mode = mp4_fragmentation_mode;
             args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
             args.video_framerate = video_framerate;
+            args.max_file_size = dvr_max_file_size;
             args.video_p.video_frm_width = output_list ? output_list->video_frm_width : 0;
             args.video_p.video_frm_height = output_list ? output_list->video_frm_height : 0;
             args.video_p.codec = codec;
@@ -701,6 +711,7 @@ extern "C" {
             args.mp4_fragmentation_mode = mp4_fragmentation_mode;
             args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
             args.video_framerate = reenc_params.fps;
+            args.max_file_size = dvr_max_file_size;
             uint32_t rw, rh; reenc_target_dims(rw, rh);
             args.video_p.video_frm_width = rw;
             args.video_p.video_frm_height = rh;
@@ -1052,6 +1063,8 @@ void printHelp() {
     "\n"
     "    --dvr-framerate <rate> - Force the dvr framerate for smoother dvr, ex: 60\n"
     "\n"
+    "    --dvr-max-size <MB>    - Split DVR files at <MB> megabytes (Default: 4000, for VFAT)\n"
+    "\n"
     "    --dvr-fmp4             - Save the video feed as a fragmented mp4\n"
     "\n"
     "    --dvr-mode <mode>      - DVR recording mode: raw, reencode, or both (Default: raw)\n"
@@ -1172,6 +1185,16 @@ int main(int argc, char **argv)
 
 	__OnArgument("--dvr-framerate") {
 		video_framerate = atoi(__ArgValue);
+		continue;
+	}
+
+	__OnArgument("--dvr-max-size") {
+		int mb = atoi(__ArgValue);
+		if (mb <= 0) {
+			fprintf(stderr, "invalid --dvr-max-size value\n");
+			return -1;
+		}
+		dvr_max_file_size = (int64_t)mb * 1000000LL;
 		continue;
 	}
 
@@ -1564,6 +1587,7 @@ int main(int argc, char **argv)
 			args.mp4_fragmentation_mode = mp4_fragmentation_mode;
 			args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
 			args.video_framerate = video_framerate;
+			args.max_file_size = dvr_max_file_size;
 			args.video_p.video_frm_width = output_list->video_frm_width;
 			args.video_p.video_frm_height = output_list->video_frm_height;
 			args.video_p.codec = codec;
@@ -1579,6 +1603,7 @@ int main(int argc, char **argv)
 			args.mp4_fragmentation_mode = mp4_fragmentation_mode;
 			args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
 			args.video_framerate = reenc_params.fps;
+			args.max_file_size = dvr_max_file_size;
 			uint32_t rw, rh; reenc_target_dims(rw, rh);
 			args.video_p.video_frm_width = rw;
 			args.video_p.video_frm_height = rh;
