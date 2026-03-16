@@ -90,64 +90,84 @@ static void update_dvr_mode_visibility(void)
     }
 }
 
-void gs_system_page_load_callback(lv_obj_t * page)
-{
+// ── Custom reload functions for items not handled by gsmenu.sh get ───────────
 
-    reload_dropdown_value(page,rx_codec);
-    reload_switch_value(page,gs_rendering);
-    reload_dropdown_value(page,rx_mode);
-    RXMODE = lv_dropdown_get_selected(lv_obj_get_child_by_type(rx_mode,0,&lv_dropdown_class));
-    reload_dropdown_value(page,connector);
-    reload_dropdown_value(page,resolution);
-    reload_slider_value(page, video_scale);
+static void reload_vsync_disabled_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
+    lv_lock();
+    lv_obj_set_state(sw, LV_STATE_CHECKED, disable_vsync);
+    lv_unlock();
+}
 
-    if (disable_vsync) lv_obj_add_state(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), LV_STATE_CHECKED);
-    else lv_obj_clear_state(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), LV_STATE_CHECKED);
+static void reload_request_idr_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
+    lv_lock();
+    lv_obj_set_state(sw, LV_STATE_CHECKED, idr_get_enabled());
+    lv_unlock();
+}
 
-    if (idr_get_enabled()) lv_obj_add_state(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), LV_STATE_CHECKED);
-    else lv_obj_clear_state(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), LV_STATE_CHECKED);
+static void reload_live_colortrans_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
+    lv_lock();
+    lv_obj_set_state(sw, LV_STATE_CHECKED, enable_live_colortrans);
+    lv_unlock();
+}
 
-    if (enable_live_colortrans) lv_obj_add_state(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), LV_STATE_CHECKED);
-    else lv_obj_clear_state(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), LV_STATE_CHECKED);
+static void reload_rec_enabled_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
+    lv_lock();
+    lv_obj_set_state(sw, LV_STATE_CHECKED, dvr_enabled);
+    lv_unlock();
+}
 
-    // DVR section
-    if (dvr_enabled) lv_obj_add_state(lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class), LV_STATE_CHECKED);
-    else lv_obj_clear_state(lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class), LV_STATE_CHECKED);
+static void reload_dvr_reenc_osd_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
+    lv_lock();
+    lv_obj_set_state(sw, LV_STATE_CHECKED, dvr_reenc_get_osd());
+    lv_unlock();
+}
 
-    lv_obj_t * obj = lv_obj_get_child_by_type(dvr_mode_dd,0,&lv_dropdown_class);
-    lv_dropdown_set_selected(obj, dvr_get_mode());
+static void reload_rx_mode_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    reload_dropdown_value(page, parameter);
+    lv_lock();
+    RXMODE = lv_dropdown_get_selected(lv_obj_get_child_by_type(parameter, 0, &lv_dropdown_class));
+    lv_unlock();
+}
 
-    reload_dropdown_value(page, rec_fps);
-
-    obj = lv_obj_get_child_by_type(dvr_reenc_codec,0,&lv_dropdown_class);
-    lv_dropdown_set_selected(obj, dvr_reenc_get_codec());
-
-    obj = lv_obj_get_child_by_type(dvr_reenc_resolution,0,&lv_dropdown_class);
-    lv_dropdown_set_selected(obj, dvr_reenc_get_resolution());
-
-    obj = lv_obj_get_child_by_type(dvr_reenc_fps,0,&lv_dropdown_class);
-    char str[8];
-    snprintf(str, sizeof(str), "%d", dvr_reenc_get_fps());
-    int32_t index = lv_dropdown_get_option_index(obj,str);
-    lv_dropdown_set_selected(obj,index);
-
-    obj = lv_obj_get_child_by_type(dvr_reenc_bitrate,0,&lv_dropdown_class);
-    snprintf(str, sizeof(str), "%d", dvr_reenc_get_bitrate());
-    index = lv_dropdown_get_option_index(obj,str);
-    lv_dropdown_set_selected(obj,index);
-
-    obj = lv_obj_get_child_by_type(dvr_max_size,0,&lv_slider_class);
-    lv_slider_set_value(obj, dvr_get_max_size() / 100, LV_ANIM_OFF);
-    {
-        lv_obj_t *lbl = lv_obj_get_child_by_type(dvr_max_size,1,&lv_label_class);
-        snprintf(str, sizeof(str), "%d", dvr_get_max_size());
-        lv_label_set_text(lbl, str);
+// dvr_max_size: slider position = max_size/100, label shows actual MB (pos*100).
+// reload_slider_value would overwrite the label with the raw position, so use a
+// custom function that displays slider_pos * 100 as the label.
+static void reload_dvr_max_size_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    lv_obj_t *slider = lv_obj_get_child_by_type(parameter, 0, &lv_slider_class);
+    lv_obj_t *label  = lv_obj_get_child_by_type(parameter, 1, &lv_label_class);
+    thread_data_t *param_user_data = (thread_data_t*)lv_obj_get_user_data(slider);
+    char *raw = get_paramater(page, param_user_data->parameter);
+    char *values_str = NULL;
+    char *value = split_value_and_options(raw, &values_str);
+    int slider_pos = atoi(value);
+    if (values_str) {
+        float min, max;
+        if (sscanf(values_str, "%f %f", &min, &max) == 2) {
+            lv_lock();
+            lv_slider_set_range(slider, (int32_t)min, (int32_t)max);
+            lv_unlock();
+        }
     }
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", slider_pos * 100);
+    lv_lock();
+    lv_slider_set_value(slider, slider_pos, LV_ANIM_OFF);
+    lv_label_set_text(label, buf);
+    lv_unlock();
+}
 
-    if (dvr_reenc_get_osd()) lv_obj_add_state(lv_obj_get_child_by_type(dvr_reenc_osd,0,&lv_switch_class), LV_STATE_CHECKED);
-    else lv_obj_clear_state(lv_obj_get_child_by_type(dvr_reenc_osd,0,&lv_switch_class), LV_STATE_CHECKED);
-
+// dvr_mode must be last among DVR entries so visibility is applied after all
+// DVR items have been loaded.
+static void reload_dvr_mode_fn(lv_obj_t *page, lv_obj_t *parameter) {
+    reload_dropdown_value(page, parameter);
+    lv_lock();
     update_dvr_mode_visibility();
+    lv_unlock();
 }
 
 void toggle_rec_enabled()
@@ -373,7 +393,9 @@ void create_gs_system_menu(lv_obj_t * parent) {
     menu_page_data_t* menu_page_data = malloc(sizeof(menu_page_data_t));
     strcpy(menu_page_data->type, "gs");
     strcpy(menu_page_data->page, "system");
-    menu_page_data->page_load_callback = gs_system_page_load_callback;
+    menu_page_data->page_load_callback = generic_page_load_callback;
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
     menu_page_data->indev_group = lv_group_create();
     lv_group_set_default(menu_page_data->indev_group);
     lv_obj_set_user_data(parent,menu_page_data);
@@ -442,7 +464,27 @@ void create_gs_system_menu(lv_obj_t * parent) {
     dvr_reenc_osd     = create_switch(cont, LV_SYMBOL_SETTINGS, "Record OSD in DVR","dvr_osd", menu_page_data, false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(dvr_reenc_osd,0,&lv_switch_class), dvr_reenc_osd_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    update_dvr_mode_visibility();
+    // Register entries for the generic threaded page loader.
+    // dvr_mode_fn must be last among DVR items: it calls update_dvr_mode_visibility()
+    // after all dvr widgets have been loaded so none are skipped due to hidden state.
+    add_entry_to_menu_page(menu_page_data, "Loading Codec ...",         rx_codec,          reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading RX Mode ...",       rx_mode,           reload_rx_mode_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading GS Rendering ...",  gs_rendering,      reload_switch_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Connector ...",     connector,         reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Resolution ...",    resolution,        reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Video Scale ...",   video_scale,       reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading VSYNC ...",         vsync_disabled,    reload_vsync_disabled_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading IDR ...",           gs_request_idr,    reload_request_idr_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading Colortrans ...",    gs_live_colortrans, reload_live_colortrans_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading DVR enabled ...",   rec_enabled,       reload_rec_enabled_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading DVR max size ...",  dvr_max_size,      reload_dvr_max_size_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading Raw FPS ...",       rec_fps,           reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Re-enc Codec ...",  dvr_reenc_codec,   reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Re-enc Res ...",    dvr_reenc_resolution, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Re-enc FPS ...",    dvr_reenc_fps,     reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading Re-enc Bitrate ...", dvr_reenc_bitrate, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading DVR OSD ...",       dvr_reenc_osd,     reload_dvr_reenc_osd_fn);
+    add_entry_to_menu_page(menu_page_data, "Loading DVR Mode ...",      dvr_mode_dd,       reload_dvr_mode_fn);
 
     lv_group_set_default(default_group);
 }
