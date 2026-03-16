@@ -146,8 +146,15 @@ set(LIB_SOURCE_FILES
         src/osd.cpp
         src/os_mon.hpp
         src/os_mon.cpp
+        src/osd_gl.cpp
         src/dvr.h
         src/dvr.cpp
+        src/mpp_encoder.h
+        src/mpp_encoder.cpp
+        src/frame_processor.h
+        src/frame_processor.cpp
+        src/frame_colorcorrect.h
+        src/frame_colorcorrect.cpp
         src/mavlink.h
         src/mavlink.c
         src/wfbcli.hpp
@@ -177,6 +184,9 @@ else()
   find_package(yaml-cpp REQUIRED)
   pkg_check_modules(LIBGPIOD REQUIRED libgpiod)
   include_directories(${LIBGPIOD_INCLUDE_DIR})
+
+  find_path(RGA_INCLUDE_DIRS NAMES rga.h rga/rga.h)
+  find_library(RGA_LIBRARIES NAMES rga librga)
   
   # GStreamer setup
   find_package(PkgConfig REQUIRED)
@@ -196,6 +206,7 @@ else()
       ${PROJECT_SOURCE_DIR}
       ${PROJECT_SOURCE_DIR}/lvgl
       ${LIBDRM_INCLUDE_DIRS}
+      ${RGA_INCLUDE_DIRS}
   )
   
   target_link_libraries(${PROJECT_NAME} 
@@ -216,6 +227,8 @@ else()
       PkgConfig::gstreamer-app
       PkgConfig::gstnet
       PkgConfig::gio
+      ${RGA_LIBRARIES}
+      EGL GLESv2 gbm
   )
 endif()
 
@@ -263,7 +276,7 @@ if(BUILD_TESTS)
     pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
     pkg_search_module(gstnet REQUIRED IMPORTED_TARGET gstreamer-net-1.0>=1.4)
     pkg_search_module(gio REQUIRED IMPORTED_TARGET gio-2.0)
-    target_link_libraries(pixelpilot_tests PkgConfig::gstreamer PkgConfig::gstreamer-app PkgConfig::gstnet PkgConfig::gio)
+    target_link_libraries(pixelpilot_tests PkgConfig::gstreamer PkgConfig::gstreamer-app PkgConfig::gstnet PkgConfig::gio ${RGA_LIBRARIES} EGL GLESv2 gbm)
 
     target_link_options(pixelpilot_tests
       BEFORE PUBLIC -fsanitize=undefined PUBLIC -fsanitize=address

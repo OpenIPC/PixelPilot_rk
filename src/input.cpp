@@ -19,10 +19,6 @@ extern lv_group_t *main_group;
 extern lv_indev_t * indev_drv;
 
 
-struct Dvr;
-void dvr_start_recording(Dvr* dvr);
-void dvr_stop_recording(Dvr* dvr);
-extern Dvr *dvr;
 extern int dvr_enabled;
 
 #ifdef USE_SIMULATOR

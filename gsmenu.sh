@@ -871,6 +871,51 @@ case "$@" in
             : #noop
         fi
         ;;
+    "values gs system dvr_mode"*)
+        echo -n -e "raw\nreencode\nboth"
+        ;;
+    "get gs system dvr_mode"*)
+        echo "raw"
+        ;;
+    "set gs system dvr_mode"*)
+        : # noop
+        ;;
+    "values gs system dvr_max_size"*)
+        echo -n "1 40" # will be multiplied by 100
+        ;;
+    "get gs system dvr_max_size"*)
+        echo -n "40" # will be multiplied by 100
+        ;;
+    "set gs system dvr_max_size"*)
+        : # noop needs division by 100
+        ;;
+    "values gs system dvr_reenc_codec"*)
+        echo -n -e "h264\nh265"
+        ;;
+    "values gs system dvr_reenc_resolution"*)
+        echo -n -e "720p\n1080p"
+        ;;
+    "values gs system dvr_reenc_fps"*)
+        echo -n -e "30\n60"
+        ;;
+    "values gs system dvr_reenc_bitrate"*)
+        echo -n -e "5000\n10000\n15000\n20000\n25000\n30000\n35000\n40000\n45000\n50000"
+        ;;
+    "set gs system dvr_reenc_codec"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_resolution"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_fps"*)
+        : # noop
+        ;;
+    "set gs system dvr_reenc_bitrate"*)
+        : # noop
+        ;;
+    "set gs system dvr_osd"*)
+        : # noop
+        ;;
     "get gs system video_scale")
         grep "^video_scale =" /config/setup.txt | cut -d '=' -f2 | xargs
         ;;

@@ -81,6 +81,39 @@ namespace pipeline {
     }
 }
 
+static VideoCodec detect_mp4_codec(const char* file_path) {
+    auto scan = [](const uint8_t* buf, size_t n) -> VideoCodec {
+        for (size_t i = 0; i + 3 < n; i++) {
+            if (buf[i]=='a' && buf[i+1]=='v' && buf[i+2]=='c' && buf[i+3]=='1')
+                return VideoCodec::H264;
+            if (buf[i]=='h' && buf[i+1]=='v' && buf[i+2]=='c' && buf[i+3]=='1')
+                return VideoCodec::H265;
+            if (buf[i]=='h' && buf[i+1]=='e' && buf[i+2]=='v' && buf[i+3]=='1')
+                return VideoCodec::H265;
+        }
+        return VideoCodec::UNKNOWN;
+    };
+
+    FILE* f = fopen(file_path, "rb");
+    if (!f) return VideoCodec::UNKNOWN;
+
+    uint8_t buf[16384];
+    size_t n = fread(buf, 1, sizeof(buf), f);
+    VideoCodec result = scan(buf, n);
+
+    if (result == VideoCodec::UNKNOWN) {
+        fseek(f, 0, SEEK_END);
+        long fsize = ftell(f);
+        long tail_offset = (fsize > (long)sizeof(buf)) ? fsize - (long)sizeof(buf) : 0;
+        fseek(f, tail_offset, SEEK_SET);
+        n = fread(buf, 1, sizeof(buf), f);
+        result = scan(buf, n);
+    }
+
+    fclose(f);
+    return result;
+}
+
 namespace {
     static constexpr int kIdrUdpPort = 11223;
     static constexpr int kIdrBurstCount = 3;
@@ -1062,42 +1095,53 @@ void GstRtpReceiver::stop_receiving() {
 }
 
 std::string GstRtpReceiver::construct_file_playback_pipeline(const char * file_path) {
+    VideoCodec file_codec = detect_mp4_codec(file_path);
+    if (file_codec == VideoCodec::UNKNOWN) {
+        spdlog::warn("Could not detect codec in {}, falling back to stream codec", file_path);
+        file_codec = m_video_codec;
+    } else {
+        spdlog::info("Detected {} codec in DVR file",
+                     file_codec == VideoCodec::H265 ? "H.265" : "H.264");
+    }
+    m_playback_codec = file_codec;
+
     std::stringstream ss;
     ss<<"filesrc location="<<file_path<<" ! qtdemux ! ";
-    ss<<pipeline::create_parse_for_codec(m_video_codec);
-    ss << pipeline::create_out_caps(m_video_codec);
+    ss<<pipeline::create_parse_for_codec(file_codec);
+    ss << pipeline::create_out_caps(file_codec);
     ss << " appsink drop=true name=out_appsink";
     return ss.str();
 }
 
-void GstRtpReceiver::switch_to_file_playback(const char * file_path) {
+VideoCodec GstRtpReceiver::switch_to_file_playback(const char * file_path) {
     stop_receiving();
-    
+
     const auto pipeline = construct_file_playback_pipeline(file_path);
     GError* error = nullptr;
     m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
     spdlog::info("GSTREAMER FILE PLAYBACK PIPE=[{}]", pipeline);
-    
+
     if (error) {
         spdlog::error("gst_parse_launch error: {}", error->message);
         g_error_free(error);
-        return;
+        return m_playback_codec;
     }
-    
+
     if (!m_gst_pipeline || !(GST_IS_PIPELINE(m_gst_pipeline))) {
         spdlog::error("Cannot construct file playback pipeline");
         m_gst_pipeline = nullptr;
-        return;
+        return m_playback_codec;
     }
 
     // Setup appsink
     m_app_sink_element = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "out_appsink");
     assert(m_app_sink_element);
-    
+
     gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
-    
+
     m_pull_samples_run = true;
     m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+    return m_playback_codec;
 }
 
 void GstRtpReceiver::switch_to_stream() {

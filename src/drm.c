@@ -17,6 +17,7 @@
 #include <pthread.h>
 #include <rockchip/rk_mpi.h>
 #include <assert.h>
+#include <math.h>
 
 int modeset_open(int *out, const char *node)
 {
@@ -338,6 +339,7 @@ int modeset_create_fb(int fd, struct modeset_buf *buf)
 	struct drm_mode_create_dumb creq;
 	struct drm_mode_destroy_dumb dreq;
 	struct drm_mode_map_dumb mreq;
+	struct drm_prime_handle ph;
 	int ret;
 	uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0};
 
@@ -354,6 +356,18 @@ int modeset_create_fb(int fd, struct modeset_buf *buf)
 	buf->stride = creq.pitch;
 	buf->size = creq.size;
 	buf->handle = creq.handle;
+
+	/* Export as DMA-buf prime fd for RGA. */
+	buf->prime_fd = -1;
+	buf->gl_fb_id = 0;
+	memset(&ph, 0, sizeof(ph));
+	ph.handle = buf->handle;
+	ph.flags  = DRM_CLOEXEC | DRM_RDWR;
+	if (drmIoctl(fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &ph) == 0) {
+		buf->prime_fd = ph.fd;
+	} else {
+		fprintf(stderr, "warning: PRIME_HANDLE_TO_FD failed (%m); RGA path unavailable\n");
+	}
 
 	handles[0] = buf->handle;
 	pitches[0] = buf->stride;
@@ -393,6 +407,7 @@ int modeset_create_fb(int fd, struct modeset_buf *buf)
 err_fb:
 	drmModeRmFB(fd, buf->fb);
 err_destroy:
+	if (buf->prime_fd >= 0) { close(buf->prime_fd); buf->prime_fd = -1; }
 	memset(&dreq, 0, sizeof(dreq));
 	dreq.handle = buf->handle;
 	drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
@@ -403,6 +418,8 @@ err_destroy:
 void modeset_destroy_fb(int fd, struct modeset_buf *buf)
 {
 	struct drm_mode_destroy_dumb dreq;
+
+	if (buf->prime_fd >= 0) { close(buf->prime_fd); buf->prime_fd = -1; }
 
 	munmap(buf->map, buf->size);
 
@@ -734,4 +751,146 @@ void restore_planes_zpos(int fd, struct modeset_output *output_list) {
 void modeset_cleanup(int fd, struct modeset_output *output_list)
 {
 	modeset_output_destroy(fd, output_list);
+}
+
+// Initialize the controller
+void gamma_lut_controller_init(gamma_lut_controller* ctrl, int drm_fd, struct modeset_output* output_list) {
+    ctrl->drm_fd = drm_fd;
+    ctrl->output_list = output_list;
+    ctrl->gamma_lut_blob_id = 0;
+    ctrl->last_offset = 0.0f;
+    ctrl->last_gain = 1.0f;
+    ctrl->is_enabled = false;
+}
+
+// Get LUT size from DRM properties
+static uint64_t get_lut_size(gamma_lut_controller* ctrl) {
+    uint64_t lut_size = get_property_value(ctrl->drm_fd, ctrl->output_list->crtc.props, "GAMMA_LUT_SIZE");
+    if (lut_size == (uint64_t)-1) {
+        lut_size = get_property_value(ctrl->drm_fd, ctrl->output_list->crtc.props, "gamma_lut_size");
+    }
+    return lut_size;
+}
+
+// Enable gamma LUT with specified offset and gain
+bool gamma_lut_enable(gamma_lut_controller* ctrl, float offset, float gain) {
+    // Store parameters for potential re-enable
+    ctrl->last_offset = offset;
+    ctrl->last_gain = gain;
+
+    // Get LUT size
+    uint64_t lut_size = get_lut_size(ctrl);
+    if (lut_size == 0 || lut_size == (uint64_t)-1) {
+        // Fallback to a reasonable default if size not available
+        lut_size = 4096;  // Common LUT size
+    }
+
+    // Create the LUT data
+    struct drm_color_lut* lut = malloc(lut_size * sizeof(struct drm_color_lut));
+    if (!lut) {
+        return false;
+    }
+
+    for (uint64_t i = 0; i < lut_size; i++) {
+        float x = (lut_size > 1) ? (float)i / (float)(lut_size - 1) : 0.0f;
+        float y = (x + offset) * gain;
+
+        // Clamp to [0, 1]
+        if (y < 0.0f) y = 0.0f;
+        if (y > 1.0f) y = 1.0f;
+
+        uint16_t v = (uint16_t)lroundf(y * 65535.0f);
+        lut[i].red = v;
+        lut[i].green = v;
+        lut[i].blue = v;
+        lut[i].reserved = 0;
+    }
+
+    // Destroy previous blob if exists
+    if (ctrl->gamma_lut_blob_id > 0) {
+        drmModeDestroyPropertyBlob(ctrl->drm_fd, ctrl->gamma_lut_blob_id);
+        ctrl->gamma_lut_blob_id = 0;
+    }
+
+    // Create new property blob
+    int ret = drmModeCreatePropertyBlob(ctrl->drm_fd, lut, 
+                                        lut_size * sizeof(struct drm_color_lut), 
+                                        &ctrl->gamma_lut_blob_id);
+    free(lut);
+
+    if (ret != 0) {
+        return false;
+    }
+
+    // Apply the LUT via atomic commit
+    drmModeAtomicReq *req = drmModeAtomicAlloc();
+    if (!req) {
+        drmModeDestroyPropertyBlob(ctrl->drm_fd, ctrl->gamma_lut_blob_id);
+        ctrl->gamma_lut_blob_id = 0;
+        return false;
+    }
+
+    // Try both property names
+    int set_ret = set_drm_object_property(req, &ctrl->output_list->crtc, "GAMMA_LUT", ctrl->gamma_lut_blob_id);
+    if (set_ret < 0) {
+        set_ret = set_drm_object_property(req, &ctrl->output_list->crtc, "gamma_lut", ctrl->gamma_lut_blob_id);
+    }
+
+    if (set_ret < 0) {
+        drmModeAtomicFree(req);
+        drmModeDestroyPropertyBlob(ctrl->drm_fd, ctrl->gamma_lut_blob_id);
+        ctrl->gamma_lut_blob_id = 0;
+        return false;
+    }
+
+    int commit_ret = drmModeAtomicCommit(ctrl->drm_fd, req, 0, NULL);
+    drmModeAtomicFree(req);
+
+    if (commit_ret != 0) {
+        drmModeDestroyPropertyBlob(ctrl->drm_fd, ctrl->gamma_lut_blob_id);
+        ctrl->gamma_lut_blob_id = 0;
+        return false;
+    }
+
+    ctrl->is_enabled = true;
+    return true;
+}
+
+// Disable gamma LUT (revert to defaults)
+bool gamma_lut_disable(gamma_lut_controller* ctrl) {
+    if (!ctrl->is_enabled && ctrl->gamma_lut_blob_id == 0) {
+        return true;  // Already disabled
+    }
+    return gamma_lut_enable(ctrl, 0, 1);
+}
+
+
+// Re-enable with last used parameters
+bool gamma_lut_reenable(gamma_lut_controller* ctrl) {
+    return gamma_lut_enable(ctrl, ctrl->last_offset, ctrl->last_gain);
+}
+
+// Toggle between enabled and disabled states
+bool gamma_lut_toggle(gamma_lut_controller* ctrl) {
+    if (ctrl->is_enabled) {
+        return gamma_lut_disable(ctrl);
+    } else {
+        return gamma_lut_reenable(ctrl);
+    }
+}
+
+// Check if gamma LUT is currently enabled
+bool gamma_lut_is_enabled(gamma_lut_controller* ctrl) {
+    return ctrl->is_enabled;
+}
+
+// Get current parameters
+void gamma_lut_get_params(gamma_lut_controller* ctrl, float* offset, float* gain) {
+    *offset = ctrl->last_offset;
+    *gain = ctrl->last_gain;
+}
+
+// Clean up and disable
+void gamma_lut_cleanup(gamma_lut_controller* ctrl) {
+    gamma_lut_disable(ctrl);
 }

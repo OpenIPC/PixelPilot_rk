@@ -46,6 +46,7 @@ extern "C" {
 #include "spdlog/spdlog.h"
 #include <fmt/ranges.h>
 #include "../lvgl/lvgl.h"
+#include "osd_gl.hpp"
 
 #ifdef BUILD_TESTS
 #include <catch2/catch.hpp>
@@ -72,8 +73,16 @@ bool osd_update_ready = false;
 bool menu_active = false;
 bool gsmenu_enabled = false;
 
-osd_thread_params *p;
+OsdGl osd_gl;
+extern bool enable_live_colortrans;
+extern float live_colortrans_offset;
+extern float live_colortrans_gain;
 
+#include "frame_processor.h"
+extern FrameProcessor *frame_proc;
+extern bool dvr_osd;
+
+osd_thread_params *p;
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
   return (timestamp->tv_sec - last_meansure_timestamp->tv_sec) +
@@ -854,7 +863,7 @@ public:
 protected:
     enum class TokenType {
         Literal,
-        Bool,
+        Boolean,
         Int,
         Uint,
         Float,
@@ -893,7 +902,7 @@ protected:
                     msg << '?'; // Append '?' for undefined facts
                 } else {
                     switch (token.type) {
-                    case TokenType::Bool:
+                    case TokenType::Boolean:
                         msg << (facts[fact_i].getBoolValue() ? 't' : 'f');
                         break;
                     case TokenType::Int:
@@ -929,7 +938,7 @@ protected:
             } else if (match[0] == '%') {
                 if (match.size() == 2) { // Simple placeholder like %b, %i, %u, %s, %f
                     if (match[1] == 'b') {
-                        tokens.emplace_back(TokenType::Bool);
+                        tokens.emplace_back(TokenType::Boolean);
                     } else if (match[1] == 'i' || match[1] == 'd') {
                         tokens.emplace_back(TokenType::Int);
                     } else if (match[1] == 'u') {
@@ -1936,8 +1945,20 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
     } else {
         spdlog::error("Unknown buffer being flushed");
     }
+
+	if (enable_live_colortrans) {
+		p->out->osd_bufs[p->out->osd_buf_switch].gl_fb_id = osd_gl_process(&p->out->osd_bufs[p->out->osd_buf_switch], false); // LVGL: straight alpha
+	}
+
 	ret = pthread_mutex_unlock(&osd_mutex);
 	assert(!ret);
+
+	{
+		struct modeset_buf *osd_buf = &p->out->osd_bufs[p->out->osd_buf_switch];
+		if (dvr_osd && frame_proc)
+			frame_proc->set_osd_blend(osd_buf->prime_fd, osd_buf->width, osd_buf->height,
+			                         osd_buf->stride / 4);
+	}
 
 	// tell the display thread that we have a update
 	ret = pthread_mutex_lock(&video_mutex);
@@ -2001,6 +2022,11 @@ void *__OSD_THREAD__(void *param) {
 	ret = modeset_perform_modeset(p->fd, p->out, p->out->osd_request, &p->out->osd_plane,
 								  buf->fb, buf->width, buf->height, osd_zpos);
 
+	if (!osd_gl.init(p->fd, buf->width, buf->height,
+						live_colortrans_gain, live_colortrans_offset)) {
+		spdlog::warn("OSD GL: init failed");
+	}
+
 	if (gsmenu_enabled) {
 		setup_lvgl(p);
 		pp_menu_main();
@@ -2045,11 +2071,19 @@ void *__OSD_THREAD__(void *param) {
 				struct modeset_buf *buf = &p->out->osd_bufs[buf_idx];
 				modeset_paint_buffer(buf, osd);
 
+				if (enable_live_colortrans) {
+					buf->gl_fb_id = osd_gl.process(buf, true); // Cairo: premultiplied alpha
+				}
+
 				int ret = pthread_mutex_lock(&osd_mutex);
 				assert(!ret);	
 				p->out->osd_buf_switch = buf_idx;
 				ret = pthread_mutex_unlock(&osd_mutex);
 				assert(!ret);
+
+				if (dvr_osd && frame_proc)
+					frame_proc->set_osd_blend(buf->prime_fd, buf->width, buf->height,
+					                         buf->stride / 4);
 
 				// tell the display thread that we have a update
 				ret = pthread_mutex_lock(&video_mutex);
@@ -2181,6 +2215,10 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 	mk_tags(tags, n_tags, &fact_tags);
 	publish(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
 };
+
+uint32_t osd_gl_process(struct modeset_buf* buf, bool premultiplied){
+	return osd_gl.process(buf, premultiplied);
+}
 
 #ifdef __cplusplus
 }

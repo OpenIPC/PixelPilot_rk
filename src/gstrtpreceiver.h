@@ -52,7 +52,7 @@ public:
     typedef std::function<void(std::shared_ptr<std::vector<uint8_t>> frame)> NEW_FRAME_CALLBACK;
     void start_receiving(NEW_FRAME_CALLBACK cb);
     void stop_receiving();
-    void switch_to_file_playback(const char* file_path);
+    VideoCodec switch_to_file_playback(const char* file_path);
     void switch_to_stream();
     void fast_forward(double rate = 2.0);
     void fast_rewind(double rate = 2.0);
@@ -69,6 +69,7 @@ private:
     GstElement * m_gst_pipeline=nullptr;
     NEW_FRAME_CALLBACK m_cb;
     VideoCodec m_video_codec;
+    VideoCodec m_playback_codec = VideoCodec::UNKNOWN;
     int m_port;
     // appsink
     GstElement *m_app_sink_element = nullptr;
