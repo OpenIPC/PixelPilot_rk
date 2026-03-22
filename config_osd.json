@@ -2,7 +2,22 @@
     "format": "0.0.1",
     "assets_dir": "/usr/share/pixelpilot/",
     "widgets": [
-        {
+      {
+            "name": "Metrics background",
+            "type": "BoxWidget",
+            "x": -270,
+            "y": 0,
+            "width": 270,
+            "height": 130,
+            "color": {
+                  "r": 0.0,
+                  "g": 0.0,
+                  "b": 0.0,
+                  "alpha": 0.4
+            },
+            "facts": []
+      },
+      {
             "type": "IconSelectorWidget",
             "name": "RSSI of antenna 1",
             "x": -250,
@@ -12,13 +27,13 @@
             ],
             "ranges_and_icons": [
                 {"range": [-49, 1], "icon_path": "signal1.png"},
-              {"range": [-59, -50], "icon_path": "signal2.png"},
-              {"range": [-69, -60], "icon_path": "signal3.png"},
-              {"range": [-79, -70], "icon_path": "signal4.png"},
-              {"range": [-89, -80], "icon_path": "signal5.png"},
-              {"range": [-99, -90], "icon_path": "signal6.png"},
-              {"range": [-114, -100], "icon_path": "signal7.png"},
-              {"range": [-130, -115], "icon_path": "signal8.png"}
+                {"range": [-59, -50], "icon_path": "signal2.png"},
+                {"range": [-69, -60], "icon_path": "signal3.png"},
+                {"range": [-79, -70], "icon_path": "signal4.png"},
+                {"range": [-89, -80], "icon_path": "signal5.png"},
+                {"range": [-99, -90], "icon_path": "signal6.png"},
+                {"range": [-114, -100], "icon_path": "signal7.png"},
+                {"range": [-130, -115], "icon_path": "signal8.png"}
             ]
         },
         {
@@ -31,13 +46,13 @@
             ],
             "ranges_and_icons": [
                 {"range": [-49, 1], "icon_path": "signal1.png"},
-              {"range": [-59, -50], "icon_path": "signal2.png"},
-              {"range": [-69, -60], "icon_path": "signal3.png"},
-              {"range": [-79, -70], "icon_path": "signal4.png"},
-              {"range": [-89, -80], "icon_path": "signal5.png"},
-              {"range": [-99, -90], "icon_path": "signal6.png"},
-              {"range": [-114, -100], "icon_path": "signal7.png"},
-              {"range": [-130, -115], "icon_path": "signal8.png"}
+                {"range": [-59, -50], "icon_path": "signal2.png"},
+                {"range": [-69, -60], "icon_path": "signal3.png"},
+                {"range": [-79, -70], "icon_path": "signal4.png"},
+                {"range": [-89, -80], "icon_path": "signal5.png"},
+                {"range": [-99, -90], "icon_path": "signal6.png"},
+                {"range": [-114, -100], "icon_path": "signal7.png"},
+                {"range": [-130, -115], "icon_path": "signal8.png"}
             ]
         },
         {
@@ -50,13 +65,13 @@
             ],
             "ranges_and_icons": [
                 {"range": [-49, 1], "icon_path": "signal1.png"},
-              {"range": [-59, -50], "icon_path": "signal2.png"},
-              {"range": [-69, -60], "icon_path": "signal3.png"},
-              {"range": [-79, -70], "icon_path": "signal4.png"},
-              {"range": [-89, -80], "icon_path": "signal5.png"},
-              {"range": [-99, -90], "icon_path": "signal6.png"},
-              {"range": [-114, -100], "icon_path": "signal7.png"},
-              {"range": [-130, -115], "icon_path": "signal8.png"}
+                {"range": [-59, -50], "icon_path": "signal2.png"},
+                {"range": [-69, -60], "icon_path": "signal3.png"},
+                {"range": [-79, -70], "icon_path": "signal4.png"},
+                {"range": [-89, -80], "icon_path": "signal5.png"},
+                {"range": [-99, -90], "icon_path": "signal6.png"},
+                {"range": [-114, -100], "icon_path": "signal7.png"},
+                {"range": [-130, -115], "icon_path": "signal8.png"}
             ]
         },
         {
@@ -69,13 +84,13 @@
             ],
             "ranges_and_icons": [
                 {"range": [-49, 1], "icon_path": "signal1.png"},
-              {"range": [-59, -50], "icon_path": "signal2.png"},
-              {"range": [-69, -60], "icon_path": "signal3.png"},
-              {"range": [-79, -70], "icon_path": "signal4.png"},
-              {"range": [-89, -80], "icon_path": "signal5.png"},
-              {"range": [-99, -90], "icon_path": "signal6.png"},
-              {"range": [-114, -100], "icon_path": "signal7.png"},
-              {"range": [-130, -115], "icon_path": "signal8.png"}
+                {"range": [-59, -50], "icon_path": "signal2.png"},
+                {"range": [-69, -60], "icon_path": "signal3.png"},
+                {"range": [-79, -70], "icon_path": "signal4.png"},
+                {"range": [-89, -80], "icon_path": "signal5.png"},
+                {"range": [-99, -90], "icon_path": "signal6.png"},
+                {"range": [-114, -100], "icon_path": "signal7.png"},
+                {"range": [-130, -115], "icon_path": "signal8.png"}
             ]
         },
         {
@@ -88,13 +103,13 @@
             ],
             "ranges_and_icons": [
                 {"range": [-49, 1], "icon_path": "signal1.png"},
-              {"range": [-59, -50], "icon_path": "signal2.png"},
-              {"range": [-69, -60], "icon_path": "signal3.png"},
-              {"range": [-79, -70], "icon_path": "signal4.png"},
-              {"range": [-89, -80], "icon_path": "signal5.png"},
-              {"range": [-99, -90], "icon_path": "signal6.png"},
-              {"range": [-114, -100], "icon_path": "signal7.png"},
-              {"range": [-130, -115], "icon_path": "signal8.png"}
+                {"range": [-59, -50], "icon_path": "signal2.png"},
+                {"range": [-69, -60], "icon_path": "signal3.png"},
+                {"range": [-79, -70], "icon_path": "signal4.png"},
+                {"range": [-89, -80], "icon_path": "signal5.png"},
+                {"range": [-99, -90], "icon_path": "signal6.png"},
+                {"range": [-114, -100], "icon_path": "signal7.png"},
+                {"range": [-130, -115], "icon_path": "signal8.png"}
             ]
         },
         {
@@ -107,30 +122,15 @@
             ],
             "ranges_and_icons": [
                 {"range": [-49, 1], "icon_path": "signal1.png"},
-              {"range": [-59, -50], "icon_path": "signal2.png"},
-              {"range": [-69, -60], "icon_path": "signal3.png"},
-              {"range": [-79, -70], "icon_path": "signal4.png"},
-              {"range": [-89, -80], "icon_path": "signal5.png"},
-              {"range": [-99, -90], "icon_path": "signal6.png"},
-              {"range": [-114, -100], "icon_path": "signal7.png"},
-              {"range": [-130, -115], "icon_path": "signal8.png"}
+                {"range": [-59, -50], "icon_path": "signal2.png"},
+                {"range": [-69, -60], "icon_path": "signal3.png"},
+                {"range": [-79, -70], "icon_path": "signal4.png"},
+                {"range": [-89, -80], "icon_path": "signal5.png"},
+                {"range": [-99, -90], "icon_path": "signal6.png"},
+                {"range": [-114, -100], "icon_path": "signal7.png"},
+                {"range": [-130, -115], "icon_path": "signal8.png"}
             ]
         },
-        {
-            "name": "Metrics background",
-            "type": "BoxWidget",
-            "x": -270,
-            "y": 0,
-            "width": 270,
-            "height": 130,
-            "color": {
-                "r": 0.0,
-                "g": 0.0,
-                "b": 0.0,
-                "alpha": 0.4
-            },
-            "facts": []
-        },        
         {
             "name": "Video FPS and resolution",
             "type": "VideoWidget",
