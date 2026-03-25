@@ -356,8 +356,10 @@ void Dvr::init() {
 void Dvr::stop() {
 	MP4E_close(mux);
 	mux = nullptr;
-	mp4_h26x_write_close(mp4wr);  // frees the struct (minimp4 API)
-	mp4wr = nullptr;
+	if (mp4wr) {
+		mp4_h26x_write_close(mp4wr);  // frees the struct (minimp4 API)
+		mp4wr = nullptr;
+	}
 	fclose(write_ctx.f);
 	write_ctx.f = NULL;
 	write_ctx.file_size = 0;
