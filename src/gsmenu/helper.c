@@ -13,6 +13,8 @@
 
 extern enum RXMode RXMODE;
 
+static void update_dropdown_width(lv_obj_t * dropdown);
+
 extern gsmenu_control_mode_t control_mode;
 extern lv_obj_t * menu;
 extern lv_indev_t * indev_drv;
@@ -353,8 +355,6 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     lv_obj_add_event_cb(slider, generic_slider_event_cb, LV_EVENT_CLICKED,data);
     lv_obj_add_event_cb(slider, generic_back_event_handler, LV_EVENT_KEY,NULL);
 
-    get_slider_value(obj);
-
     return obj;
 }
 
@@ -547,7 +547,7 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
     lv_obj_add_event_cb(dd, generic_back_event_handler, LV_EVENT_KEY,NULL);
     lv_obj_add_event_cb(dd, on_focus, LV_EVENT_FOCUSED, NULL);
 
-    get_dropdown_value(obj);
+    lv_dropdown_set_options(dd,"Loading ...");
 
     return obj;
 }
@@ -700,7 +700,7 @@ char* get_paramater(lv_obj_t * page, char * param) {
     strcat(final_command,menu_page_data->type);
     strcat(final_command," ");
     strcat(final_command,menu_page_data->page);
-    strcat(final_command," "); 
+    strcat(final_command," ");
     strcat(final_command,param);
     char * result = run_command(final_command);
     size_t len = strlen(result);
@@ -708,6 +708,22 @@ char* get_paramater(lv_obj_t * page, char * param) {
         result[len - 1] = '\0';
     }
     return result;
+}
+
+// Split gsmenu.sh output at \x1e separator (in-place).
+// Returns the value part, sets *values_out to the allowed-values part (or NULL).
+char* split_value_and_options(char* raw, char** values_out) {
+    *values_out = NULL;
+    if (!raw) return raw;
+    char* sep = strchr(raw, '\x1e');
+    if (sep) {
+        *sep = '\0';
+        *values_out = sep + 1;
+    }
+    // strip trailing newline from value part
+    size_t len = strlen(raw);
+    if (len > 0 && raw[len - 1] == '\n') raw[len - 1] = '\0';
+    return raw;
 }
 
 
@@ -746,8 +762,16 @@ void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * obj = lv_obj_get_child_by_type(parameter,0,&lv_dropdown_class);
     if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
         thread_data_t * param_user_data = (thread_data_t*) lv_obj_get_user_data(obj);
-        char * value = get_paramater(page, param_user_data->parameter);
+        char * raw = get_paramater(page, param_user_data->parameter);
+        char * values_str = NULL;
+        char * value = split_value_and_options(raw, &values_str);
         lv_lock();
+        if (values_str) {
+            lv_dropdown_set_options(obj, values_str);
+            update_dropdown_width(obj);
+            if (lv_dropdown_get_option_cnt(obj) == 1)
+                lv_obj_add_flag(lv_obj_get_parent(obj), LV_OBJ_FLAG_HIDDEN);
+        }
         lv_dropdown_set_selected(obj,lv_dropdown_get_option_index(obj,value));
         lv_unlock();
     }
@@ -780,13 +804,28 @@ void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     lv_obj_t * label = lv_obj_get_child_by_type(parameter,1,&lv_label_class);
     if ( !lv_obj_has_state(obj, LV_STATE_DISABLED) && ! lv_obj_has_flag(parameter,LV_OBJ_FLAG_HIDDEN)) {
         thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-        char * value = get_paramater(page,param_user_data->parameter);
+        char * raw = get_paramater(page,param_user_data->parameter);
+        char * values_str = NULL;
+        char * value = split_value_and_options(raw, &values_str);
+
+        // Set range if allowed values provided
+        if (values_str) {
+            float min, max;
+            if (sscanf(values_str, "%f %f", &min, &max) == 2) {
+                int32_t scaled_min = (int32_t)(min * powf(10, param_user_data->precision));
+                int32_t scaled_max = (int32_t)(max * powf(10, param_user_data->precision));
+                lv_lock();
+                lv_slider_set_range(obj, scaled_min, scaled_max);
+                lv_unlock();
+            }
+        }
+
+        // Set current value
         float current_value;
         if (sscanf(value, "%f", &current_value) != 1) {
             return;
         }
         int32_t scaled_value = (int32_t)(current_value * powf(10, param_user_data->precision));
-        // Create a buffer for the float value display
         char format[16];
         snprintf(format, sizeof(format), "%%.%df", param_user_data->precision);
         char s[32];
@@ -798,34 +837,7 @@ void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter) {
     }
 }
 
-char* get_values(thread_data_t * data) {
-    menu_page_data_t* menu_page_data = data->menu_page_data;
-    char final_command[200] = "gsmenu.sh values ";
-    strcat(final_command,menu_page_data->type);
-    strcat(final_command," ");
-    strcat(final_command,menu_page_data->page);
-    strcat(final_command," "); 
-    strcat(final_command,data->parameter);
-    return run_command(final_command);
-}
-
-void get_slider_value(lv_obj_t * parent) {
-    lv_obj_t * obj = lv_obj_get_child_by_type(parent,0,&lv_slider_class);
-    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    char * value_line = get_values(param_user_data);
-    float min, max;
-    if (sscanf(value_line, "%f %f", &min, &max) != 2) {
-        return;
-    }
-    
-    // Scale the min/max values by the precision
-    int32_t scaled_min = (int32_t)(min * powf(10, param_user_data->precision));
-    int32_t scaled_max = (int32_t)(max * powf(10, param_user_data->precision));
-    lv_slider_set_range(obj, scaled_min, scaled_max);
-}
-
-
-void update_dropdown_width(lv_obj_t * dropdown) {
+static void update_dropdown_width(lv_obj_t * dropdown) {
     const char * options = lv_dropdown_get_options(dropdown);
     uint16_t option_cnt = lv_dropdown_get_option_cnt(dropdown);
     
@@ -856,15 +868,6 @@ void update_dropdown_width(lv_obj_t * dropdown) {
                  20; // Extra space for the arrow
     
     lv_obj_set_width(dropdown, max_width);
-}
-
-void get_dropdown_value(lv_obj_t * parent) {
-    lv_obj_t * obj = lv_obj_get_child_by_type(parent,0,&lv_dropdown_class);
-    thread_data_t * param_user_data  = (thread_data_t*) lv_obj_get_user_data(obj);
-    lv_dropdown_set_options(obj,get_values(param_user_data));
-    update_dropdown_width(obj);
-    if (lv_dropdown_get_option_cnt(obj) == 1)
-        lv_obj_add_flag(lv_obj_get_parent(obj), LV_OBJ_FLAG_HIDDEN);
 }
 
 bool file_exists(const char *path) {

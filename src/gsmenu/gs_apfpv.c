@@ -306,8 +306,8 @@ void create_apfpv_menu(lv_obj_t * parent) {
     lv_obj_t * cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
 
-    ap_fpv_ssid = create_textarea(cont, "", "SSID", "ssid", menu_page_data, false);
-    ap_fpv_password = create_textarea(cont, "", "Password", "password", menu_page_data, true);
+    ap_fpv_ssid = create_textarea(cont, "OpenIPC", "SSID", "ssid", menu_page_data, false);
+    ap_fpv_password = create_textarea(cont, "12345678", "Password", "password", menu_page_data, true);
 
     reset_apfpv = create_button(section, "Reset APFPV");
     lv_obj_add_event_cb(lv_obj_get_child_by_type(reset_apfpv,0,&lv_button_class),gs_actions_reset_apfpv,LV_EVENT_CLICKED,NULL);

@@ -41,8 +41,15 @@ void air_presets_apply_callback(lv_event_t * e) {
 }
 
 void air_presets_update_callback_callback(void) {
-    get_dropdown_value(preset);
-    lv_obj_send_event(lv_obj_get_child_by_type(preset,0,&lv_dropdown_class),LV_EVENT_VALUE_CHANGED,preset);
+    // Re-fetch preset list after online update
+    char * raw = run_command("gsmenu.sh get air presets preset");
+    char * values_str = NULL;
+    split_value_and_options(raw, &values_str);
+    lv_obj_t * dd = lv_obj_get_child_by_type(preset, 0, &lv_dropdown_class);
+    if (values_str) {
+        lv_dropdown_set_options(dd, values_str);
+    }
+    lv_obj_send_event(dd, LV_EVENT_VALUE_CHANGED, preset);
 }
 
 void air_presets_update_callback(lv_event_t * e) {

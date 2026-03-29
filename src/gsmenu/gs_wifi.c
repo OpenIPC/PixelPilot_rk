@@ -164,8 +164,8 @@ void create_wifi_menu(lv_obj_t * parent) {
     lv_obj_add_event_cb(lv_obj_get_child_by_type(hotspot,0,&lv_switch_class), interlocking_switch_callback, LV_EVENT_VALUE_CHANGED, hotspot);
 
 
-    ssid = create_textarea(cont, "", "SSID", "ssid", menu_page_data, false);
-    password = create_textarea(cont, "", "Password", "password", menu_page_data, true);
+    ssid = create_textarea(cont, "Loading ...", "SSID", "ssid", menu_page_data, false);
+    password = create_textarea(cont, "Loading ...", "Password", "password", menu_page_data, true);
 
     wlan = create_switch(cont,NULL,"Connected","wlan", menu_page_data,false);
     thread_data_t* data = lv_obj_get_user_data(lv_obj_get_child_by_type(wlan,0,&lv_switch_class));

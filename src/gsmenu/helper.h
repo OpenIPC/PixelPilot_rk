@@ -40,14 +40,13 @@ lv_obj_t * create_spinbox(lv_obj_t * parent, const char * icon, const char * txt
 lv_obj_t * find_first_focusable_obj(lv_obj_t * parent);
 void handle_sub_page_load(lv_event_t *e);
 char* get_paramater(lv_obj_t * page, char * param);
+char* split_value_and_options(char* raw, char** values_out);
 void reload_label_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_switch_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_dropdown_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_checkbox_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_textarea_value(lv_obj_t * page,lv_obj_t * parameter);
 void reload_slider_value(lv_obj_t * page,lv_obj_t * parameter);
-void get_slider_value(lv_obj_t * parent);
-void get_dropdown_value(lv_obj_t * parent);
 void generic_back_event_handler(lv_event_t * e);
 
 const char* find_resource_file(const char* relative_path);
