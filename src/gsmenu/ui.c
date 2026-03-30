@@ -38,12 +38,20 @@ lv_obj_t * sub_gs_main_page;
 lv_obj_t * sub_air_wfbng_page;
 lv_obj_t * sub_air_alink_page;
 lv_obj_t * sub_air_aalink_page;
+lv_obj_t * sub_air_camera_video_page;
+lv_obj_t * sub_air_camera_image_page;
+lv_obj_t * sub_air_camera_recording_page;
+lv_obj_t * sub_air_camera_isp_page;
+lv_obj_t * sub_air_camera_fpv_page;
 lv_obj_t * sub_air_camera_page;
 lv_obj_t * sub_air_telemetry_page;
 lv_obj_t * sub_air_actions_page;
 lv_obj_t * sub_gs_dvr_page;
 lv_obj_t * sub_gs_wfbng_page;
 lv_obj_t * sub_gs_apfpv_page;
+lv_obj_t * sub_gs_system_receiver_page;
+lv_obj_t * sub_gs_system_display_page;
+lv_obj_t * sub_gs_system_dvr_page;
 lv_obj_t * sub_gs_system_page;
 lv_obj_t * sub_wlan_page;
 lv_obj_t * sub_gs_actions_page;
@@ -135,6 +143,11 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(sub_air_alink_page, false);
             recursive_state_set(sub_air_aalink_page, false);
             recursive_state_set(sub_air_camera_page, false);
+            recursive_state_set(sub_air_camera_video_page, false);
+            recursive_state_set(sub_air_camera_image_page, false);
+            recursive_state_set(sub_air_camera_recording_page, false);
+            recursive_state_set(sub_air_camera_isp_page, false);
+            recursive_state_set(sub_air_camera_fpv_page, false);
             recursive_state_set(sub_air_telemetry_page, false);
             recursive_state_set(sub_air_actions_page, false);
             lv_obj_add_state(lv_obj_get_child_by_type(ap_fpv_channel,0,&lv_dropdown_class),LV_STATE_DISABLED);
@@ -144,6 +157,11 @@ void check_connection_timer(lv_timer_t * timer)
                 sub_air_alink_page == current_page ||
                 sub_air_aalink_page == current_page ||
                 sub_air_camera_page == current_page ||
+                sub_air_camera_video_page == current_page ||
+                sub_air_camera_image_page == current_page ||
+                sub_air_camera_recording_page == current_page ||
+                sub_air_camera_isp_page == current_page ||
+                sub_air_camera_fpv_page == current_page ||
                 sub_air_telemetry_page == current_page ||
                 sub_air_actions_page == current_page
                 ) {
@@ -172,6 +190,11 @@ void check_connection_timer(lv_timer_t * timer)
             recursive_state_set(sub_air_alink_page, true);
             recursive_state_set(sub_air_aalink_page, true);
             recursive_state_set(sub_air_camera_page, true);
+            recursive_state_set(sub_air_camera_video_page, true);
+            recursive_state_set(sub_air_camera_image_page, true);
+            recursive_state_set(sub_air_camera_recording_page, true);
+            recursive_state_set(sub_air_camera_isp_page, true);
+            recursive_state_set(sub_air_camera_fpv_page, true);
             recursive_state_set(sub_air_telemetry_page, true);
             recursive_state_set(sub_air_actions_page, true);
             lv_obj_remove_state(lv_obj_get_child_by_type(ap_fpv_channel,0,&lv_dropdown_class), LV_STATE_DISABLED);
@@ -182,6 +205,11 @@ void check_connection_timer(lv_timer_t * timer)
                 sub_air_alink_page == current_page ||
                 sub_air_aalink_page == current_page ||
                 sub_air_camera_page == current_page ||
+                sub_air_camera_video_page == current_page ||
+                sub_air_camera_image_page == current_page ||
+                sub_air_camera_recording_page == current_page ||
+                sub_air_camera_isp_page == current_page ||
+                sub_air_camera_fpv_page == current_page ||
                 sub_air_telemetry_page == current_page ||
                 sub_air_actions_page == current_page
                 ) {
@@ -212,6 +240,11 @@ void check_connection_timer(lv_timer_t * timer)
         recursive_state_set(sub_air_alink_page, false);
         recursive_state_set(sub_air_aalink_page, false);
         recursive_state_set(sub_air_camera_page, false);
+        recursive_state_set(sub_air_camera_video_page, false);
+        recursive_state_set(sub_air_camera_image_page, false);
+        recursive_state_set(sub_air_camera_recording_page, false);
+        recursive_state_set(sub_air_camera_isp_page, false);
+        recursive_state_set(sub_air_camera_fpv_page, false);
         recursive_state_set(sub_air_telemetry_page, false);
         recursive_state_set(sub_air_actions_page, false);
         lv_obj_add_state(lv_obj_get_child_by_type(ap_fpv_channel,0,&lv_dropdown_class),LV_STATE_DISABLED);
@@ -222,6 +255,11 @@ void check_connection_timer(lv_timer_t * timer)
             sub_air_alink_page == current_page ||
             sub_air_aalink_page == current_page ||
             sub_air_camera_page == current_page ||
+            sub_air_camera_video_page == current_page ||
+            sub_air_camera_image_page == current_page ||
+            sub_air_camera_recording_page == current_page ||
+            sub_air_camera_isp_page == current_page ||
+            sub_air_camera_fpv_page == current_page ||
             sub_air_telemetry_page == current_page ||
             sub_air_actions_page == current_page
             ) {
@@ -290,10 +328,35 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_separator_create(sub_air_aalink_page);
     create_air_aalink_menu(sub_air_aalink_page);
 
+    sub_air_camera_video_page = lv_menu_page_create(menu, LV_SYMBOL_IMAGE" Video");
+    lv_obj_set_style_pad_hor(sub_air_camera_video_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_camera_video_page);
+    create_air_camera_video_menu(sub_air_camera_video_page);
+
+    sub_air_camera_image_page = lv_menu_page_create(menu, LV_SYMBOL_IMAGE" Image");
+    lv_obj_set_style_pad_hor(sub_air_camera_image_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_camera_image_page);
+    create_air_camera_image_menu(sub_air_camera_image_page);
+
+    sub_air_camera_recording_page = lv_menu_page_create(menu, LV_SYMBOL_VIDEO" Recording");
+    lv_obj_set_style_pad_hor(sub_air_camera_recording_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_camera_recording_page);
+    create_air_camera_recording_menu(sub_air_camera_recording_page);
+
+    sub_air_camera_isp_page = lv_menu_page_create(menu, LV_SYMBOL_EDIT" ISP");
+    lv_obj_set_style_pad_hor(sub_air_camera_isp_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_camera_isp_page);
+    create_air_camera_isp_menu(sub_air_camera_isp_page);
+
+    sub_air_camera_fpv_page = lv_menu_page_create(menu, LV_SYMBOL_EYE_OPEN" FPV");
+    lv_obj_set_style_pad_hor(sub_air_camera_fpv_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_air_camera_fpv_page);
+    create_air_camera_fpv_menu(sub_air_camera_fpv_page);
+
     sub_air_camera_page = lv_menu_page_create(menu, LV_SYMBOL_IMAGE" Camera");
     lv_obj_set_style_pad_hor(sub_air_camera_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     lv_menu_separator_create(sub_air_camera_page);
-    create_air_camera_menu(sub_air_camera_page);
+    create_air_camera_menu(sub_air_camera_page, sub_air_camera_video_page, sub_air_camera_image_page, sub_air_camera_recording_page, sub_air_camera_isp_page, sub_air_camera_fpv_page);
 
     sub_air_telemetry_page = lv_menu_page_create(menu, LV_SYMBOL_DOWNLOAD" Drone Telemetry");
     lv_obj_set_style_pad_hor(sub_air_telemetry_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
@@ -320,10 +383,25 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     lv_menu_separator_create(sub_gs_apfpv_page);
     create_apfpv_menu(sub_gs_apfpv_page);
 
+    sub_gs_system_receiver_page = lv_menu_page_create(menu, LV_SYMBOL_WIFI" Receiver");
+    lv_obj_set_style_pad_hor(sub_gs_system_receiver_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_gs_system_receiver_page);
+    create_gs_system_receiver_menu(sub_gs_system_receiver_page);
+
+    sub_gs_system_display_page = lv_menu_page_create(menu, LV_SYMBOL_IMAGE" Display");
+    lv_obj_set_style_pad_hor(sub_gs_system_display_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_gs_system_display_page);
+    create_gs_system_display_menu(sub_gs_system_display_page);
+
+    sub_gs_system_dvr_page = lv_menu_page_create(menu, LV_SYMBOL_VIDEO" DVR");
+    lv_obj_set_style_pad_hor(sub_gs_system_dvr_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
+    lv_menu_separator_create(sub_gs_system_dvr_page);
+    create_gs_system_dvr_menu(sub_gs_system_dvr_page);
+
     sub_gs_system_page = lv_menu_page_create(menu, LV_SYMBOL_SETTINGS" System");
     lv_obj_set_style_pad_hor(sub_gs_system_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);
     lv_menu_separator_create(sub_gs_system_page);
-    create_gs_system_menu(sub_gs_system_page);
+    create_gs_system_menu(sub_gs_system_page, sub_gs_system_receiver_page, sub_gs_system_display_page, sub_gs_system_dvr_page);
 
     sub_wlan_page = lv_menu_page_create(menu, LV_SYMBOL_WIFI" WiFi");
     lv_obj_set_style_pad_hor(sub_wlan_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(menu), 0), 0);

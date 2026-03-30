@@ -7,6 +7,9 @@
 #include "helper.h"
 
 extern lv_group_t * default_group;
+extern lv_obj_t * menu;
+extern lv_indev_t * indev_drv;
+extern lv_obj_t * sub_air_camera_page;
 
 lv_obj_t * mirror;
 lv_obj_t * flip;
@@ -44,17 +47,43 @@ void air_rec_fps_cb(lv_event_t *e) {
     lv_obj_send_event(obj,LV_EVENT_VALUE_CHANGED,NULL);
 }
 
-void create_air_camera_menu(lv_obj_t * parent) {
+// Back handler for camera sub-pages: go up to Camera landing page rather than
+// all the way to the main menu.
+static void air_camera_sub_back_handler(lv_event_t * e) {
+    lv_key_t key = lv_event_get_key(e);
+    if (key == LV_KEY_HOME) {
+        menu_page_data_t *cam_data = (menu_page_data_t *)lv_obj_get_user_data(sub_air_camera_page);
+        lv_menu_set_page(menu, sub_air_camera_page);
+        if (cam_data) lv_indev_set_group(indev_drv, cam_data->indev_group);
+    }
+}
 
-    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
-    strcpy(menu_page_data->type, "air");
-    strcpy(menu_page_data->page, "camera");
-    menu_page_data->page_load_callback = generic_page_load_callback;
-    menu_page_data->indev_group = lv_group_create();
-    menu_page_data->entry_count = 0;
-    menu_page_data->page_entries = NULL;
-    lv_group_set_default(menu_page_data->indev_group);
-    lv_obj_set_user_data(parent,menu_page_data);
+// Replace generic_back_event_handler on the focusable inner child of a widget
+// container with air_camera_sub_back_handler.
+static void use_sub_back_handler(lv_obj_t *container) {
+    lv_obj_t *inner = lv_obj_get_child_by_type(container, 0, &lv_dropdown_class);
+    if (!inner) inner = lv_obj_get_child_by_type(container, 0, &lv_switch_class);
+    if (!inner) inner = lv_obj_get_child_by_type(container, 0, &lv_slider_class);
+    if (!inner) return;
+    lv_obj_remove_event_cb(inner, generic_back_event_handler);
+    lv_obj_add_event_cb(inner, air_camera_sub_back_handler, LV_EVENT_KEY, NULL);
+}
+
+static menu_page_data_t * make_camera_page_data(lv_obj_t *parent) {
+    menu_page_data_t *mpd = malloc(sizeof(menu_page_data_t));
+    strcpy(mpd->type, "air");
+    strcpy(mpd->page, "camera");
+    mpd->page_load_callback = generic_page_load_callback;
+    mpd->indev_group = lv_group_create();
+    mpd->entry_count = 0;
+    mpd->page_entries = NULL;
+    lv_group_set_default(mpd->indev_group);
+    lv_obj_set_user_data(parent, mpd);
+    return mpd;
+}
+
+void create_air_camera_video_menu(lv_obj_t * parent) {
+    menu_page_data_t *menu_page_data = make_camera_page_data(parent);
 
     lv_obj_t * cont;
     lv_obj_t * section;
@@ -64,79 +93,191 @@ void create_air_camera_menu(lv_obj_t * parent) {
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    size = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Size","","size",menu_page_data,false);
-    video_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Video Mode","","video_mode",menu_page_data,false);
 
-    fps = create_dropdown(cont,LV_SYMBOL_SETTINGS, "FPS","","fps",menu_page_data,false);
-    // change rec fps when changeing camera fps
-    lv_obj_add_event_cb(lv_obj_get_child_by_type(fps,0,&lv_dropdown_class), air_rec_fps_cb, LV_EVENT_VALUE_CHANGED,fps);
+    size = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Size", "", "size", menu_page_data, false);
+    use_sub_back_handler(size);
+    video_mode = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Video Mode", "", "video_mode", menu_page_data, false);
+    use_sub_back_handler(video_mode);
+    fps = create_dropdown(cont, LV_SYMBOL_SETTINGS, "FPS", "", "fps", menu_page_data, false);
+    // change rec fps when changing camera fps
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(fps, 0, &lv_dropdown_class), air_rec_fps_cb, LV_EVENT_VALUE_CHANGED, fps);
+    use_sub_back_handler(fps);
+    bitrate = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Bitrate", "", "bitrate", menu_page_data, false);
+    use_sub_back_handler(bitrate);
+    video_codec = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Codec", "", "codec", menu_page_data, false);
+    use_sub_back_handler(video_codec);
+    gopsize = create_slider(cont, LV_SYMBOL_SETTINGS, "Gopsize", "gopsize", menu_page_data, false, 0);
+    use_sub_back_handler(gopsize);
+    rc_mode = create_dropdown(cont, LV_SYMBOL_SETTINGS, "RC Mode", "", "rc_mode", menu_page_data, false);
+    use_sub_back_handler(rc_mode);
 
-    bitrate = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Bitrate","","bitrate",menu_page_data,false);
-    video_codec = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Codec","","codec",menu_page_data,false);
-    gopsize = create_slider(cont,LV_SYMBOL_SETTINGS,"Gopsize","gopsize",menu_page_data,false,0);
-    rc_mode = create_dropdown(cont,LV_SYMBOL_SETTINGS, "RC Mode","","rc_mode",menu_page_data,false);
+    add_entry_to_menu_page(menu_page_data, "Loading size ...",        size,       reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading video_mode ...",  video_mode, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading fps ...",         fps,        reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading bitrate ...",     bitrate,    reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading video_codec ...", video_codec, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading gopsize ...",     gopsize,    reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading rc_mode ...",     rc_mode,    reload_dropdown_value);
+
+    lv_group_set_default(default_group);
+}
+
+void create_air_camera_image_menu(lv_obj_t * parent) {
+    menu_page_data_t *menu_page_data = make_camera_page_data(parent);
+
+    lv_obj_t * cont;
+    lv_obj_t * section;
 
     create_text(parent, NULL, "Image", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
-    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN); 
-    
-    mirror = create_switch(cont,LV_SYMBOL_SETTINGS,"Mirror","mirror", menu_page_data,false);
-    flip = create_switch(cont,LV_SYMBOL_SETTINGS,"Flip","flip", menu_page_data,false);
-    contrast = create_slider(cont,LV_SYMBOL_SETTINGS,"Contrast","contrast",menu_page_data,false,0);
-    hue = create_slider(cont,LV_SYMBOL_SETTINGS,"Hue","hue",menu_page_data,false,0);
-    saturation = create_slider(cont,LV_SYMBOL_SETTINGS,"Saturation","saturation",menu_page_data,false,0);
-    luminace = create_slider(cont,LV_SYMBOL_SETTINGS,"Luminance","luminace",menu_page_data,false,0);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+
+    mirror = create_switch(cont, LV_SYMBOL_SETTINGS, "Mirror", "mirror", menu_page_data, false);
+    use_sub_back_handler(mirror);
+    flip = create_switch(cont, LV_SYMBOL_SETTINGS, "Flip", "flip", menu_page_data, false);
+    use_sub_back_handler(flip);
+    contrast = create_slider(cont, LV_SYMBOL_SETTINGS, "Contrast", "contrast", menu_page_data, false, 0);
+    use_sub_back_handler(contrast);
+    hue = create_slider(cont, LV_SYMBOL_SETTINGS, "Hue", "hue", menu_page_data, false, 0);
+    use_sub_back_handler(hue);
+    saturation = create_slider(cont, LV_SYMBOL_SETTINGS, "Saturation", "saturation", menu_page_data, false, 0);
+    use_sub_back_handler(saturation);
+    luminace = create_slider(cont, LV_SYMBOL_SETTINGS, "Luminance", "luminace", menu_page_data, false, 0);
+    use_sub_back_handler(luminace);
+
+    add_entry_to_menu_page(menu_page_data, "Loading mirror ...",     mirror,     reload_switch_value);
+    add_entry_to_menu_page(menu_page_data, "Loading flip ...",       flip,       reload_switch_value);
+    add_entry_to_menu_page(menu_page_data, "Loading contrast ...",   contrast,   reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading hue ...",        hue,        reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading saturation ...", saturation, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading luminace ...",   luminace,   reload_slider_value);
+
+    lv_group_set_default(default_group);
+}
+
+void create_air_camera_recording_menu(lv_obj_t * parent) {
+    menu_page_data_t *menu_page_data = make_camera_page_data(parent);
+
+    lv_obj_t * cont;
+    lv_obj_t * section;
 
     create_text(parent, NULL, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    rec_enable = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","rec_enable", menu_page_data,false);
-    rec_split = create_slider(cont,LV_SYMBOL_SETTINGS,"Split","rec_split",menu_page_data,false,0);
-    rec_maxusage = create_slider(cont,LV_SYMBOL_SETTINGS,"Maxusage","rec_maxusage",menu_page_data,false,0);
+
+    rec_enable = create_switch(cont, LV_SYMBOL_SETTINGS, "Enabled", "rec_enable", menu_page_data, false);
+    use_sub_back_handler(rec_enable);
+    rec_split = create_slider(cont, LV_SYMBOL_SETTINGS, "Split", "rec_split", menu_page_data, false, 0);
+    use_sub_back_handler(rec_split);
+    rec_maxusage = create_slider(cont, LV_SYMBOL_SETTINGS, "Maxusage", "rec_maxusage", menu_page_data, false, 0);
+    use_sub_back_handler(rec_maxusage);
+
+    add_entry_to_menu_page(menu_page_data, "Loading rec_enable ...",   rec_enable,   reload_switch_value);
+    add_entry_to_menu_page(menu_page_data, "Loading rec_split ...",    rec_split,    reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading rec_maxusage ...", rec_maxusage, reload_slider_value);
+
+    lv_group_set_default(default_group);
+}
+
+void create_air_camera_isp_menu(lv_obj_t * parent) {
+    menu_page_data_t *menu_page_data = make_camera_page_data(parent);
+
+    lv_obj_t * cont;
+    lv_obj_t * section;
 
     create_text(parent, NULL, "ISP", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
-    exposure = create_slider(cont,LV_SYMBOL_SETTINGS,"Exposure","exposure",menu_page_data,false,0);
-    antiflicker = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Antiflicker","","antiflicker",menu_page_data,false);
-    sensor_file = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Sensor File","","sensor_file",menu_page_data,false);
+
+    exposure = create_slider(cont, LV_SYMBOL_SETTINGS, "Exposure", "exposure", menu_page_data, false, 0);
+    use_sub_back_handler(exposure);
+    antiflicker = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Antiflicker", "", "antiflicker", menu_page_data, false);
+    use_sub_back_handler(antiflicker);
+    sensor_file = create_dropdown(cont, LV_SYMBOL_SETTINGS, "Sensor File", "", "sensor_file", menu_page_data, false);
+    use_sub_back_handler(sensor_file);
+
+    add_entry_to_menu_page(menu_page_data, "Loading exposure ...",    exposure,    reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading antiflicker ...", antiflicker, reload_dropdown_value);
+    add_entry_to_menu_page(menu_page_data, "Loading sensor_file ...", sensor_file, reload_dropdown_value);
+
+    lv_group_set_default(default_group);
+}
+
+void create_air_camera_fpv_menu(lv_obj_t * parent) {
+    menu_page_data_t *menu_page_data = make_camera_page_data(parent);
+
+    lv_obj_t * cont;
+    lv_obj_t * section;
 
     create_text(parent, NULL, "FPV", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
-    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);    
-    fpv_enable = create_switch(cont,LV_SYMBOL_SETTINGS,"Enabled","fpv_enable", menu_page_data,false);
-    noiselevel = create_slider(cont,LV_SYMBOL_SETTINGS,"Noiselevel","noiselevel",menu_page_data,false,0);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
 
+    fpv_enable = create_switch(cont, LV_SYMBOL_SETTINGS, "Enabled", "fpv_enable", menu_page_data, false);
+    use_sub_back_handler(fpv_enable);
+    noiselevel = create_slider(cont, LV_SYMBOL_SETTINGS, "Noiselevel", "noiselevel", menu_page_data, false, 0);
+    use_sub_back_handler(noiselevel);
 
-    add_entry_to_menu_page(menu_page_data,"Loading mirror ...", mirror, reload_switch_value );
-    add_entry_to_menu_page(menu_page_data,"Loading flip ...", flip, reload_switch_value );
-    add_entry_to_menu_page(menu_page_data,"Loading contrast ...", contrast, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading hue ...", hue, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading saturation ...", saturation, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading luminace ...", luminace, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading size ...", size, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading video_mode ...", video_mode, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading fps ...", fps, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading bitrate ...", bitrate, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading video_codec ...", video_codec, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading gopsize ...", gopsize, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading rc_mode ...", rc_mode, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading rec_enable ...", rec_enable, reload_switch_value );
-    add_entry_to_menu_page(menu_page_data,"Loading rec_split ...", rec_split, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading rec_maxusage ...", rec_maxusage, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading exposure ...", exposure, reload_slider_value );
-    add_entry_to_menu_page(menu_page_data,"Loading antiflicker ...", antiflicker, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading sensor_file ...", sensor_file, reload_dropdown_value );
-    add_entry_to_menu_page(menu_page_data,"Loading fpv_enable ...", fpv_enable, reload_switch_value );
-    add_entry_to_menu_page(menu_page_data,"Loading noiselevel ...", noiselevel, reload_slider_value);
+    add_entry_to_menu_page(menu_page_data, "Loading fpv_enable ...", fpv_enable, reload_switch_value);
+    add_entry_to_menu_page(menu_page_data, "Loading noiselevel ...", noiselevel, reload_slider_value);
+
+    lv_group_set_default(default_group);
+}
+
+void create_air_camera_menu(lv_obj_t * parent,
+                             lv_obj_t * video_page,
+                             lv_obj_t * image_page,
+                             lv_obj_t * recording_page,
+                             lv_obj_t * isp_page,
+                             lv_obj_t * fpv_page) {
+    menu_page_data_t *menu_page_data = malloc(sizeof(menu_page_data_t));
+    strcpy(menu_page_data->type, "air");
+    strcpy(menu_page_data->page, "camera");
+    menu_page_data->page_load_callback = NULL;
+    menu_page_data->indev_group = lv_group_create();
+    menu_page_data->entry_count = 0;
+    menu_page_data->page_entries = NULL;
+    lv_group_set_default(menu_page_data->indev_group);
+    lv_obj_set_user_data(parent, menu_page_data);
+
+    lv_obj_t * section;
+
+    create_text(parent, NULL, "Camera", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    section = lv_menu_section_create(parent);
+    lv_obj_add_style(section, &style_openipc_section, 0);
+
+    lv_obj_t * video_item = create_text(section, LV_SYMBOL_VIDEO, "Video", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(menu_page_data->indev_group, video_item);
+    lv_menu_set_load_page_event(menu, video_item, video_page);
+    lv_obj_add_event_cb(video_item, generic_back_event_handler, LV_EVENT_KEY, NULL);
+
+    lv_obj_t * image_item = create_text(section, LV_SYMBOL_IMAGE, "Image", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(menu_page_data->indev_group, image_item);
+    lv_menu_set_load_page_event(menu, image_item, image_page);
+    lv_obj_add_event_cb(image_item, generic_back_event_handler, LV_EVENT_KEY, NULL);
+
+    lv_obj_t * recording_item = create_text(section, LV_SYMBOL_VIDEO, "Recording", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(menu_page_data->indev_group, recording_item);
+    lv_menu_set_load_page_event(menu, recording_item, recording_page);
+    lv_obj_add_event_cb(recording_item, generic_back_event_handler, LV_EVENT_KEY, NULL);
+
+    lv_obj_t * isp_item = create_text(section, LV_SYMBOL_EYE_OPEN, "ISP", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(menu_page_data->indev_group, isp_item);
+    lv_menu_set_load_page_event(menu, isp_item, isp_page);
+    lv_obj_add_event_cb(isp_item, generic_back_event_handler, LV_EVENT_KEY, NULL);
+
+    lv_obj_t * fpv_item = create_text(section, LV_SYMBOL_GPS, "FPV", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_group_add_obj(menu_page_data->indev_group, fpv_item);
+    lv_menu_set_load_page_event(menu, fpv_item, fpv_page);
+    lv_obj_add_event_cb(fpv_item, generic_back_event_handler, LV_EVENT_KEY, NULL);
 
     lv_group_set_default(default_group);
 }
