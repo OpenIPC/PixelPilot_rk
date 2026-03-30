@@ -64,6 +64,9 @@ int  dvr_reenc_get_codec(void);
 int  dvr_reenc_get_resolution(void);
 void dvr_set_max_size(int mb);
 int  dvr_get_max_size(void);
+#ifndef USE_SIMULATOR
+void drm_set_video_scale(float factor);
+#endif
 
 // Raw FPS setter (defined in dvr.cpp)
 typedef struct Dvr* Dvr;
@@ -322,6 +325,23 @@ void dvr_reenc_resolution_cb(lv_event_t *e) {
     }
 }
 
+void resolution_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED)
+        show_restart_notice();
+}
+
+void video_scale_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+        lv_obj_t *slider = lv_event_get_target(e);
+        float factor = lv_slider_get_value(slider) / 100.0f;
+#ifndef USE_SIMULATOR
+        drm_set_video_scale(factor);
+#else
+        printf("drm_set_video_scale(%.2f);\n", factor);
+#endif
+    }
+}
+
 void dvr_max_size_label_cb(lv_event_t *e) {
     lv_obj_t *slider = lv_event_get_target(e);
     lv_obj_t *label = lv_obj_get_child_by_type(lv_obj_get_parent(slider), 1, &lv_label_class);
@@ -397,8 +417,10 @@ void create_gs_system_menu(lv_obj_t * parent) {
 
     gs_rendering = create_switch(cont,LV_SYMBOL_SETTINGS,"GS Rendering","gs_rendering", menu_page_data,false);
     connector = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Connector","","connector",menu_page_data,false);
-    resolution = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Resolution","","resolution",menu_page_data,false);
+    resolution = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Resolution","","resolution",menu_page_data,true);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(resolution,0,&lv_dropdown_class), resolution_cb, LV_EVENT_VALUE_CHANGED, NULL);
     video_scale = create_slider(cont, LV_SYMBOL_SETTINGS, "Video scale factor", "video_scale", menu_page_data, false, 2);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(video_scale,0,&lv_slider_class), video_scale_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     gs_live_colortrans = create_switch(cont,LV_SYMBOL_SETTINGS,"Live Colortrans","gs_live_colortrans", menu_page_data,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), gs_live_colortrans_cb, LV_EVENT_VALUE_CHANGED,NULL);

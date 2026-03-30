@@ -128,6 +128,7 @@ int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq
 
 int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos);
 
+void modeset_apply_video_scale(int fd, struct modeset_output *out);
 void restore_planes_zpos(int fd, struct modeset_output *output_list);
 
 void modeset_cleanup(int fd, struct modeset_output *output_list);

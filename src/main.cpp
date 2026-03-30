@@ -594,6 +594,13 @@ extern "C" {
     }
     int dvr_get_max_size(void) { return (int)(dvr_max_file_size / 1000000LL); }
 
+    void drm_set_video_scale(float factor) {
+        if (output_list) {
+            output_list->video_scale_factor = factor;
+            modeset_apply_video_scale(drm_fd, output_list);
+        }
+    }
+
     void dvr_reenc_set_resolution(int idx) {
         if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
         reenc_params.resolution = (EncResolution)idx;

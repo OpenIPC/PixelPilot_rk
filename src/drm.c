@@ -639,6 +639,33 @@ struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mod
 	return NULL;
 }
 
+void modeset_apply_video_scale(int fd, struct modeset_output *out)
+{
+	drmModePlane *plane = drmModeGetPlane(fd, out->video_plane.id);
+	if (!plane) {
+		fprintf(stderr, "modeset_apply_video_scale: drmModeGetPlane failed\n");
+		return;
+	}
+	uint32_t fb_id = plane->fb_id;
+	drmModeFreePlane(plane);
+
+	if (!fb_id) return;
+
+	int64_t zpos = get_property_value(fd, out->video_plane.props, "zpos");
+
+	drmModeAtomicReq *req = drmModeAtomicAlloc();
+	int ret = modeset_atomic_prepare_commit(fd, out, req, &out->video_plane,
+	                                        (int)fb_id, out->video_frm_width, out->video_frm_height, zpos);
+	if (ret < 0) {
+		fprintf(stderr, "modeset_apply_video_scale: prepare commit failed\n");
+	} else {
+		ret = drmModeAtomicCommit(fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
+		if (ret < 0)
+			fprintf(stderr, "modeset_apply_video_scale: atomic commit failed: %m\n");
+	}
+	drmModeAtomicFree(req);
+}
+
 int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos)
 {
 	int ret, flags;
