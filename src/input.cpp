@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
@@ -533,9 +534,7 @@ void handle_keyboard_input(void) {
 #endif
             case 'q':
             case 'Q':
-                printf("Exiting...\n");
-                restore_stdin();
-                exit(0);
+                raise(SIGINT);
                 break;
         }
     }
