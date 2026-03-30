@@ -18,8 +18,6 @@ lv_obj_t * rx_mode;
 lv_obj_t * gs_rendering;
 lv_obj_t * connector;
 lv_obj_t * resolution;
-lv_obj_t * vsync_disabled;
-lv_obj_t * gs_request_idr;
 lv_obj_t * video_scale;
 lv_obj_t * gs_live_colortrans;
 lv_obj_t * gs_dvr_colortrans;
@@ -39,7 +37,6 @@ extern lv_obj_t * ap_fpv_ssid;
 extern lv_obj_t * ap_fpv_password;
 
 extern int dvr_enabled;
-extern bool disable_vsync;
 extern bool enable_live_colortrans;
 extern float live_colortrans_gain;
 extern float live_colortrans_offset;
@@ -91,20 +88,6 @@ static void update_dvr_mode_visibility(void)
 }
 
 // ── Custom reload functions for items not handled by gsmenu.sh get ───────────
-
-static void reload_vsync_disabled_fn(lv_obj_t *page, lv_obj_t *parameter) {
-    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
-    lv_lock();
-    lv_obj_set_state(sw, LV_STATE_CHECKED, disable_vsync);
-    lv_unlock();
-}
-
-static void reload_request_idr_fn(lv_obj_t *page, lv_obj_t *parameter) {
-    lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
-    lv_lock();
-    lv_obj_set_state(sw, LV_STATE_CHECKED, idr_get_enabled());
-    lv_unlock();
-}
 
 static void reload_live_colortrans_fn(lv_obj_t *page, lv_obj_t *parameter) {
     lv_obj_t *sw = lv_obj_get_child_by_type(parameter, 0, &lv_switch_class);
@@ -198,22 +181,6 @@ void rec_enabled_cb(lv_event_t *e) {
     }
 }
 
-
-void disable_vsync_cb(lv_event_t *e) {
-    lv_event_code_t event = lv_event_get_code(e);
-    if (event == LV_EVENT_VALUE_CHANGED) {
-        lv_obj_t *ta = lv_event_get_target(e);
-        disable_vsync = lv_obj_has_state(ta, LV_STATE_CHECKED);
-    }
-}
-
-void gs_request_idr_cb(lv_event_t *e) {
-    lv_event_code_t event = lv_event_get_code(e);
-    if (event == LV_EVENT_VALUE_CHANGED) {
-        lv_obj_t *ta = lv_event_get_target(e);
-        idr_set_enabled(lv_obj_has_state(ta, LV_STATE_CHECKED));
-    }
-}
 
 void gs_live_colortrans_cb(lv_event_t *e) {
     lv_event_code_t event = lv_event_get_code(e);
@@ -425,11 +392,6 @@ void create_gs_system_menu(lv_obj_t * parent) {
     resolution = create_dropdown(cont,LV_SYMBOL_SETTINGS, "Resolution","","resolution",menu_page_data,false);
     video_scale = create_slider(cont, LV_SYMBOL_SETTINGS, "Video scale factor", "video_scale", menu_page_data, false, 2);
 
-    vsync_disabled = create_switch(cont,LV_SYMBOL_SETTINGS,"Disable VSYNC","disable_vsync", NULL,false);
-    lv_obj_add_event_cb(lv_obj_get_child_by_type(vsync_disabled,0,&lv_switch_class), disable_vsync_cb, LV_EVENT_VALUE_CHANGED,NULL);
-    gs_request_idr = create_switch(cont,LV_SYMBOL_SETTINGS,"Request IDR","gs_request_idr", NULL,false);
-    lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_request_idr,0,&lv_switch_class), gs_request_idr_cb, LV_EVENT_VALUE_CHANGED,NULL);
-
     gs_live_colortrans = create_switch(cont,LV_SYMBOL_SETTINGS,"Live Colortrans","gs_live_colortrans", menu_page_data,false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_live_colortrans,0,&lv_switch_class), gs_live_colortrans_cb, LV_EVENT_VALUE_CHANGED,NULL);
 
@@ -473,8 +435,6 @@ void create_gs_system_menu(lv_obj_t * parent) {
     add_entry_to_menu_page(menu_page_data, "Loading Connector ...",     connector,         reload_dropdown_value);
     add_entry_to_menu_page(menu_page_data, "Loading Resolution ...",    resolution,        reload_dropdown_value);
     add_entry_to_menu_page(menu_page_data, "Loading Video Scale ...",   video_scale,       reload_slider_value);
-    add_entry_to_menu_page(menu_page_data, "Loading VSYNC ...",         vsync_disabled,    reload_vsync_disabled_fn);
-    add_entry_to_menu_page(menu_page_data, "Loading IDR ...",           gs_request_idr,    reload_request_idr_fn);
     add_entry_to_menu_page(menu_page_data, "Loading Colortrans ...",    gs_live_colortrans, reload_live_colortrans_fn);
     add_entry_to_menu_page(menu_page_data, "Loading DVR enabled ...",   rec_enabled,       reload_rec_enabled_fn);
     add_entry_to_menu_page(menu_page_data, "Loading DVR max size ...",  dvr_max_size,      reload_dvr_max_size_fn);

@@ -1069,8 +1069,6 @@ void printHelp() {
     "\n"
     "    --dvr-mode <mode>      - DVR recording mode: raw, reencode, or both (Default: raw)\n"
     "\n"
-    "    --dvr-reenc            - (deprecated) Alias for --dvr-mode reencode\n"
-    "\n"
     "    --dvr-reenc-codec <c>  - Re-encode codec: h264 or h265  (Default: h264)\n"
     "\n"
     "    --dvr-reenc-bitrate <k>- Re-encode bitrate in kbps       (Default: 8000)\n"
@@ -1161,13 +1159,6 @@ int main(int argc, char **argv)
 		continue;
 	}
 
-	__OnArgument("--dvr") {
-		dvr_template = const_cast<char*>(__ArgValue);
-		dvr_autostart = 1;
-		fprintf(stderr, "--dvr is deprecated. Use --dvr-template and --dvr-start instead.\n");
-		continue;
-	}
-
 	__OnArgument("--dvr-start") {
 		dvr_autostart = 1;
 		continue;
@@ -1212,12 +1203,6 @@ int main(int argc, char **argv)
 			fprintf(stderr, "unsupported --dvr-mode (use raw, reencode, or both)\n");
 			return -1;
 		}
-		continue;
-	}
-
-	__OnArgument("--dvr-reenc") {
-		fprintf(stderr, "--dvr-reenc is deprecated. Use --dvr-mode reencode instead.\n");
-		dvr_mode = DVR_MODE_REENCODE;
 		continue;
 	}
 

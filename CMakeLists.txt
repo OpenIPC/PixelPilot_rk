@@ -41,8 +41,6 @@ set(SIMULATOR_SOURCES
         src/simulator.c
         src/gsmenu/executor.h
         src/gsmenu/executor.c
-        src/gsmenu/air_presets.h
-        src/gsmenu/air_presets.c
         src/gsmenu/air_telemetry.h
         src/gsmenu/air_telemetry.c
         src/gsmenu/air_txprofiles.h
@@ -96,8 +94,6 @@ set(LIB_SOURCE_FILES
         src/drm.c
         src/gsmenu/executor.h
         src/gsmenu/executor.c
-        src/gsmenu/air_presets.h
-        src/gsmenu/air_presets.c
         src/gsmenu/air_telemetry.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c

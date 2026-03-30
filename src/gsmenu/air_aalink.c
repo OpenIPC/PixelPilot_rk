@@ -36,7 +36,7 @@ void create_air_aalink_menu(lv_obj_t * parent) {
     lv_obj_t * cont;
     lv_obj_t * section;
 
-    create_text(parent, NULL, "WLAN Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    create_text(parent, NULL, "WiFi Settings", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(parent);
     lv_obj_add_style(section, &style_openipc_section, 0);
     cont = lv_menu_cont_create(section);
