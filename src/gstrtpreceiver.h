@@ -7,7 +7,9 @@
 #define FPVUE_GSTRTPRECEIVER_H
 
 #include <stdint.h>
+#ifndef USE_SIMULATOR
 #include <gst/gst.h>
+#endif
 #include <stdbool.h>
 #ifdef __cplusplus
 #include <thread>

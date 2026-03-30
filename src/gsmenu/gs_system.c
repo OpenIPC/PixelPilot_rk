@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../main.h"
+#ifndef USE_SIMULATOR
 #include "../drm.h"
+#endif
 #include "../gstrtpreceiver.h"
 #include "gs_system.h"
 #include "lvgl/lvgl.h"
@@ -40,7 +42,9 @@ extern int dvr_enabled;
 extern bool enable_live_colortrans;
 extern float live_colortrans_gain;
 extern float live_colortrans_offset;
+#ifndef USE_SIMULATOR
 extern gamma_lut_controller lut_ctrl;
+#endif
 
 // C interface to DVR control (defined in main.cpp)
 void dvr_reenc_notify_colortrans(int enabled);
@@ -188,7 +192,9 @@ void gs_live_colortrans_cb(lv_event_t *e) {
         lv_obj_t *ta = lv_event_get_target(e);
 
         if (lv_obj_has_state(ta, LV_STATE_CHECKED)) {
+#ifndef USE_SIMULATOR
             gamma_lut_enable(&lut_ctrl, live_colortrans_offset, live_colortrans_gain);
+#endif
             enable_live_colortrans = true;
             lv_obj_invalidate(lv_screen_active());
 #ifndef USE_SIMULATOR
@@ -197,7 +203,9 @@ void gs_live_colortrans_cb(lv_event_t *e) {
             printf("Live colortrans ENABLED (offset=%f, gain=%f)\n",
                          live_colortrans_offset, live_colortrans_gain);
         } else {
+#ifndef USE_SIMULATOR
             gamma_lut_disable(&lut_ctrl);
+#endif
             enable_live_colortrans = false;
             lv_obj_invalidate(lv_screen_active());
 #ifndef USE_SIMULATOR
