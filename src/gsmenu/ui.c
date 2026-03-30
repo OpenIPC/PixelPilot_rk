@@ -455,7 +455,7 @@ lv_obj_t * pp_menu_create(lv_obj_t * screen)
     section = lv_menu_section_create(root_page);
     lv_obj_add_style(section, &style_openipc_section, 0);
 
-    gs_dvr_cont = create_text(section, LV_SYMBOL_VIDEO, "DVR", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
+    gs_dvr_cont = create_text(section, LV_SYMBOL_VIDEO, "DVR-Player", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_group_add_obj(main_group,gs_dvr_cont);
     lv_menu_set_load_page_event(menu, gs_dvr_cont, sub_gs_dvr_page);
     lv_obj_add_event_cb(gs_dvr_cont,back_event_handler,LV_EVENT_KEY,NULL);
