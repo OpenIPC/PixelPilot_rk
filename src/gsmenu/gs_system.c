@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "../main.h"
 #ifndef USE_SIMULATOR
 #include "../drm.h"
@@ -343,6 +344,30 @@ void video_scale_cb(lv_event_t *e) {
     }
 }
 
+/* Reverts DRM to the pre-edit scale when the user cancels the slider.
+ * Reads start_value from the label's user_data if it's still there (we ran
+ * before generic_back_event_handler), otherwise falls back to the current
+ * slider value which generic_back_event_handler already restored. */
+static void video_scale_revert_cb(lv_event_t *e) {
+    if (lv_event_get_key(e) != LV_KEY_ESC) return;
+    lv_obj_t *slider = lv_event_get_target(e);
+    lv_obj_t *label  = lv_obj_get_child_by_type(lv_obj_get_parent(slider), 1, &lv_label_class);
+    thread_data_t *data = lv_obj_get_user_data(slider);
+
+    int32_t *start_value = label ? lv_obj_get_user_data(label) : NULL;
+    float factor;
+    if (start_value)
+        factor = *start_value / powf(10, data->precision);
+    else
+        factor = lv_slider_get_value(slider) / powf(10, data->precision);
+
+#ifndef USE_SIMULATOR
+    drm_set_video_scale(factor);
+#else
+    printf("drm_set_video_scale(%.2f) [revert]\n", factor);
+#endif
+}
+
 void dvr_max_size_label_cb(lv_event_t *e) {
     lv_obj_t *slider = lv_event_get_target(e);
     lv_obj_t *label = lv_obj_get_child_by_type(lv_obj_get_parent(slider), 1, &lv_label_class);
@@ -476,6 +501,7 @@ void create_gs_system_display_menu(lv_obj_t * parent) {
     use_sub_back_handler(resolution);
     video_scale = create_slider(cont, LV_SYMBOL_SETTINGS, "Video scale factor", "video_scale", menu_page_data, false, 2);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(video_scale, 0, &lv_slider_class), video_scale_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(lv_obj_get_child_by_type(video_scale, 0, &lv_slider_class), video_scale_revert_cb, LV_EVENT_KEY, NULL);
     use_sub_back_handler(video_scale);
     gs_live_colortrans = create_switch(cont, LV_SYMBOL_SETTINGS, "Live Colortrans", "gs_live_colortrans", menu_page_data, false);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(gs_live_colortrans, 0, &lv_switch_class), gs_live_colortrans_cb, LV_EVENT_VALUE_CHANGED, NULL);
