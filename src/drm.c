@@ -639,6 +639,53 @@ struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mod
 	return NULL;
 }
 
+void modeset_apply_video_scale(int fd, struct modeset_output *out)
+{
+	drmModePlane *plane = drmModeGetPlane(fd, out->video_plane.id);
+	if (!plane) {
+		fprintf(stderr, "modeset_apply_video_scale: drmModeGetPlane failed\n");
+		return;
+	}
+	uint32_t fb_id = plane->fb_id;
+	drmModeFreePlane(plane);
+
+	if (!fb_id) return;
+
+	/* Recalculate geometry (same logic as modeset_atomic_prepare_commit) */
+	uint32_t orig_crtcw = out->video_crtc_width;
+	uint32_t orig_crtch = out->video_crtc_height;
+	float video_ratio = (float)out->video_frm_width / out->video_frm_height;
+	if (orig_crtcw / video_ratio > orig_crtch)
+		orig_crtcw = (uint32_t)(orig_crtch * video_ratio);
+	else
+		orig_crtch = (uint32_t)(orig_crtcw / video_ratio);
+	uint32_t crtcw = (uint32_t)(orig_crtcw * out->video_scale_factor);
+	uint32_t crtch = (uint32_t)(orig_crtch * out->video_scale_factor);
+	int crtcx = (out->video_crtc_width  - crtcw) / 2;
+	int crtcy = (out->video_crtc_height - crtch) / 2;
+
+	/*
+	 * Update only the video plane geometry — do NOT touch CRTC/connector
+	 * properties and do NOT use ALLOW_MODESET.  Including a modeset here
+	 * resets the OSD plane because that plane is absent from the request.
+	 */
+	drmModeAtomicReq *req = drmModeAtomicAlloc();
+	set_drm_object_property(req, &out->video_plane, "FB_ID",  fb_id);
+	set_drm_object_property(req, &out->video_plane, "CRTC_ID", out->crtc.id);
+	set_drm_object_property(req, &out->video_plane, "SRC_X",  0);
+	set_drm_object_property(req, &out->video_plane, "SRC_Y",  0);
+	set_drm_object_property(req, &out->video_plane, "SRC_W",  out->video_frm_width  << 16);
+	set_drm_object_property(req, &out->video_plane, "SRC_H",  out->video_frm_height << 16);
+	set_drm_object_property(req, &out->video_plane, "CRTC_X", crtcx);
+	set_drm_object_property(req, &out->video_plane, "CRTC_Y", crtcy);
+	set_drm_object_property(req, &out->video_plane, "CRTC_W", crtcw);
+	set_drm_object_property(req, &out->video_plane, "CRTC_H", crtch);
+	int ret = drmModeAtomicCommit(fd, req, 0, NULL);
+	if (ret < 0)
+		fprintf(stderr, "modeset_apply_video_scale: atomic commit failed: %m\n");
+	drmModeAtomicFree(req);
+}
+
 int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos)
 {
 	int ret, flags;

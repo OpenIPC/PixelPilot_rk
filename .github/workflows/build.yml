@@ -21,13 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Cache debian
         id: cache-debian
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .apt_cache
@@ -47,7 +47,7 @@ jobs:
           sudo rm -r .apt_cache/archives/{lock,partial}
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.debian_codename }}-bin
           path: |
@@ -63,13 +63,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Cache debian
         id: cache-debian
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .apt_cache
@@ -91,7 +91,7 @@ jobs:
           sudo rm -r .apt_cache/archives/{lock,partial}
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.debian_codename }}-deb
           path: |
@@ -111,13 +111,13 @@ jobs:
           - radxa_zero3
     steps:
       - name: Checkout PixelPilot_rk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           path: PixelPilot_rk
 
       - name: Checkout sbc-groundstations
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: OpenIPC/sbc-groundstations
           path: sbc-groundstations
@@ -158,7 +158,7 @@ jobs:
             sbc_${{ matrix.platform }}_pixelpilot
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sbc-${{ matrix.platform }}-bin
           path: sbc_${{ matrix.platform }}_pixelpilot
@@ -172,13 +172,13 @@ jobs:
           - bookworm
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       - name: Cache debian
         id: cache-debian
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .apt_cache
@@ -204,10 +204,10 @@ jobs:
       - build_sbc
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download Binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ github.run_id }}  # Download all artifacts
           merge-multiple: true

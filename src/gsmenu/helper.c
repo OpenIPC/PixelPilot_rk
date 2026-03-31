@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <pthread.h>
+#include <signal.h>
 #include <math.h>
 #include "../../lvgl/lvgl.h"
 #include "gs_system.h"
@@ -20,7 +21,6 @@ extern lv_obj_t * menu;
 extern lv_indev_t * indev_drv;
 extern lv_obj_t * sub_gs_main_page;
 
-extern lv_obj_t * air_presets_cont;
 extern lv_obj_t * air_wfbng_cont;
 extern lv_obj_t * air_alink_cont;
 extern lv_obj_t * air_aalink_cont;
@@ -165,7 +165,6 @@ void generic_back_event_handler(lv_event_t * e) {
     lv_key_t key = lv_event_get_key(e);
     if (key == LV_KEY_HOME) {
         lv_menu_set_page(menu,NULL);
-        lv_obj_remove_state(air_presets_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_wfbng_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_alink_cont, LV_STATE_CHECKED);
         lv_obj_remove_state(air_aalink_cont, LV_STATE_CHECKED);
@@ -949,6 +948,63 @@ void gsmenu_toggle_rxmode() {
     default:
         break;
     }
+}
+
+typedef struct {
+    lv_obj_t   *mbox;
+    lv_group_t *prev_group;
+    lv_group_t *prev_default_group;
+    lv_group_t *dialog_group;
+} restart_dialog_ctx_t;
+
+static void restart_dialog_btn_cb(lv_event_t *e) {
+    restart_dialog_ctx_t *ctx = (restart_dialog_ctx_t *)lv_event_get_user_data(e);
+    lv_obj_t *btn = lv_event_get_target(e);
+
+    bool is_yes = (lv_obj_get_index(btn) == 0);
+
+    lv_group_set_default(ctx->prev_default_group);
+    lv_indev_set_group(indev_drv, ctx->prev_group);
+    lv_group_delete(ctx->dialog_group);
+    lv_msgbox_close(ctx->mbox);
+    free(ctx);
+
+    if (is_yes)
+        raise(SIGHUP);
+}
+
+void show_restart_notice(void) {
+    lv_group_t *prev_group         = lv_indev_get_group(indev_drv);
+    lv_group_t *prev_default_group = lv_group_get_default();
+    lv_group_t *dialog_group       = lv_group_create();
+    lv_group_set_default(dialog_group);
+
+    lv_obj_t *top  = lv_layer_top();
+    lv_obj_t *mbox = lv_msgbox_create(top);
+    lv_obj_t *backdrop = lv_obj_get_child_by_type(top, 0, &lv_msgbox_backdrop_class);
+    if (backdrop)
+        lv_obj_swap(backdrop, mbox);
+
+    lv_msgbox_add_title(mbox, LV_SYMBOL_WARNING " Restart required");
+    lv_msgbox_add_text(mbox, "A restart is required to apply the new resolution.\nRestart now?");
+    lv_obj_t *yes_btn = lv_msgbox_add_footer_button(mbox, LV_SYMBOL_OK " Yes");
+    lv_obj_t *no_btn  = lv_msgbox_add_footer_button(mbox, LV_SYMBOL_CLOSE " No");
+
+    lv_obj_add_style(yes_btn, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_style(yes_btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+    lv_obj_add_style(no_btn,  &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_style(no_btn,  &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+
+    restart_dialog_ctx_t *ctx = malloc(sizeof(restart_dialog_ctx_t));
+    ctx->mbox               = mbox;
+    ctx->prev_group         = prev_group;
+    ctx->prev_default_group = prev_default_group;
+    ctx->dialog_group       = dialog_group;
+
+    lv_indev_set_group(indev_drv, dialog_group);
+
+    lv_obj_add_event_cb(yes_btn, restart_dialog_btn_cb, LV_EVENT_CLICKED, ctx);
+    lv_obj_add_event_cb(no_btn,  restart_dialog_btn_cb, LV_EVENT_CLICKED, ctx);
 }
 
 void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, lv_obj_t* obj, ReloadFunc reload_func) {
