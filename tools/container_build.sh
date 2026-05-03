@@ -113,7 +113,7 @@ case $BUILD_TYPE in
         apt-get install -y ./$BUILD_DEPS_FILE
         rm pixelpilot-rk-build-deps*
 
-        dpkg-buildpackage -uc -us -b
+        dpkg-buildpackage -uc -us
 
         #debuild -S -I
         ;;
