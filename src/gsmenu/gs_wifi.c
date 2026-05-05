@@ -303,16 +303,21 @@ static void rebuild_network_list(void) {
         lv_obj_t * lbl = lv_label_create(net_list_cont);
         lv_label_set_text(lbl, "No networks found");
     } else {
-        /* Fetch currently connected SSID to mark it */
+        /* Fetch currently connected SSID to mark it.
+         * Skip when hotspot is active — the interface is in AP mode. */
         char connected_ssid[MAX_SSID_LEN] = "";
-        char * conn = run_command("gsmenu.sh get gs wifi ssid");
-        if (conn) {
-            size_t len = strlen(conn);
-            while (len > 0 && (conn[len-1] == '\n' || conn[len-1] == '\r'))
-                conn[--len] = '\0';
-            if (len > 0 && len < MAX_SSID_LEN)
-                strncpy(connected_ssid, conn, MAX_SSID_LEN - 1);
-            free(conn);
+        bool hotspot_on = (hotspot_sw_ref && lv_obj_is_valid(hotspot_sw_ref) &&
+                           lv_obj_has_state(hotspot_sw_ref, LV_STATE_CHECKED));
+        if (!hotspot_on) {
+            char * conn = run_command("gsmenu.sh get gs wifi ssid");
+            if (conn) {
+                size_t len = strlen(conn);
+                while (len > 0 && (conn[len-1] == '\n' || conn[len-1] == '\r'))
+                    conn[--len] = '\0';
+                if (len > 0 && len < MAX_SSID_LEN)
+                    strncpy(connected_ssid, conn, MAX_SSID_LEN - 1);
+                free(conn);
+            }
         }
 
         for (int i = 0; i < network_count; i++) {
@@ -380,15 +385,13 @@ static void rebuild_network_list(void) {
 /* ── Status ──────────────────────────────────────────────────────────────── */
 
 static void update_status(void) {
-    /* When hotspot is active the interface is in AP mode — not a client */
-    char * hs = run_command("gsmenu.sh get gs wifi hotspot");
-    if (hs) {
-        bool hotspot_on = (hs[0] == '1');
-        free(hs);
-        if (hotspot_on) {
-            lv_label_set_text(status_lbl, LV_SYMBOL_WIFI " Hotspot active");
-            return;
-        }
+    /* When hotspot is active the interface is in AP mode — not a client.
+     * Read from the already-loaded switch widget to avoid a redundant
+     * gsmenu.sh call on page load (reload_switch_value runs first). */
+    if (hotspot_sw_ref && lv_obj_is_valid(hotspot_sw_ref) &&
+        lv_obj_has_state(hotspot_sw_ref, LV_STATE_CHECKED)) {
+        lv_label_set_text(status_lbl, LV_SYMBOL_WIFI " Hotspot active");
+        return;
     }
     char * conn = run_command("gsmenu.sh get gs wifi ssid");
     if (conn) {
@@ -433,6 +436,10 @@ static void hotspot_switch_status_cb(lv_event_t * e) {
     } else {
         lv_label_set_text(status_lbl, "Not connected");
     }
+    /* Refresh the network list so no network remains marked "Connected"
+     * after hotspot is toggled on, and vice versa. */
+    if (network_count > 0)
+        rebuild_network_list();
 }
 
 /* ── Page load callback ──────────────────────────────────────────────────── */

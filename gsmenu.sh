@@ -72,6 +72,38 @@ list_wifi_channels() {
     iw list | grep MHz | grep -v disabled | grep -v "radar detection" | grep \* | tr -d '[]' | awk '{print $4 " (" $2 " " $3 ")"}' | grep '^[1-9]' | sort -n | uniq | sed -z '$ s/\n$//'
 }
 
+# Add or update a network stanza in wpa_supplicant.conf.
+# Usage: wpa_conf_update_network <ssid> <psk>  (psk may be empty for open networks)
+wpa_conf_update_network() {
+    local ssid="$1"
+    local psk="$2"
+    local conf="/etc/wpa_supplicant.conf"
+    local tmpfile
+    tmpfile=$(mktemp)
+
+    # Remove any existing stanza for this SSID, then append the updated one
+    if [ -f "$conf" ]; then
+        awk -v ssid="$ssid" '
+            /network=\{/ { in_block=1; block="" }
+            in_block { block = block $0 "\n" }
+            in_block && /\}/ {
+                if (index(block, "ssid=\"" ssid "\"") == 0)
+                    printf "%s", block
+                in_block=0; block=""
+                next
+            }
+            !in_block { print }
+        ' "$conf" > "$tmpfile"
+    fi
+
+    if [ -z "$psk" ]; then
+        printf 'network={\n    ssid="%s"\n    key_mgmt=NONE\n}\n' "$ssid" >> "$tmpfile"
+    else
+        printf 'network={\n    ssid="%s"\n    psk="%s"\n}\n' "$ssid" "$psk" >> "$tmpfile"
+    fi
+    mv "$tmpfile" "$conf"
+}
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Cache refresh (only for air get commands)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -863,12 +895,12 @@ case "$@" in
         nmcli connection show --active | grep -q "Hotspot" && echo 1 || echo 0
         ;;
     "get gs wifi wlan")
-        connection=$(nmcli -t connection show --active | grep wlan0 | cut -d : -f1)
+        connection=$(nmcli -t connection show --active | grep wlan0 | grep -v Hotspot | cut -d : -f1)
         [ -z "${connection}" ] && echo 0 || echo 1
         ;;
     "get gs wifi ssid")
         if [ -d /sys/class/net/wlan0 ]; then
-            nmcli -t connection show --active | grep wlan0 | cut -d : -f1
+            nmcli -t connection show --active | grep wlan0 | grep -v Hotspot | cut -d : -f1
         else
             echo -n ""
         fi
@@ -883,6 +915,51 @@ case "$@" in
         ;;
     "get gs wifi IP")
         ip -4 addr show  | grep -oP '(?<=inet\s)\d+(\.\d+){3}'
+        ;;
+    "get gs wifi savednetworks")
+        # Enumerate saved WiFi connection profiles and output ESCAPED_SSID:password
+        nmcli -t -f NAME,TYPE connection show 2>/dev/null | grep ":802-11-wireless$" | \
+        sed 's/:802-11-wireless$//' | \
+        while IFS= read -r name; do
+            ssid=$(nmcli -s -t -f 802-11-wireless.ssid connection show "$name" 2>/dev/null | cut -d: -f2-)
+            psk=$(nmcli -s -t -f 802-11-wireless-security.psk connection show "$name" 2>/dev/null | cut -d: -f2-)
+            [ -z "$ssid" ] && continue
+            escaped=$(printf '%s' "$ssid" | sed 's/:/\\:/g')
+            printf '%s:%s\n' "$escaped" "$psk"
+        done
+        ;;
+    "get gs wifi networks")
+        [ ! -d /sys/class/net/wlan0 ] && exit 0
+        # Output ESCAPED_SSID:SECURITY:SIGNAL per line (nmcli already escapes ':' in SSIDs)
+        # Use NF-based split so SSIDs with colons are reconstructed correctly
+        nmcli -t -f SSID,SECURITY,SIGNAL device wifi list 2>/dev/null | \
+        awk -F: '
+            {
+                signal = $NF
+                security = $(NF-1)
+                ssid = ""
+                for (i = 1; i <= NF-2; i++) {
+                    if (i > 1) ssid = ssid ":"
+                    ssid = ssid $i
+                }
+                if (ssid == "") next
+                sec = (security == "--") ? "--" : "WPA"
+                print ssid ":" sec ":" signal
+            }
+        '
+        ;;
+    "set gs wifi connect"*)
+        [ ! -d /sys/class/net/wlan0 ] && exit 0
+        if nmcli connection show | grep -q "$5"; then
+            nmcli con up "$5"
+        else
+            nmcli device wifi connect "$5" $( [ -n "$6" ] && printf 'password "%s"' "$6" ) ifname wlan0
+        fi
+        ;;
+    "set gs wifi disconnect"*)
+        [ ! -d /sys/class/net/wlan0 ] && exit 0
+        connection=$(nmcli -t connection show --active | grep wlan0 | grep -v Hotspot | cut -d : -f1)
+        [ -n "$connection" ] && nmcli con down "$connection" || true
         ;;
 
     "set gs wifi wlan"*)
@@ -904,6 +981,7 @@ case "$@" in
     "set gs wifi hotspot"*)
         [ ! -d /sys/class/net/wlan0 ] && exit 0
         if [ "$5" = "on" ]; then
+            nmcli connection show --active | grep -q "Hotspot" && exit 0  # already on
             if nmcli connection show | grep -q "Hotspot"; then
                 echo "Hotspot connection exists. Starting it..."
                 nmcli con up Hotspot
@@ -918,6 +996,7 @@ case "$@" in
                 nmcli con up Hotspot
             fi
         else
+            nmcli connection show --active | grep -q "Hotspot" || exit 0  # already off
             nmcli con down Hotspot
         fi
         ;;
