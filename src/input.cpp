@@ -204,14 +204,19 @@ void setup_gpio(YAML::Node& config) {
 }
 
 void send_long_press_event(size_t button_index) {
-    // This function defines what a long press does.
-    // Currently, only 'right' has a special long-press action.
     if (strcmp(gpio_buttons[button_index].name, "right") == 0) {
-        // A long press on 'right' emulates a 'center' press (LV_KEY_ENTER).
         next_key = LV_KEY_ENTER;
         next_key_pressed = true;
 
         printf("GPIO Long Press: %s (acting as center) (Pin: %d, Chip: %s)\n",
+               gpio_buttons[button_index].name,
+               gpio_buttons[button_index].pin_number,
+               gpio_buttons[button_index].chip_name);
+    }
+    else if (strcmp(gpio_buttons[button_index].name, "left") == 0 && !menu_active) {
+        toggle_rec_enabled();
+
+        printf("GPIO Long Press: %s (toggling recording) (Pin: %d, Chip: %s)\n",
                gpio_buttons[button_index].name,
                gpio_buttons[button_index].pin_number,
                gpio_buttons[button_index].chip_name);
@@ -332,16 +337,19 @@ void handle_gpio_input(void) {
                     gpio_buttons[i].long_press_sent = false;
                     gpio_buttons[i].repeat_time = current_time + INITIAL_REPEAT_DELAY_MS;
                     
-                    // Fire event immediately for all buttons EXCEPT 'right'.
-                    // For 'right', we wait to see if it's a short or long press.
-                    if (strcmp(gpio_buttons[i].name, "right") != 0) {
+                    // Fire event immediately for all buttons EXCEPT 'right' and 'left'.
+                    // For those, we wait to see if it's a short or long press.
+                    if (strcmp(gpio_buttons[i].name, "right") != 0 &&
+                        strcmp(gpio_buttons[i].name, "left") != 0) {
                         send_button_event(i);
                     }
                 } else { // Button released
                     gpio_buttons[i].is_holding = false;
                     
-                    // If 'right' was released AND it wasn't a long press, send the 'right' event now.
-                    if (strcmp(gpio_buttons[i].name, "right") == 0 && !gpio_buttons[i].long_press_sent) {
+                    // If 'right' or 'left' was released without a long press, send the normal event now.
+                    if ((strcmp(gpio_buttons[i].name, "right") == 0 ||
+                         strcmp(gpio_buttons[i].name, "left") == 0) &&
+                        !gpio_buttons[i].long_press_sent) {
                         send_button_event(i);
                     } else {
                         // For all other buttons, or for a long-pressed 'right' button,
@@ -355,13 +363,14 @@ void handle_gpio_input(void) {
             if (gpio_buttons[i].is_holding && current_state == 1 && 
                 current_time >= gpio_buttons[i].repeat_time) {
                 
-                // Special long-press handling for the 'right' button
-                if (strcmp(gpio_buttons[i].name, "right") == 0) {
+                // Special long-press handling for 'right' and 'left'
+                if (strcmp(gpio_buttons[i].name, "right") == 0 ||
+                    strcmp(gpio_buttons[i].name, "left") == 0) {
                     if (!gpio_buttons[i].long_press_sent) {
-                        send_long_press_event(i); // Send the 'center' event once
+                        send_long_press_event(i);
                         gpio_buttons[i].long_press_sent = true;
                     }
-                } 
+                }
                 else {
                     // Standard repeat for all other buttons
                     send_button_event(i);
