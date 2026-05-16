@@ -1172,23 +1172,59 @@ public:
 			auto past = std::chrono::duration_cast<std::chrono::milliseconds>(now - time);
 			double fade_fraction = 1.0 - static_cast<double>(past.count()) / static_cast<double>(timeout.count());
 
-			cairo_text_extents_t extents;
-			cairo_text_extents(cr, msg.c_str(), &extents);
+			// Cairo's `cairo_show_text` does not honour `\n`, so split the
+			// message on newlines and render each line on its own row.
+			std::vector<std::string> lines;
+			{
+				size_t start = 0;
+				while (start <= msg.size()) {
+					size_t nl = msg.find('\n', start);
+					if (nl == std::string::npos) {
+						lines.push_back(msg.substr(start));
+						break;
+					}
+					lines.push_back(msg.substr(start, nl - start));
+					start = nl + 1;
+				}
+			}
+
+			// Compute the bounding box for the whole multi-line message so
+			// the background sits behind every line.
+			double padding = 5.0;
+			double max_width = 0.0;
+			double total_height = 0.0;
+			double line_spacing = 2.0;
+			std::vector<cairo_text_extents_t> extents_per_line(lines.size());
+			for (size_t i = 0; i < lines.size(); ++i) {
+				cairo_text_extents(cr, lines[i].c_str(), &extents_per_line[i]);
+				if (extents_per_line[i].width > max_width) {
+					max_width = extents_per_line[i].width;
+				}
+				total_height += extents_per_line[i].height;
+				if (i + 1 < lines.size()) {
+					total_height += line_spacing;
+				}
+			}
 
 			// Draw popup box
-			double padding = 5.0;
 			cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, fade_fraction / 3.0);
 			cairo_rectangle(cr,
 							x - padding,
 							y_offset + padding,
-							extents.width + (padding * 2), -(extents.height + (padding * 2)));
+							max_width + (padding * 2), -(total_height + (padding * 2)));
 			cairo_fill(cr);
 
-			// Draw popup text
+			// Draw popup text, line by line
 			cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, fade_fraction);
-			cairo_move_to(cr, x, y_offset);
-			cairo_show_text(cr, msg.c_str());
-			y_offset += extents.height + (padding * 2) + 2;
+			uint line_y = y_offset;
+			for (size_t i = lines.size(); i-- > 0; ) {
+				cairo_move_to(cr, x, line_y);
+				cairo_show_text(cr, lines[i].c_str());
+				if (i > 0) {
+					line_y -= extents_per_line[i].height + line_spacing;
+				}
+			}
+			y_offset += total_height + (padding * 2) + 2;
 		}
 	}
 
