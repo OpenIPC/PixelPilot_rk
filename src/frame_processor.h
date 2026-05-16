@@ -101,7 +101,11 @@ private:
 
     // Only accessed from the processor thread — no mutex needed:
     MppBufferGroup    hold_grp  = nullptr;  // our own DRM buffer pool
-    MppBuffer         proc_copy_  = nullptr;  // processor's working buffer
+    // 3-buffer rotation: proc_bufs_[proc_buf_idx_] is the current write buffer.
+    // Rotating through 3 ensures the buffer we write is always 2 frames old —
+    // enough time for the encoder's VPU DMA to finish reading the previous use.
+    MppBuffer         proc_bufs_[3] = {nullptr, nullptr, nullptr};
+    int               proc_buf_idx_{0};
     MppBuffer         blend_rgba_ = nullptr;  // BGRA intermediate for OSD compositing
     FrameProcFrame     proc_meta_;              // metadata being built by processor
 
