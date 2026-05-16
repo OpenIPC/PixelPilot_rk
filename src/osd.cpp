@@ -70,6 +70,9 @@ int hours = 0, minutes = 0, seconds = 0, milliseconds = 0;
 extern pthread_mutex_t video_mutex;
 extern pthread_cond_t video_cond;
 bool osd_update_ready = false;
+extern pthread_mutex_t osd_committed_mutex;
+extern pthread_cond_t osd_committed_cond;
+extern bool osd_committed_flag;
 bool menu_active = false;
 bool gsmenu_enabled = false;
 
@@ -1960,6 +1963,11 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
 			                         osd_buf->stride / 4);
 	}
 
+	// Reset committed flag before signaling the display thread so we can't miss it.
+	pthread_mutex_lock(&osd_committed_mutex);
+	osd_committed_flag = false;
+	pthread_mutex_unlock(&osd_committed_mutex);
+
 	// tell the display thread that we have a update
 	ret = pthread_mutex_lock(&video_mutex);
 	assert(!ret);
@@ -1968,6 +1976,12 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
 	assert(!ret);
 	ret = pthread_mutex_unlock(&video_mutex);
 	assert(!ret);
+
+	// Wait for the DRM flip to complete before allowing LVGL to write to the other buffer.
+	pthread_mutex_lock(&osd_committed_mutex);
+	while (!osd_committed_flag)
+		pthread_cond_wait(&osd_committed_cond, &osd_committed_mutex);
+	pthread_mutex_unlock(&osd_committed_mutex);
 
     /* IMPORTANT!!!
      * Inform LVGL that flushing is complete so buffer can be modified again. */

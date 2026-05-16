@@ -97,6 +97,9 @@ int drm_fd = 0;
 pthread_mutex_t video_mutex;
 pthread_cond_t video_cond;
 extern bool osd_update_ready;
+pthread_mutex_t osd_committed_mutex;
+pthread_cond_t osd_committed_cond;
+bool osd_committed_flag = false;
 extern bool gsmenu_enabled;
 int video_zpos = 1;
 
@@ -429,7 +432,7 @@ void *__DISPLAY_THREAD__(void *param)
 		output_list->video_request = drmModeAtomicAlloc();
 
 		// show DRM FB in plane
-		uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
+		uint32_t flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : 0;  // block until vblank for OSD-only unless vsync disabled
 		if (fb_id != 0) {
 			flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : DRM_MODE_ATOMIC_ALLOW_MODESET;
 			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
@@ -446,13 +449,24 @@ void *__DISPLAY_THREAD__(void *param)
 			assert(ret>0);
 		}
 		drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);
+		if (osd_update && enable_osd) {
+			pthread_mutex_lock(&osd_committed_mutex);
+			osd_committed_flag = true;
+			pthread_cond_signal(&osd_committed_cond);
+			pthread_mutex_unlock(&osd_committed_mutex);
+		}
 		ret = pthread_mutex_unlock(&osd_mutex);
 		assert(!ret);
 		osd_publish_uint_fact("video.displayed_frame", NULL, 0, 1);
 		uint64_t decode_and_handover_display_ms=get_time_ms()-decoding_pts;
 		osd_publish_uint_fact("video.decode_and_handover_ms", NULL, 0, decode_and_handover_display_ms);
 	}
-end:	
+end:
+	// Unblock any my_flush_cb waiting for a commit that will never come.
+	pthread_mutex_lock(&osd_committed_mutex);
+	osd_committed_flag = true;
+	pthread_cond_signal(&osd_committed_cond);
+	pthread_mutex_unlock(&osd_committed_mutex);
 	spdlog::info("Display thread done.");
 	return nullptr;
 }
@@ -1570,6 +1584,10 @@ int main(int argc, char **argv)
 	assert(!ret);
 	ret = pthread_cond_init(&video_cond, NULL);
 	assert(!ret);
+	ret = pthread_mutex_init(&osd_committed_mutex, NULL);
+	assert(!ret);
+	ret = pthread_cond_init(&osd_committed_cond, NULL);
+	assert(!ret);
 
 	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_wfbcli;
 	if (dvr_template != NULL) {
@@ -1694,6 +1712,10 @@ int main(int argc, char **argv)
 	ret = pthread_cond_destroy(&video_cond);
 	assert(!ret);
 	ret = pthread_mutex_destroy(&video_mutex);
+	assert(!ret);
+	ret = pthread_cond_destroy(&osd_committed_cond);
+	assert(!ret);
+	ret = pthread_mutex_destroy(&osd_committed_mutex);
 	assert(!ret);
 
 	if (mavlink_thread) {
