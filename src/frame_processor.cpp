@@ -32,8 +32,11 @@ FrameProcessor::FrameProcessor(MppEncoder *enc, int fps, EncResolution res)
 
 FrameProcessor::~FrameProcessor() {
     shutdown();
-    if (last_copy)   { mpp_buffer_put(last_copy);   last_copy   = nullptr; }
-    if (proc_copy_)  { mpp_buffer_put(proc_copy_);  proc_copy_  = nullptr; }
+    // last_copy is an alias into proc_bufs_[] — clear it without an extra put.
+    last_copy = nullptr;
+    for (int i = 0; i < 3; i++) {
+        if (proc_bufs_[i]) { mpp_buffer_put(proc_bufs_[i]); proc_bufs_[i] = nullptr; }
+    }
     if (blend_rgba_) { mpp_buffer_put(blend_rgba_); blend_rgba_ = nullptr; }
     if (hold_grp)    { mpp_buffer_group_put(hold_grp); hold_grp = nullptr; }
 }
@@ -153,11 +156,23 @@ void FrameProcessor::process_loop() {
 
             size_t dst_sz = (size_t)dst_hs * dst_vs * 3 / 2;  // NV12
 
-            if (hold_grp && (!proc_copy_ || mpp_buffer_get_size(proc_copy_) < dst_sz)) {
-                if (proc_copy_) { mpp_buffer_put(proc_copy_); proc_copy_ = nullptr; }
-                mpp_buffer_get(hold_grp, &proc_copy_, dst_sz);
+            MppBuffer &cur_buf = proc_bufs_[proc_buf_idx_];
+            if (!cur_buf) {
+                // First use of this slot — lazily allocate without disturbing others.
+                if (hold_grp) mpp_buffer_get(hold_grp, &cur_buf, dst_sz);
+            } else if (hold_grp && mpp_buffer_get_size(cur_buf) < dst_sz) {
+                // Resolution grew — invalidate last_copy first (under lock), then
+                // free all 3 slots so they get reallocated at the new size.
+                {
+                    std::lock_guard<std::mutex> lk(ready_mtx_);
+                    last_copy = nullptr;
+                }
+                for (int i = 0; i < 3; i++) {
+                    if (proc_bufs_[i]) { mpp_buffer_put(proc_bufs_[i]); proc_bufs_[i] = nullptr; }
+                }
+                mpp_buffer_get(hold_grp, &cur_buf, dst_sz);
             }
-            if (proc_copy_) {
+            if (cur_buf) {
                 // Re-init color correction if source dimensions changed.
                 if (cc_init_done_ &&
                     (fresh.width != cc_width_ || fresh.height != cc_height_)) {
@@ -180,7 +195,7 @@ void FrameProcessor::process_loop() {
                         mpp_buffer_get_fd(fresh.buffer),
                         fresh.width, fresh.height,
                         fresh.hor_stride, fresh.ver_stride,
-                        mpp_buffer_get_fd(proc_copy_),
+                        mpp_buffer_get_fd(cur_buf),
                         dst_w, dst_h, dst_hs, dst_vs);
                 }
                 if (!copied) {
@@ -191,7 +206,7 @@ void FrameProcessor::process_loop() {
                         fresh.width, fresh.height,
                         fresh.hor_stride, fresh.ver_stride, rga_fmt);
                     rga_buffer_t dst_rga = wrapbuffer_fd_t(
-                        mpp_buffer_get_fd(proc_copy_),
+                        mpp_buffer_get_fd(cur_buf),
                         dst_w, dst_h, dst_hs, dst_vs, rga_fmt);
                     if (fresh.width == dst_w && fresh.height == dst_h) {
                         if (imcopy(src_rga, dst_rga) != IM_STATUS_SUCCESS) {
@@ -199,7 +214,7 @@ void FrameProcessor::process_loop() {
                             size_t actual = mpp_buffer_get_size(fresh.buffer);
                             if (copy_sz > actual) copy_sz = actual;
                             void *sp = mpp_buffer_get_ptr(fresh.buffer);
-                            void *dp = mpp_buffer_get_ptr(proc_copy_);
+                            void *dp = mpp_buffer_get_ptr(cur_buf);
                             if (sp && dp) memcpy(dp, sp, copy_sz);
                         }
                     } else {
@@ -219,9 +234,9 @@ void FrameProcessor::process_loop() {
             fresh.release();  // decoder buffer is free again
         }
 
-        if (!proc_copy_) continue;
+        if (!proc_bufs_[proc_buf_idx_]) continue;
 
-        // ── OSD blend on proc_copy_ ─────────────────────────────────────
+        // ── OSD blend on proc_bufs_[proc_buf_idx_] ──────────────────────
         {
             OsdInfo osd_snap;
             {
@@ -236,7 +251,7 @@ void FrameProcessor::process_loop() {
                 }
                 if (blend_rgba_) {
                     rga_buffer_t nv12 = wrapbuffer_fd_t(
-                        mpp_buffer_get_fd(proc_copy_),
+                        mpp_buffer_get_fd(proc_bufs_[proc_buf_idx_]),
                         proc_meta_.width, proc_meta_.height,
                         proc_meta_.hor_stride, proc_meta_.ver_stride,
                         RK_FORMAT_YCbCr_420_SP);
@@ -257,12 +272,13 @@ void FrameProcessor::process_loop() {
             }
         }
 
-        // ── Publish: swap proc buffer into last_copy for the timer ──────
+        // ── Publish: rotate to next buffer, expose current one to timer ──
         {
             std::lock_guard<std::mutex> lock(ready_mtx_);
-            std::swap(proc_copy_, last_copy);
+            last_copy = proc_bufs_[proc_buf_idx_];
             last_meta = proc_meta_;
             ready_fresh_ = true;
+            proc_buf_idx_ = (proc_buf_idx_ + 1) % 3;
         }
         ready_cv_.notify_one();
 
