@@ -96,25 +96,6 @@ static uint16_t find_dropdown_option_index(const char * options, const char * va
     return 0;
 }
 
-void wifi_page_load_callback(lv_obj_t * page)
-{
-    reload_switch_value(page,hotspot);
-    reload_switch_value(page,wlan);
-    reload_textarea_value(page,ssid);
-    reload_textarea_value(page,password);
-    reload_label_value(page,ipinfo);
-
-#ifndef USE_SIMULATOR
-    if (restream_get_enabled()) lv_obj_add_state(lv_obj_get_child_by_type(restream,0,&lv_switch_class), LV_STATE_CHECKED);
-    else lv_obj_clear_state(lv_obj_get_child_by_type(restream,0,&lv_switch_class), LV_STATE_CHECKED);
-    {
-        char clients[512];
-        restream_scan_clients(clients, sizeof(clients));
-        lv_dropdown_set_options(ip_dropdown, clients);
-        lv_dropdown_set_selected(ip_dropdown, find_dropdown_option_index(clients, restream_get_manual_ip()));
-    }
-#endif
-}
 static void ip_dropdown_cb(lv_event_t * e) {
     if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
         lv_obj_t * dd = lv_event_get_target(e);
