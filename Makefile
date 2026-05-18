@@ -45,7 +45,8 @@ qemu_build_deb:
 
 	sudo rm $(OUTPUT)/etc/resolv.conf
 	echo nameserver 1.1.1.1 | sudo tee -a $(OUTPUT)/etc/resolv.conf
-	LC_ALL=en_US.UTF-8 sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot --pkg-version $(DEB_VERSION) --debian-codename $(DEBIAN_CODENAME) --build-type deb
+	LC_ALL=C LC_CTYPE=C sudo chroot $(OUTPUT) /usr/src/PixelPilot_rk/tools/container_build.sh --wipe-boot \
+		--pkg-version $(shell git log --date=format:%Y%m%d --pretty='$(DEB_VERSION)~git%cd.%h' | head -n 1) --debian-codename $(DEBIAN_CODENAME) --build-type deb
 	make umount
 
 .PHONY: qemu_test
