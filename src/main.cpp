@@ -886,20 +886,55 @@ public:
         }
 
         // fd is non-blocking
-        char custom_msg[120];
-        osd_tag tags[1];
-        ssize_t bytes_read = read(fd, custom_msg, sizeof(custom_msg) - 1);
+        char chunk[120];
+        ssize_t bytes_read = read(fd, chunk, sizeof(chunk));
         if (bytes_read > 0) {
-            // If the last char is `\n`, then drop it
-            if (bytes_read > 1 && custom_msg[bytes_read - 1] == '\n') {
-                custom_msg[bytes_read - 1] = '\0';
-            } else {
-                custom_msg[bytes_read] = '\0';
-            }
-            strcpy(tags[0].key, "file");
-            strcpy(tags[0].val, fifoName);
-            osd_publish_str_fact("osd.custom_message", tags, 1, custom_msg);
+            buffer.append(chunk, bytes_read);
         }
+
+        // Emit one fact per `\n`-terminated message. If the buffer grows past
+        // MAX_MSG_LEN without a newline, flush it anyway so a stuck writer
+        // cannot make us grow unboundedly.
+        while (true) {
+            size_t nl = buffer.find('\n');
+            if (nl == std::string::npos) {
+                if (buffer.size() >= MAX_MSG_LEN) {
+                    publish_message(buffer);
+                    buffer.clear();
+                }
+                break;
+            }
+            std::string msg = buffer.substr(0, nl);
+            buffer.erase(0, nl + 1);
+            if (!msg.empty()) {
+                publish_message(msg);
+            }
+        }
+    }
+
+    // Unescape `\\n` -> literal newline so writers that cannot emit a raw
+    // newline (eg shell `echo` without `-e`) can still build multi-line
+    // messages.
+    static std::string unescape_newlines(const std::string& in) {
+        std::string out;
+        out.reserve(in.size());
+        for (size_t i = 0; i < in.size(); ++i) {
+            if (in[i] == '\\' && i + 1 < in.size() && in[i + 1] == 'n') {
+                out.push_back('\n');
+                ++i;
+            } else {
+                out.push_back(in[i]);
+            }
+        }
+        return out;
+    }
+
+    void publish_message(const std::string& raw) {
+        osd_tag tags[1];
+        strcpy(tags[0].key, "file");
+        strcpy(tags[0].val, fifoName);
+        std::string msg = unescape_newlines(raw);
+        osd_publish_str_fact("osd.custom_message", tags, 1, msg.c_str());
     }
 
     ~CustomMsgManager() {
@@ -910,9 +945,12 @@ public:
     }
 
 private:
+    static constexpr size_t MAX_MSG_LEN = 512;
+
     const char* fifoName;
     int fd; // File descriptor for the FIFO
     bool enabled;
+    std::string buffer; // accumulates partial reads until a `\n` is seen
 };
 
 void main_loop() {
