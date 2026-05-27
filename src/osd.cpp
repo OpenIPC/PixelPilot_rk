@@ -2017,30 +2017,37 @@ uint32_t my_get_milliseconds() {
 }
 
 lv_display_t * display;
+static lv_draw_buf_t lvgl_draw_buf1, lvgl_draw_buf2;
+
 void setup_lvgl(osd_thread_params *p) {
 
 	/* Initialize LVGL. */
     lv_init();
 
-	// create the display
-    struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
-	display = lv_display_create(buf->width, buf->height);
-
 	// Get the first two buffers from the OSD buffers
 	struct modeset_buf *buf1 = &p->out->osd_bufs[0];
 	struct modeset_buf *buf2 = &p->out->osd_bufs[1];
 
-	// Set the buffers in LVGL
-	lv_display_set_buffers(display, buf1->map, buf2->map, buf1->size, LV_DISPLAY_RENDER_MODE_DIRECT);
+	display = lv_display_create(buf1->width, buf1->height);
+	lv_display_set_color_format(display, LV_COLOR_FORMAT_ARGB8888);
+
+	// Pass the actual DRM pitch (buf->stride) so LVGL's row offsets match the
+	// hardware-aligned scanline stride. lv_display_set_buffers() would recompute
+	// stride as width*bpp and misalign on non-power-of-2 widths like 1366px.
+	lv_draw_buf_init(&lvgl_draw_buf1, buf1->width, buf1->height,
+	                 LV_COLOR_FORMAT_ARGB8888, buf1->stride, buf1->map, buf1->size);
+	lv_draw_buf_init(&lvgl_draw_buf2, buf2->width, buf2->height,
+	                 LV_COLOR_FORMAT_ARGB8888, buf2->stride, buf2->map, buf2->size);
+	lv_display_set_draw_buffers(display, &lvgl_draw_buf1, &lvgl_draw_buf2);
+	lv_display_set_render_mode(display, LV_DISPLAY_RENDER_MODE_DIRECT);
 
 	lv_display_set_flush_cb(display, my_flush_cb);
 
 	lv_tick_set_cb(my_get_milliseconds);
 
-	lv_display_set_color_format(display, LV_COLOR_FORMAT_ARGB8888);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(lv_layer_bottom(), LV_OPA_TRANSP, LV_PART_MAIN);
-    
+
 }
 
 void *__OSD_THREAD__(void *param) {
