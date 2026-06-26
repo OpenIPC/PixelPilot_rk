@@ -113,6 +113,9 @@ static VideoCodec detect_mp4_codec(const char* file_path) {
     return result;
 }
 
+// Defined below; classifies a single RTP packet as H264/H265/UNKNOWN.
+static VideoCodec classify_rtp_packet(const uint8_t* pkt, size_t len);
+
 namespace {
     static constexpr int kIdrUdpPort = 11223;
     static constexpr int kIdrBurstCount = 3;
@@ -129,6 +132,22 @@ namespace {
     static constexpr uint64_t kDecodeStallCooldownMs = 700;
     static constexpr uint64_t kDecodeStallPktWindowMs = 500;
     static constexpr uint64_t kRtpSeqResetMs = 1000;
+
+    // Number of consecutive RTP packets that must classify as the *other* codec
+    // before a mid-stream switch is accepted. Frequent active-codec packets reset
+    // the run, so a stray misclassified packet cannot trigger a rebuild.
+    static constexpr int kCodecSwitchConfirm = 12;
+
+    // Mid-stream codec-switch detection. g_active_codec is the codec the running
+    // pipeline was built for; g_codec_switch_cb performs the rebuild and is set
+    // by the receiver. The cb is invoked at most once until the rebuild clears
+    // g_codec_switch_pending.
+    static std::atomic<bool> g_codec_auto{false};
+    static std::atomic<int> g_active_codec{static_cast<int>(VideoCodec::UNKNOWN)};
+    static std::atomic<int> g_codec_switch_run{0};
+    static std::atomic<bool> g_codec_switch_pending{false};
+    static std::mutex g_codec_switch_mutex;
+    static std::function<void(VideoCodec)> g_codec_switch_cb;
 
     static std::mutex g_idr_sock_mutex;
     static int g_idr_sock = -1;
@@ -502,6 +521,66 @@ namespace {
         g_last_rtp_seq_ms.store(now, std::memory_order_relaxed);
     }
 
+    static void note_pipeline_codec(VideoCodec codec) {
+        g_active_codec.store(static_cast<int>(codec), std::memory_order_relaxed);
+        g_codec_switch_run.store(0, std::memory_order_relaxed);
+        g_codec_switch_pending.store(false, std::memory_order_relaxed);
+    }
+
+    static void set_codec_switch_callback(std::function<void(VideoCodec)> cb) {
+        std::lock_guard<std::mutex> lock(g_codec_switch_mutex);
+        g_codec_switch_cb = std::move(cb);
+    }
+
+    // Inspect a raw RTP packet and, if the stream has switched to the other
+    // codec for a sustained run, hand off a rebuild to the registered callback.
+    // Called from RTP-ingress threads; must not block or rebuild inline.
+    static void maybe_detect_codec_switch(const uint8_t* rtp, size_t len) {
+        if (!g_codec_auto.load(std::memory_order_relaxed)) {
+            return; // codec pinned by the user; never override it
+        }
+        const int active = g_active_codec.load(std::memory_order_relaxed);
+        if (active == static_cast<int>(VideoCodec::UNKNOWN)) {
+            return; // codec not resolved yet (startup sniff handles it)
+        }
+        if (g_codec_switch_pending.load(std::memory_order_relaxed)) {
+            return; // a switch is already being applied
+        }
+
+        const VideoCodec c = classify_rtp_packet(rtp, len);
+        if (c == VideoCodec::UNKNOWN) {
+            return; // ambiguous packet: neither confirm nor reset
+        }
+        if (static_cast<int>(c) == active) {
+            g_codec_switch_run.store(0, std::memory_order_relaxed);
+            return;
+        }
+
+        if (g_codec_switch_run.fetch_add(1, std::memory_order_relaxed) + 1 < kCodecSwitchConfirm) {
+            return;
+        }
+
+        // Confirmed switch; ensure we only fire once until the rebuild completes.
+        if (g_codec_switch_pending.exchange(true, std::memory_order_relaxed)) {
+            return;
+        }
+        g_codec_switch_run.store(0, std::memory_order_relaxed);
+        spdlog::info("[CODEC] Mid-stream switch detected: {} -> {}",
+                     active == static_cast<int>(VideoCodec::H265) ? "H.265" : "H.264",
+                     c == VideoCodec::H265 ? "H.265" : "H.264");
+
+        std::function<void(VideoCodec)> cb;
+        {
+            std::lock_guard<std::mutex> lock(g_codec_switch_mutex);
+            cb = g_codec_switch_cb;
+        }
+        if (cb) {
+            cb(c);
+        } else {
+            g_codec_switch_pending.store(false, std::memory_order_relaxed);
+        }
+    }
+
     static void for_each_nal(const uint8_t* data, size_t size,
                              const std::function<void(const uint8_t*, size_t)>& cb) {
         auto find_start = [&](size_t from, size_t& start_len) -> size_t {
@@ -791,6 +870,11 @@ namespace {
             if (buf) {
                 on_incoming_stream_buffer(buf, "udpsrc");
                 maybe_track_rtp_sequence(buf);
+                GstMapInfo map;
+                if (gst_buffer_map(buf, &map, GST_MAP_READ)) {
+                    maybe_detect_codec_switch(map.data, map.size);
+                    gst_buffer_unmap(buf, &map);
+                }
             }
         }
         return GST_PAD_PROBE_OK;
@@ -860,6 +944,100 @@ namespace {
     }
 }
 
+// --- RTP codec autodetection ---------------------------------------------
+// Classify a single RTP/AVP packet as H264 or H265 by inspecting the NAL
+// header that follows the RTP header. Returns UNKNOWN when the packet is not a
+// usable video packet or is ambiguous.
+static VideoCodec classify_rtp_packet(const uint8_t* pkt, size_t len) {
+    if (len < RTP_HEADER_LEN + 1) return VideoCodec::UNKNOWN;
+    if (((pkt[0] >> 6) & 0x3) != 2) return VideoCodec::UNKNOWN;   // RTP version 2
+    size_t off = RTP_HEADER_LEN + (pkt[0] & 0x0F) * 4;            // skip CSRCs
+    if (pkt[0] & 0x10) {                                          // skip extension
+        if (len < off + 4) return VideoCodec::UNKNOWN;
+        off += 4 + ((pkt[off + 2] << 8 | pkt[off + 3]) * 4);
+    }
+    if (off >= len) return VideoCodec::UNKNOWN;
+
+    const uint8_t nb = pkt[off];
+    if (nb & 0x80) return VideoCodec::UNKNOWN;                    // forbidden_zero_bit
+
+    // Fragmentation units carry the bulk of a video stream and use disjoint
+    // header bytes between the two codecs, so they are the most reliable signal.
+    if (nb == 0x1C || nb == 0x3C || nb == 0x5C || nb == 0x7C)     // H264 FU-A (type 28)
+        return VideoCodec::H264;
+    if (nb == 0x62 || nb == 0x63)                                 // H265 FU (type 49)
+        return VideoCodec::H265;
+
+    // Otherwise (parameter sets, SEI, single-NAL slices) prefer the codec whose
+    // NAL-type interpretation is valid while the other's is not, e.g. VPS(32)
+    // -> 0x40 is invalid as H264 type 0, H264 SPS(7) -> 0x67 is invalid as
+    // H265 type 51.
+    const uint8_t t264 = nb & 0x1F;
+    const uint8_t t265 = (nb >> 1) & 0x3F;
+    const bool h264_valid = (t264 >= 1 && t264 <= 23);
+    const bool h265_valid = (t265 <= 40);
+    if (h265_valid && !h264_valid) return VideoCodec::H265;
+    if (h264_valid && !h265_valid) return VideoCodec::H264;
+    return VideoCodec::UNKNOWN;
+}
+
+// Read RTP packets from an already-bound datagram fd and vote on the codec.
+// Blocks up to timeout_ms; returns UNKNOWN if no video packets were seen.
+static VideoCodec sniff_rtp_codec_fd(int fd, int timeout_ms) {
+    uint8_t buf[MAX_PACKET_SIZE];
+    int votes264 = 0, votes265 = 0;
+    const auto start = std::chrono::steady_clock::now();
+    for (;;) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - start).count();
+        const long remaining = timeout_ms - elapsed;
+        if (remaining <= 0) break;
+
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(fd, &read_fds);
+        struct timeval tv = { remaining / 1000, (remaining % 1000) * 1000 };
+        if (select(fd + 1, &read_fds, nullptr, nullptr, &tv) <= 0) continue;
+
+        const ssize_t n = recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) continue;
+
+        const VideoCodec c = classify_rtp_packet(buf, static_cast<size_t>(n));
+        if (c == VideoCodec::H264) votes264++;
+        else if (c == VideoCodec::H265) votes265++;
+
+        // Stop early once one codec has a clear lead.
+        if (votes264 >= 3 && votes264 > votes265 * 2) return VideoCodec::H264;
+        if (votes265 >= 3 && votes265 > votes264 * 2) return VideoCodec::H265;
+    }
+    if (votes264 == 0 && votes265 == 0) return VideoCodec::UNKNOWN;
+    return votes264 >= votes265 ? VideoCodec::H264 : VideoCodec::H265;
+}
+
+// Sniff the codec on a UDP port without disturbing the GStreamer udpsrc: bind a
+// temporary socket, sample packets, then release the port for the pipeline.
+static VideoCodec sniff_rtp_codec_udp(int port, int timeout_ms) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        spdlog::warn("[CODEC] sniff socket() failed: {}", strerror(errno));
+        return VideoCodec::UNKNOWN;
+    }
+    int reuse = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        spdlog::warn("[CODEC] sniff bind(port={}) failed: {}", port, strerror(errno));
+        close(fd);
+        return VideoCodec::UNKNOWN;
+    }
+    const VideoCodec result = sniff_rtp_codec_fd(fd, timeout_ms);
+    close(fd);
+    return result;
+}
+
 static void initGstreamerOrThrow() {
     GError* error = nullptr;
     if (!gst_init_check(nullptr, nullptr, &error)) {
@@ -872,6 +1050,7 @@ GstRtpReceiver::GstRtpReceiver(int udp_port, const VideoCodec& codec)
 {
     m_port=udp_port;
     m_video_codec=codec;
+    m_auto_codec = (codec == VideoCodec::UNKNOWN);
     initGstreamerOrThrow();
 
 }
@@ -879,6 +1058,7 @@ GstRtpReceiver::GstRtpReceiver(int udp_port, const VideoCodec& codec)
 GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec) {
     unix_socket = strdup(s);
     m_video_codec = codec;
+    m_auto_codec = (codec == VideoCodec::UNKNOWN);
     initGstreamerOrThrow();
 
     spdlog::debug("Creating receiver socket on {}", unix_socket);
@@ -909,6 +1089,11 @@ GstRtpReceiver::GstRtpReceiver(const char *s, const VideoCodec& codec) {
 }
 
 GstRtpReceiver::~GstRtpReceiver(){
+    // Drop the detection callback so the ingress threads can never call back
+    // into a destroyed receiver.
+    set_codec_switch_callback(nullptr);
+    g_codec_auto.store(false, std::memory_order_relaxed);
+    note_pipeline_codec(VideoCodec::UNKNOWN);
     if (sock >= 0) {
         close(sock);
     }
@@ -1022,8 +1207,11 @@ static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc)
 
         // Read data directly into buffer
         ssize_t n = recv(sock_fd, map.data, map.size, 0);
+        if (n > 0) {
+            maybe_detect_codec_switch(map.data, static_cast<size_t>(n));
+        }
         gst_buffer_unmap(buffer, &map);
-        
+
         if (n <= RTP_HEADER_LEN) {
             spdlog::warn("Invalid RTP packet size: {}", n);
             gst_buffer_unref(buffer);
@@ -1145,7 +1333,23 @@ VideoCodec GstRtpReceiver::switch_to_file_playback(const char * file_path) {
 
 void GstRtpReceiver::switch_to_stream() {
     stop_receiving();
-    
+
+    // Resolve "auto" codec by sniffing the live RTP stream. The whole pipeline
+    // (depay/parse/caps) is codec-specific, so this must happen before it is built.
+    if (m_video_codec == VideoCodec::UNKNOWN) {
+        VideoCodec detected = unix_socket
+            ? sniff_rtp_codec_fd(sock, 2000)
+            : sniff_rtp_codec_udp(m_port, 2000);
+        if (detected == VideoCodec::UNKNOWN) {
+            detected = VideoCodec::H265;
+            spdlog::warn("[CODEC] Autodetect saw no RTP video; defaulting to H.265");
+        } else {
+            spdlog::info("[CODEC] Autodetected {} stream",
+                         detected == VideoCodec::H265 ? "H.265" : "H.264");
+        }
+        m_video_codec = detected;
+    }
+
     const auto pipeline = construct_gstreamer_pipeline();
     GError* error = nullptr;
     m_gst_pipeline = gst_parse_launch(pipeline.c_str(), &error);
@@ -1220,9 +1424,40 @@ void GstRtpReceiver::switch_to_stream() {
     assert(m_app_sink_element);
     
     gst_element_set_state(m_gst_pipeline, GST_STATE_PLAYING);
-    
+
     m_pull_samples_run = true;
     m_pull_samples_thread = std::make_unique<std::thread>(&GstRtpReceiver::loop_pull_samples, this);
+
+    // Arm mid-stream codec-switch detection for the codec we just built for,
+    // but only in auto mode (a pinned codec is never overridden).
+    g_codec_auto.store(m_auto_codec, std::memory_order_relaxed);
+    set_codec_switch_callback([this](VideoCodec new_codec) {
+        request_codec_switch(new_codec);
+    });
+    note_pipeline_codec(m_video_codec);
+}
+
+void GstRtpReceiver::request_codec_switch(VideoCodec new_codec) {
+    // Rebuild on a detached thread: switch_to_stream() tears down the pipeline
+    // (set_state NULL) and joins the pull/socket threads, neither of which is
+    // safe to do from a GStreamer streaming thread or the socket reader itself.
+    std::thread([this, new_codec]() {
+        m_video_codec = new_codec;          // skips re-sniffing in switch_to_stream
+        switch_to_stream();                 // also clears the pending flag
+        std::function<void(VideoCodec)> cb;
+        {
+            std::lock_guard<std::mutex> lock(m_codec_changed_mutex);
+            cb = m_on_codec_changed;
+        }
+        if (cb) {
+            cb(new_codec);                  // let the host realign its decoder
+        }
+    }).detach();
+}
+
+void GstRtpReceiver::set_codec_changed_callback(std::function<void(VideoCodec)> cb) {
+    std::lock_guard<std::mutex> lock(m_codec_changed_mutex);
+    m_on_codec_changed = std::move(cb);
 }
 
 void GstRtpReceiver::set_playback_rate(double rate) {

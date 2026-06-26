@@ -973,12 +973,26 @@ void main_loop() {
 }
 
 uint64_t first_frame_ms=0;
+// Publish the active video codec as a string OSD fact ("h264"/"h265").
+static void publish_codec_fact(VideoCodec c) {
+	osd_publish_str_fact("video.codec", NULL, 0,
+	                     (c == VideoCodec::H265) ? "h265" : "h264");
+}
+
 void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *sock ,const VideoCodec& codec){
 	if (sock) {
 		receiver = std::make_unique<GstRtpReceiver>(sock, codec);
 	} else {
 		receiver = std::make_unique<GstRtpReceiver>(gst_udp_port, codec);
 	}
+	// Realign the MPP decoder whenever the receiver detects a mid-stream codec
+	// switch and rebuilds its pipeline.
+	receiver->set_codec_changed_callback([](VideoCodec c) {
+		MppCodingType t = (c == VideoCodec::H265) ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingAVC;
+		stream_mpp_type = t;
+		reinit_mpp_decoder(t);
+		publish_codec_fact(c);
+	});
 	long long bytes_received = 0; 
 	uint64_t period_start=0;
     auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
@@ -1009,6 +1023,16 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         }
     };
     receiver->start_receiving(cb);
+    // When the codec was autodetected, align the MPP decoder with what the
+    // pipeline actually resolved (no-op if it already matches).
+    {
+        VideoCodec active = receiver->get_active_codec();
+        MppCodingType active_type = (active == VideoCodec::H265)
+            ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingAVC;
+        stream_mpp_type = active_type;
+        reinit_mpp_decoder(active_type);
+        publish_codec_fact(active);
+    }
     main_loop();
     receiver->stop_receiving();
     spdlog::info("Feeding eos");
@@ -1085,7 +1109,7 @@ void printHelp() {
     "\n"
     "    --mavlink-dvr-on-arm   - Start recording when armed\n"
     "\n"
-    "    --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265>)\n"
+    "    --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265|auto>)\n"
     "\n"
     "    --log-level <level>    - Log verbosity level, debug|info|warn|error (Default: info)\n"
     "\n"
@@ -1196,6 +1220,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("--codec") {
 		char * codec_str = const_cast<char*>(__ArgValue);
+		if (!strcmp(codec_str, "auto")) {
+			// Sentinel: codec is sniffed from the RTP stream at connect time.
+			codec = VideoCodec::UNKNOWN;
+			continue;
+		}
 		codec = video_codec(codec_str);
 		if (codec == VideoCodec::UNKNOWN ) {
 			fprintf(stderr, "unsupported video codec");
