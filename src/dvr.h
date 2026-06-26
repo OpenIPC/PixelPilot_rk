@@ -97,6 +97,13 @@ private:
     uint32_t video_frm_width;
     uint32_t video_frm_height;
     VideoCodec codec;
+    // What the currently-open mp4 writer was initialized with. A mid-recording
+    // codec/resolution change cannot be applied to an open mp4 track, so we roll
+    // to a fresh file instead of re-initializing (which corrupts the mux).
+    VideoCodec init_codec = VideoCodec::UNKNOWN;
+    uint32_t init_w = 0;
+    uint32_t init_h = 0;
+    bool writer_inited = false;
     int _ready_to_write = 0;
     bool split_pending = false;
     int split_part = 0;

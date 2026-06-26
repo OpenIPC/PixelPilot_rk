@@ -990,6 +990,9 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
 	receiver->set_codec_changed_callback([](VideoCodec c) {
 		MppCodingType t = (c == VideoCodec::H265) ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingAVC;
 		stream_mpp_type = t;
+		// Keep the global codec in sync so the decoder info-change handler
+		// (init_buffer) hands the raw DVR the right codec and rolls its file.
+		::codec = c;
 		reinit_mpp_decoder(t);
 		publish_codec_fact(c);
 	});
@@ -1030,6 +1033,8 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         MppCodingType active_type = (active == VideoCodec::H265)
             ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingAVC;
         stream_mpp_type = active_type;
+        // Reflect the resolved codec globally so DVR setup (init_buffer) uses it.
+        ::codec = active;
         reinit_mpp_decoder(active_type);
         publish_codec_fact(active);
     }

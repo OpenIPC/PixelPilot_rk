@@ -158,9 +158,32 @@ void Dvr::loop() {
 				{
 					SPDLOG_DEBUG("got rpc SET_PARAMS");
 					if (write_ctx.f == NULL) {
+						break; // no open file; params are kept for the next start()
+					}
+					if (!writer_inited) {
+						// First valid params for this file: initialize the writer.
+						if (video_frm_width > 0 && video_frm_height > 0 &&
+							codec != VideoCodec::UNKNOWN) {
+							init();
+						}
 						break;
 					}
-					init();
+					// Writer already initialized. A codec or resolution change
+					// can't be applied to an open mp4 track, so roll to a fresh
+					// file. Unchanged params are a no-op (re-initializing the open
+					// mux would corrupt the recording).
+					if (codec != init_codec ||
+						video_frm_width != init_w || video_frm_height != init_h) {
+						spdlog::info("DVR params changed (codec/resolution); rolling to new file");
+						stop();
+						if (start() == 0) {
+							idr_request_record_start();
+							if (video_frm_width > 0 && video_frm_height > 0 &&
+								codec != VideoCodec::UNKNOWN) {
+								init();
+							}
+						}
+					}
 					break;
 				}
 			case dvr_rpc::RPC_START:
@@ -171,7 +194,7 @@ void Dvr::loop() {
 					}
 					if (start() == 0) {
 						idr_request_record_start();
-						if (video_frm_width > 0 && video_frm_height > 0) {
+						if (video_frm_width > 0 && video_frm_height > 0 && codec != VideoCodec::UNKNOWN) {
 							init();
 						}
 					}
@@ -192,7 +215,7 @@ void Dvr::loop() {
 					if (write_ctx.f == NULL) {
 						if (start() == 0) {
 							idr_request_record_start();
-							if (video_frm_width > 0 && video_frm_height > 0) {
+							if (video_frm_width > 0 && video_frm_height > 0 && codec != VideoCodec::UNKNOWN) {
 								init();
 							}
 						}
@@ -332,6 +355,13 @@ int Dvr::start() {
 	}
 	write_ctx.file_size = 0;
 	mux = MP4E_open(0 /*sequential_mode*/, mp4_fragmentation_mode, &write_ctx, write_callback);
+	// Fresh file: writer not yet initialized and parameter sets must be
+	// recached for whatever codec this file ends up carrying.
+	writer_inited = false;
+	cached_vps.clear();
+	cached_sps.clear();
+	cached_pps.clear();
+	params_complete = false;
 	if (max_file_size > 0)
 		spdlog::info("DVR file splitting enabled at {} MB", max_file_size / (1024*1024));
 	return 0;
@@ -348,6 +378,12 @@ void Dvr::init() {
 		spdlog::error("mp4_h26x_write_init failed");
 		mux = NULL;
 		write_ctx.f = NULL;
+		writer_inited = false;
+	} else {
+		writer_inited = true;
+		init_codec = codec;
+		init_w = video_frm_width;
+		init_h = video_frm_height;
 	}
 	_ready_to_write = 1;
 	if (on_start_cb) on_start_cb();
@@ -364,6 +400,7 @@ void Dvr::stop() {
 	write_ctx.f = NULL;
 	write_ctx.file_size = 0;
 	_ready_to_write = 0;
+	writer_inited = false;
 }
 
 // Check if buffer contains an IDR/IRAP slice.
@@ -448,6 +485,12 @@ void Dvr::split() {
 		video_frm_width, video_frm_height, codec == VideoCodec::H265)) {
 		spdlog::error("mp4_h26x_write_init failed on split file");
 		_ready_to_write = 0;
+		writer_inited = false;
+	} else {
+		writer_inited = true;
+		init_codec = codec;
+		init_w = video_frm_width;
+		init_h = video_frm_height;
 	}
 }
 
