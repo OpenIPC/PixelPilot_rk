@@ -973,10 +973,14 @@ void main_loop() {
 }
 
 uint64_t first_frame_ms=0;
-// Publish the active video codec as a string OSD fact ("h264"/"h265").
+// Publish the active video codec as OSD facts: a human-readable string
+// ("video.codec" = "h264"/"h265") for text widgets, and a numeric id
+// ("video.codec_id" = 0/1) for IconSelectorWidget, which selects by number.
 static void publish_codec_fact(VideoCodec c) {
 	osd_publish_str_fact("video.codec", NULL, 0,
 	                     (c == VideoCodec::H265) ? "h265" : "h264");
+	osd_publish_uint_fact("video.codec_id", NULL, 0,
+	                      (c == VideoCodec::H265) ? 1u : 0u);
 }
 
 void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *sock ,const VideoCodec& codec){
