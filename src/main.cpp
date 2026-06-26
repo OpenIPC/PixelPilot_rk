@@ -1026,18 +1026,14 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         }
     };
     receiver->start_receiving(cb);
-    // When the codec was autodetected, align the MPP decoder with what the
-    // pipeline actually resolved (no-op if it already matches).
-    {
-        VideoCodec active = receiver->get_active_codec();
-        MppCodingType active_type = (active == VideoCodec::H265)
-            ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingAVC;
-        stream_mpp_type = active_type;
-        // Reflect the resolved codec globally so DVR setup (init_buffer) uses it.
-        ::codec = active;
-        reinit_mpp_decoder(active_type);
-        publish_codec_fact(active);
-    }
+    // In auto mode the global codec stays UNKNOWN through receiver construction
+    // (that sentinel is how the receiver knows to auto-detect). Now that the
+    // pipeline has resolved a codec, reflect it globally so DVR setup
+    // (init_buffer) and the OSD use it. The MPP decoder was already initialized
+    // for this codec in main(); a genuine mid-stream change is handled by the
+    // codec-changed callback above.
+    ::codec = receiver->get_active_codec();
+    publish_codec_fact(::codec);
     main_loop();
     receiver->stop_receiving();
     spdlog::info("Feeding eos");
@@ -1226,7 +1222,8 @@ int main(int argc, char **argv)
 	__OnArgument("--codec") {
 		char * codec_str = const_cast<char*>(__ArgValue);
 		if (!strcmp(codec_str, "auto")) {
-			// Sentinel: codec is sniffed from the RTP stream at connect time.
+			// Sentinel: build for H.265 and let the receiver flip codec from the
+			// RTP ingress if the stream turns out to be H.264.
 			codec = VideoCodec::UNKNOWN;
 			continue;
 		}

@@ -63,9 +63,10 @@ public:
     void normal_playback();
     void pause();
     void resume();
-    // The codec actually used by the live pipeline. When constructed with
-    // VideoCodec::UNKNOWN this is resolved by sniffing the RTP stream in
-    // switch_to_stream(); valid only after start_receiving()/switch_to_stream().
+    // The codec the live pipeline is currently built for. When constructed with
+    // VideoCodec::UNKNOWN ("auto") this defaults to H.265 in switch_to_stream()
+    // and is updated if mid-stream detection flips it; valid only after
+    // start_receiving()/switch_to_stream().
     VideoCodec get_active_codec() const { return m_video_codec; }
     // Invoked (on an internal thread) after a mid-stream codec switch has been
     // detected and the pipeline rebuilt, so the host can realign its decoder.
@@ -81,9 +82,9 @@ private:
     GstElement * m_gst_pipeline=nullptr;
     NEW_FRAME_CALLBACK m_cb;
     VideoCodec m_video_codec;
-    // True when constructed with VideoCodec::UNKNOWN ("auto"): enables startup
-    // sniffing and mid-stream codec-switch detection. False when the user pinned
-    // a codec, in which case we never override their choice.
+    // True when constructed with VideoCodec::UNKNOWN ("auto"): the pipeline
+    // builds for H.265 and mid-stream codec-switch detection is enabled. False
+    // when the user pinned a codec, in which case we never override their choice.
     bool m_auto_codec = false;
     VideoCodec m_playback_codec = VideoCodec::UNKNOWN;
     // Notified after a detected mid-stream codec switch + pipeline rebuild.

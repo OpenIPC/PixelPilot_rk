@@ -541,7 +541,7 @@ namespace {
         }
         const int active = g_active_codec.load(std::memory_order_relaxed);
         if (active == static_cast<int>(VideoCodec::UNKNOWN)) {
-            return; // codec not resolved yet (startup sniff handles it)
+            return; // no pipeline built yet, nothing to compare against
         }
         if (g_codec_switch_pending.load(std::memory_order_relaxed)) {
             return; // a switch is already being applied
@@ -1379,7 +1379,7 @@ void GstRtpReceiver::request_codec_switch(VideoCodec new_codec) {
     // (set_state NULL) and joins the pull/socket threads, neither of which is
     // safe to do from a GStreamer streaming thread or the socket reader itself.
     std::thread([this, new_codec]() {
-        m_video_codec = new_codec;          // skips re-sniffing in switch_to_stream
+        m_video_codec = new_codec;          // non-UNKNOWN: switch_to_stream keeps it as-is
         switch_to_stream();                 // also clears the pending flag
         std::function<void(VideoCodec)> cb;
         {
