@@ -981,63 +981,6 @@ static VideoCodec classify_rtp_packet(const uint8_t* pkt, size_t len) {
     return VideoCodec::UNKNOWN;
 }
 
-// Read RTP packets from an already-bound datagram fd and vote on the codec.
-// Blocks up to timeout_ms; returns UNKNOWN if no video packets were seen.
-static VideoCodec sniff_rtp_codec_fd(int fd, int timeout_ms) {
-    uint8_t buf[MAX_PACKET_SIZE];
-    int votes264 = 0, votes265 = 0;
-    const auto start = std::chrono::steady_clock::now();
-    for (;;) {
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - start).count();
-        const long remaining = timeout_ms - elapsed;
-        if (remaining <= 0) break;
-
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(fd, &read_fds);
-        struct timeval tv = { remaining / 1000, (remaining % 1000) * 1000 };
-        if (select(fd + 1, &read_fds, nullptr, nullptr, &tv) <= 0) continue;
-
-        const ssize_t n = recv(fd, buf, sizeof(buf), 0);
-        if (n <= 0) continue;
-
-        const VideoCodec c = classify_rtp_packet(buf, static_cast<size_t>(n));
-        if (c == VideoCodec::H264) votes264++;
-        else if (c == VideoCodec::H265) votes265++;
-
-        // Stop early once one codec has a clear lead.
-        if (votes264 >= 3 && votes264 > votes265 * 2) return VideoCodec::H264;
-        if (votes265 >= 3 && votes265 > votes264 * 2) return VideoCodec::H265;
-    }
-    if (votes264 == 0 && votes265 == 0) return VideoCodec::UNKNOWN;
-    return votes264 >= votes265 ? VideoCodec::H264 : VideoCodec::H265;
-}
-
-// Sniff the codec on a UDP port without disturbing the GStreamer udpsrc: bind a
-// temporary socket, sample packets, then release the port for the pipeline.
-static VideoCodec sniff_rtp_codec_udp(int port, int timeout_ms) {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        spdlog::warn("[CODEC] sniff socket() failed: {}", strerror(errno));
-        return VideoCodec::UNKNOWN;
-    }
-    int reuse = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(static_cast<uint16_t>(port));
-    if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        spdlog::warn("[CODEC] sniff bind(port={}) failed: {}", port, strerror(errno));
-        close(fd);
-        return VideoCodec::UNKNOWN;
-    }
-    const VideoCodec result = sniff_rtp_codec_fd(fd, timeout_ms);
-    close(fd);
-    return result;
-}
-
 static void initGstreamerOrThrow() {
     GError* error = nullptr;
     if (!gst_init_check(nullptr, nullptr, &error)) {
@@ -1334,20 +1277,14 @@ VideoCodec GstRtpReceiver::switch_to_file_playback(const char * file_path) {
 void GstRtpReceiver::switch_to_stream() {
     stop_receiving();
 
-    // Resolve "auto" codec by sniffing the live RTP stream. The whole pipeline
-    // (depay/parse/caps) is codec-specific, so this must happen before it is built.
+    // Auto mode: build for H.265 up front and let mid-stream detection flip to
+    // H.264 from the RTP ingress if the stream turns out to be H.264. The
+    // ingress classifier sees raw RTP before depay/parse, so it works even
+    // though the initial pipeline guesses wrong, and this avoids blocking
+    // startup to sniff (which would stall when no stream is live yet).
     if (m_video_codec == VideoCodec::UNKNOWN) {
-        VideoCodec detected = unix_socket
-            ? sniff_rtp_codec_fd(sock, 2000)
-            : sniff_rtp_codec_udp(m_port, 2000);
-        if (detected == VideoCodec::UNKNOWN) {
-            detected = VideoCodec::H265;
-            spdlog::warn("[CODEC] Autodetect saw no RTP video; defaulting to H.265");
-        } else {
-            spdlog::info("[CODEC] Autodetected {} stream",
-                         detected == VideoCodec::H265 ? "H.265" : "H.264");
-        }
-        m_video_codec = detected;
+        m_video_codec = VideoCodec::H265;
+        spdlog::info("[CODEC] Auto mode: defaulting to H.265; mid-stream detection will correct if needed");
     }
 
     const auto pipeline = construct_gstreamer_pipeline();
