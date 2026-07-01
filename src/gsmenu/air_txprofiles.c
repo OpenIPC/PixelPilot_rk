@@ -569,6 +569,9 @@ void create_table(lv_obj_t * parent) {
     lv_obj_add_style(table, &style_openipc_dark_background, LV_PART_MAIN);
     lv_obj_add_style(table, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_set_style_pad_all(table,2,LV_PART_ITEMS);
+    /* Local style (highest precedence) guarantees readable light cell text on
+     * the dark table background, incl. the "..." menu indicator in column 0. */
+    lv_obj_set_style_text_color(table, lv_color_hex(0xf2f4f8), LV_PART_ITEMS | LV_STATE_DEFAULT);
 
     // Add event handler
     lv_obj_add_event_cb(table, table_event_cb, LV_EVENT_ALL, NULL);
@@ -605,7 +608,6 @@ void create_table(lv_obj_t * parent) {
     lv_obj_set_style_outline_width(kb,0,LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_add_style(kb, &style_openipc, LV_PART_ITEMS| LV_STATE_FOCUS_KEY);
     lv_obj_add_style(kb, &style_openipc_dark_background, LV_PART_ITEMS| LV_STATE_DEFAULT);
-    lv_obj_add_style(kb, &style_openipc_textcolor, LV_PART_ITEMS| LV_STATE_FOCUS_KEY);
     lv_obj_add_style(kb, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
     
     lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_ALL,kb);

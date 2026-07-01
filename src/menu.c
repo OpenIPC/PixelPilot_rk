@@ -38,9 +38,12 @@ void pp_menu_main(void)
     lv_obj_clear_flag(pp_menu_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * menu_cont = lv_obj_create(pp_menu_screen);
-    lv_obj_set_size(menu_cont,lv_obj_get_width(pp_menu_screen) / 4 * 3,
-                                lv_obj_get_height(pp_menu_screen)/ 4 * 3);
+    lv_obj_set_size(menu_cont,lv_obj_get_width(pp_menu_screen) / 4 * 2,
+                                lv_obj_get_height(pp_menu_screen)/ 5 * 3);
     lv_obj_center(menu_cont);
+    /* Transparent container: the panel background is gone so the live video
+     * shows through everything except the section cards. */
+    lv_obj_set_style_bg_opa(menu_cont, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_side(menu_cont, LV_BORDER_SIDE_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(menu_cont, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_left(menu_cont, 0, LV_PART_MAIN | LV_STATE_DEFAULT);

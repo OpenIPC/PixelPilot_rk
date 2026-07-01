@@ -318,8 +318,7 @@ void create_apfpv_menu(lv_obj_t * parent) {
     lv_obj_add_style(kb, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_add_style(kb, &style_openipc, LV_PART_ITEMS| LV_STATE_FOCUS_KEY);
     lv_obj_add_style(kb, &style_openipc_dark_background, LV_PART_ITEMS| LV_STATE_DEFAULT);
-    lv_obj_add_style(kb, &style_openipc_textcolor, LV_PART_ITEMS| LV_STATE_FOCUS_KEY);
-    lv_obj_add_style(kb, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);    
+    lv_obj_add_style(kb, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
     
     lv_obj_add_event_cb(lv_obj_get_child_by_type(ap_fpv_ssid,0,&lv_button_class), btn_event_cb, LV_EVENT_ALL, kb);
     lv_obj_add_event_cb(lv_obj_get_child_by_type(ap_fpv_password,0,&lv_button_class), btn_event_cb, LV_EVENT_ALL, kb);

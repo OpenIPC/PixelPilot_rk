@@ -278,8 +278,12 @@ lv_obj_t * pp_header_create(lv_obj_t * screen) {
     lv_obj_set_width(header,LV_PCT(100));
     lv_obj_set_height(header,LV_PCT(20));
     lv_obj_set_size(header, LV_PCT(100), LV_PCT(20));
-    lv_obj_set_style_bg_color(header, lv_color_hex(0xff4c60d8), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_side(header, LV_BORDER_SIDE_NONE, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x0b0e14), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(header, 210, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* thin accent line along the bottom edge for a modern header */
+    lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(header, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(header, lv_color_hex(0x4c60d8), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(header, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_t *obj = lv_img_create(header);

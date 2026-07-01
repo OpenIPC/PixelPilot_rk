@@ -394,6 +394,8 @@ static void start_script_runner(const char *script_name)
     lv_obj_add_style(g_runner.close_btn, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(g_runner.close_btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
 
+    theme_msgbox(g_runner.msgbox);
+
     /* Fixed size: triggers msgbox_size_changed_event_cb which sets flex_grow=1
      * on the content area, making the textarea fill the available height. */
     lv_obj_set_size(g_runner.msgbox, lv_pct(98), lv_pct(92));
@@ -479,6 +481,8 @@ static void run_script_cb(lv_event_t *e)
 
     lv_obj_add_event_cb(cancel_btn, confirm_cancel_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(exec_btn, confirm_execute_cb, LV_EVENT_CLICKED, NULL);
+
+    theme_msgbox(g_confirm_msgbox);
 
     lv_obj_set_width(g_confirm_msgbox, lv_pct(75));
 

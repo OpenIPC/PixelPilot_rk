@@ -114,6 +114,8 @@ void* generic_page_load_thread(void *arg) {
     lv_obj_add_event_cb(cancel_button,loader_cancel_button_cb,LV_EVENT_CLICKED,menu_page_data);
     lv_obj_center(cancel_button);
 
+    theme_msgbox(loader_msgbox);
+
     // lv_obj_set_width(loader_msgbox, LV_SIZE_CONTENT);
     // lv_obj_set_flex_grow(cancel_button, 1);
     // lv_obj_align_to(bar, cancel_button, LV_ALIGN_OUT_BOTTOM_MID, 0, -50);
@@ -317,8 +319,11 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     if(txt) {
         label = lv_label_create(obj);
         lv_label_set_text(label, txt);
-        //lv_obj_set_flex_grow(label, 1);
-    }    
+        /* Let the (possibly long) description take the remaining space and wrap
+         * onto multiple lines instead of squeezing the slider down to a dot. */
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_flex_grow(label, 1);
+    }
 
     // Create a buffer for the float value display
     char format[16];
@@ -330,7 +335,10 @@ lv_obj_t * create_slider(lv_obj_t * parent, const char * icon, const char * txt,
     lv_label_set_text(slider_label, s);
 
     lv_obj_t * slider = lv_slider_create(obj);
-    lv_obj_set_flex_grow(slider, 1);
+    /* Fixed proportional width so the slider stays usable regardless of how
+     * long the description label is. */
+    lv_obj_set_width(slider, LV_PCT(30));
+    lv_obj_set_style_min_width(slider, 120, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(slider, &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(slider, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);    
     lv_obj_add_style(slider, &style_openipc, LV_PART_KNOB | LV_STATE_DEFAULT);
@@ -455,6 +463,10 @@ lv_obj_t * create_switch(lv_obj_t * parent, const char * icon, const char * txt,
 
     lv_obj_t * label = lv_label_create(obj);
     lv_label_set_text(label, txt);
+    /* Let a long description wrap and take the remaining space instead of
+     * pushing the switch off the row. */
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(label, 1);
 
     lv_obj_t * sw = lv_switch_create(obj);
     lv_obj_add_state(sw, false);
@@ -518,8 +530,12 @@ lv_obj_t * create_dropdown(lv_obj_t * parent, const char * icon, const char * la
 
     lv_obj_t * label = lv_label_create(obj);
     lv_label_set_text(label, label_txt);
+    /* Let a long description wrap and take the remaining space instead of
+     * squeezing the dropdown. */
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(label, 1);
 
-    lv_obj_t * dd = lv_dropdown_create(obj); 
+    lv_obj_t * dd = lv_dropdown_create(obj);
     lv_dropdown_set_dir(dd, LV_DIR_RIGHT);
     lv_dropdown_set_symbol(dd, LV_SYMBOL_RIGHT);
     lv_obj_set_width(dd,300); // someone got a better idea ?
@@ -973,6 +989,31 @@ static void restart_dialog_btn_cb(lv_event_t *e) {
         raise(SIGHUP);
 }
 
+void theme_msgbox(lv_obj_t *mbox) {
+    lv_obj_add_style(mbox, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *header = lv_msgbox_get_header(mbox);
+    if (header)
+        lv_obj_add_style(header, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *footer = lv_msgbox_get_footer(mbox);
+    if (footer)
+        lv_obj_add_style(footer, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *content = lv_msgbox_get_content(mbox);
+    if (content)
+        lv_obj_add_style(content, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    /* For modal msgboxes (created with a NULL parent) the theme gives the
+     * backdrop a bright grey 50% tint. Darken it so it dims the video behind
+     * the dialog instead of washing it out. */
+    lv_obj_t *backdrop = lv_obj_get_parent(mbox);
+    if (backdrop && lv_obj_check_type(backdrop, &lv_msgbox_backdrop_class)) {
+        lv_obj_set_style_bg_color(backdrop, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(backdrop, 160, LV_PART_MAIN | LV_STATE_DEFAULT);
+    }
+}
+
 void show_restart_notice(void) {
     lv_group_t *prev_group         = lv_indev_get_group(indev_drv);
     lv_group_t *prev_default_group = lv_group_get_default();
@@ -994,6 +1035,8 @@ void show_restart_notice(void) {
     lv_obj_add_style(yes_btn, &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
     lv_obj_add_style(no_btn,  &style_openipc, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_style(no_btn,  &style_openipc_outline, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+
+    theme_msgbox(mbox);
 
     restart_dialog_ctx_t *ctx = malloc(sizeof(restart_dialog_ctx_t));
     ctx->mbox               = mbox;
