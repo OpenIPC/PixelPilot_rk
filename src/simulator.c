@@ -2,6 +2,8 @@
 #include <time.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "lvgl/lvgl.h"
 #include "menu.h"
 #include "input.h"
@@ -40,8 +42,31 @@ void my_log_cb(lv_log_level_t level, const char * buf)
   printf("%s",buf);
 }
 
+// Simulator stubs for restream API (real impl lives in gstrtpreceiver.cpp,
+// which is not part of the simulator build)
+bool restream_get_enabled() { return false; }
+void restream_set_enabled(bool enabled) { (void)enabled; }
+void restream_scan_clients(char* buf, size_t buf_len) { if (buf && buf_len) buf[0] = '\0'; }
+const char* restream_get_manual_ip() { return ""; }
+void restream_set_manual_ip(const char* ip) { (void)ip; }
+
 int main(int argc, char **argv)
 {
+    /* The menu shells out to `gsmenu.sh` by bare name via popen/system, so it
+     * must be on PATH. In the sim the script lives in the working directory
+     * (the repo root), and sudo's secure_path drops any PATH sim.sh exports —
+     * so prepend the CWD to PATH here, inside the process, where popen/system
+     * children inherit it. */
+    {
+        char cwd[1024];
+        const char * old = getenv("PATH");
+        if (getcwd(cwd, sizeof(cwd))) {
+            char newpath[2048];
+            snprintf(newpath, sizeof(newpath), "%s:%s", cwd, old ? old : "");
+            setenv("PATH", newpath, 1);
+        }
+    }
+
     lv_init();
     lv_disp_t * disp = lv_sdl_window_create(1920,1080);
 

@@ -39,6 +39,12 @@ include_directories(${PNG_INCLUDE_DIR})
 # Simulator
 set(SIMULATOR_SOURCES
         src/simulator.c
+        src/gsmenu/column_stack.h
+        src/gsmenu/column_stack.c
+        src/gsmenu/colmenu.h
+        src/gsmenu/colmenu.c
+        src/gsmenu/colmenu_pages.h
+        src/gsmenu/colmenu_pages.c
         src/gsmenu/executor.h
         src/gsmenu/executor.c
         src/gsmenu/air_telemetry.h
@@ -134,7 +140,13 @@ set(LIB_SOURCE_FILES
         src/gsmenu/gs_connection_checker.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
-        src/gsmenu/ui.c 
+        src/gsmenu/ui.c
+        src/gsmenu/column_stack.h
+        src/gsmenu/column_stack.c
+        src/gsmenu/colmenu.h
+        src/gsmenu/colmenu.c
+        src/gsmenu/colmenu_pages.h
+        src/gsmenu/colmenu_pages.c
         src/lvosd.h
         src/lvosd.c
         src/menu.h

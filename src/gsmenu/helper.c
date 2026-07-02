@@ -1026,6 +1026,11 @@ void show_restart_notice(void) {
     if (backdrop)
         lv_obj_swap(backdrop, mbox);
 
+    /* give it room so the title/text don't wrap into a squeezed box, and centre it */
+    lv_obj_set_width(mbox, 520);
+    lv_obj_set_style_pad_all(mbox, 20, LV_PART_MAIN);
+    lv_obj_center(mbox);
+
     lv_msgbox_add_title(mbox, LV_SYMBOL_WARNING " Restart required");
     lv_msgbox_add_text(mbox, "A restart is required to apply the new resolution.\nRestart now?");
     lv_obj_t *yes_btn = lv_msgbox_add_footer_button(mbox, LV_SYMBOL_OK " Yes");
@@ -1045,9 +1050,16 @@ void show_restart_notice(void) {
     ctx->dialog_group       = dialog_group;
 
     lv_indev_set_group(indev_drv, dialog_group);
+    /* The key that opened this dialog (e.g. ENTER selecting the resolution) is
+     * still pressed; without this its release would immediately "click" the
+     * freshly focused Yes button. Wait for a fresh press. */
+    lv_indev_wait_release(indev_drv);
 
     lv_obj_add_event_cb(yes_btn, restart_dialog_btn_cb, LV_EVENT_CLICKED, ctx);
     lv_obj_add_event_cb(no_btn,  restart_dialog_btn_cb, LV_EVENT_CLICKED, ctx);
+
+    /* default to the safe choice */
+    lv_group_focus_obj(no_btn);
 }
 
 void add_entry_to_menu_page(menu_page_data_t *menu_page_data, const char* text, lv_obj_t* obj, ReloadFunc reload_func) {

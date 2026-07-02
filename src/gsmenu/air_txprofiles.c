@@ -31,6 +31,7 @@ extern lv_indev_t * indev_drv;
 extern lv_group_t * default_group;
 extern lv_obj_t * pp_menu_screen;
 lv_group_t * tx_profile_group;
+lv_group_t * txprofiles_return_group;   /* set by the menu before launching */
 extern lv_obj_t * sub_air_alink_page;
 
 lv_obj_t * input_box;
@@ -370,8 +371,7 @@ static void txprofiles_back_button_callback(lv_event_t * e) {
     
     if(code == LV_EVENT_CLICKED) {
         lv_screen_load(pp_menu_screen);
-        menu_page_data_t * menu_page_data = (menu_page_data_t *) lv_obj_get_user_data(sub_air_alink_page);
-        lv_indev_set_group(indev_drv,menu_page_data->indev_group);
+        lv_indev_set_group(indev_drv, txprofiles_return_group);
         control_mode = GSMENU_CONTROL_MODE_NAV;
     }
 }
@@ -382,6 +382,8 @@ static void table_focus_callback(lv_event_t * e) {
 
 static void txprofiles_save_callback() {
     lv_screen_load(pp_menu_screen);
+    lv_indev_set_group(indev_drv, txprofiles_return_group);
+    control_mode = GSMENU_CONTROL_MODE_NAV;
 }
 
 // Function to save table data back to file

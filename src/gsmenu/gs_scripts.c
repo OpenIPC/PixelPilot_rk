@@ -50,6 +50,9 @@ static int g_script_count;
 static lv_obj_t *g_confirm_msgbox;
 static lv_group_t *g_confirm_group;
 static char g_pending_script[256];
+/* group to restore the keypad to after the confirm/runner closes; captured at
+ * run time so the feature works from colmenu (no menu_page_data there). */
+static lv_group_t *g_return_group;
 
 static void build_script_list(void);
 static script_runner_t g_runner = {
@@ -112,6 +115,11 @@ static int collect_scripts(char **scripts, int max_scripts)
     closedir(dir);
     qsort(scripts, count, sizeof(char *), cmp_string_ptr);
     return count;
+}
+
+int gs_scripts_collect(char **names, int max)
+{
+    return collect_scripts(names, max);
 }
 
 static void clear_script_names(void)
@@ -243,8 +251,10 @@ static void close_runner_ui(void)
         g_runner.group = NULL;
     }
 
-    /* Restore focus to the scripts page. */
-    if (g_menu_page_data && g_menu_page_data->indev_group) {
+    /* Restore focus to wherever the run was launched from. */
+    if (g_return_group) {
+        lv_indev_set_group(indev_drv, g_return_group);
+    } else if (g_menu_page_data && g_menu_page_data->indev_group) {
         lv_indev_set_group(indev_drv, g_menu_page_data->indev_group);
     }
 }
@@ -425,8 +435,10 @@ static void confirm_cancel_cb(lv_event_t *e)
         lv_group_del(g_confirm_group);
         g_confirm_group = NULL;
     }
-    /* Restore focus to the scripts page. */
-    if (g_menu_page_data && g_menu_page_data->indev_group) {
+    /* Restore focus to wherever the run was launched from. */
+    if (g_return_group) {
+        lv_indev_set_group(indev_drv, g_return_group);
+    } else if (g_menu_page_data && g_menu_page_data->indev_group) {
         lv_indev_set_group(indev_drv, g_menu_page_data->indev_group);
     }
 }
@@ -445,19 +457,16 @@ static void confirm_execute_cb(lv_event_t *e)
     start_script_runner(g_pending_script);
 }
 
-static void run_script_cb(lv_event_t *e)
+/* Build the confirm dialog for g_pending_script. Deferred via lv_async_call from
+ * gs_scripts_run so the key press that launched it has released first (colmenu
+ * actions fire on the key press, and the release would otherwise click a button). */
+static void show_confirm_dialog(void *unused)
 {
-    const char *script_name = (const char *)lv_event_get_user_data(e);
-    if (!script_name || strchr(script_name, '/')) {
-        return;
-    }
-
+    (void)unused;
     if (g_confirm_msgbox && lv_obj_is_valid(g_confirm_msgbox)) {
         lv_msgbox_close(g_confirm_msgbox);
         g_confirm_msgbox = NULL;
     }
-
-    snprintf(g_pending_script, sizeof(g_pending_script), "%s", script_name);
 
     g_confirm_msgbox = lv_msgbox_create(NULL);
     lv_obj_add_style(g_confirm_msgbox, &style_openipc_lightdark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -491,7 +500,27 @@ static void run_script_cb(lv_event_t *e)
     g_confirm_group = lv_group_create();
     lv_group_add_obj(g_confirm_group, cancel_btn);
     lv_group_add_obj(g_confirm_group, exec_btn);
+    lv_group_focus_obj(cancel_btn);   /* default to the safe choice */
     lv_indev_set_group(indev_drv, g_confirm_group);
+    /* the key press that opened this (colmenu actions fire on press) is still
+     * down — without this its release would immediately click a button. */
+    lv_indev_wait_release(indev_drv);
+}
+
+void gs_scripts_run(const char *name)
+{
+    if (!name || strchr(name, '/')) {
+        return;
+    }
+    /* remember where to hand the keypad back (the column the run started from) */
+    g_return_group = lv_indev_get_group(indev_drv);
+    snprintf(g_pending_script, sizeof(g_pending_script), "%s", name);
+    show_confirm_dialog(NULL);
+}
+
+static void run_script_cb(lv_event_t *e)
+{
+    gs_scripts_run((const char *)lv_event_get_user_data(e));
 }
 
 static void build_script_list(void)
