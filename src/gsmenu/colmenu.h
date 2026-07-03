@@ -87,6 +87,13 @@ lv_group_t * colmenu_emit_group(colmenu_emit_t * e);
 /* Pop the current column — custom builders wire their own back key to this. */
 void colmenu_pop(void);
 
+/* Re-run the current dynamic column's builder (e.g. a wifi re-scan). Deferred. */
+void colmenu_rescan(void);
+
+/* Open a floating on-screen-keyboard prompt; on OK, `on_ok` gets the typed text
+ * (nothing is written to gsmenu.sh). For e.g. a wifi password. */
+void colmenu_prompt(const char * title, void (*on_ok)(const char * text, void * user), void * user);
+
 /* Run a shell command on a worker thread while a spinner blocks the menu (like the
  * old menu did for writes). stdout/stderr and the exit code are captured; a
  * non-zero exit shows an error dialog with the command output. */

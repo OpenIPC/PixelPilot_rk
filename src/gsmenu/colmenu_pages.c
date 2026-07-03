@@ -315,37 +315,156 @@ static const colmenu_item_t system_items[] = {
 };
 static const colmenu_page_t system_page = { "System", "gs", "system", system_items, 3 };
 
-/* WiFi: read-only values, hotspot switch, password, dynamic scan list */
-static void connect_ssid(void * ctx)
+/* WiFi. The WiFi page shows the live connection (get gs wifi ssid) — entering the
+ * connected network gives Disconnect / Forget. "Networks" lists only AVAILABLE
+ * networks to join: open ones and those whose password the GS already saved
+ * connect straight away; other secured ones prompt for a password. There is no
+ * standalone "set password" — the password is passed at connect time. */
+
+static char g_wifi_ssid[128];       /* SSID awaiting a typed password              */
+static char g_connected_ssid[128];  /* the network the connected-submenu acts on   */
+
+static void wifi_connect_with_password(const char * password, void * user)
 {
-    char cmd[300];
-    snprintf(cmd, sizeof(cmd), "gsmenu.sh set gs wifi connect \"%s\"", (char *)ctx);
+    (void)user;
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "gsmenu.sh set gs wifi connect \"%s\" \"%s\"", g_wifi_ssid, password);
     colmenu_exec(cmd);
 }
+
+typedef struct { char ssid[96]; bool secured; char saved[128]; } wifi_net_t;
+static void connect_network(void * ctx)
+{
+    wifi_net_t * net = ctx;
+    if(!net->secured || net->saved[0]) {          /* open, or password already known */
+        char cmd[512];
+        if(net->saved[0])
+            snprintf(cmd, sizeof(cmd), "gsmenu.sh set gs wifi connect \"%s\" \"%s\"", net->ssid, net->saved);
+        else
+            snprintf(cmd, sizeof(cmd), "gsmenu.sh set gs wifi connect \"%s\"", net->ssid);
+        colmenu_exec(cmd);
+    } else {                                        /* secured, unknown → ask */
+        snprintf(g_wifi_ssid, sizeof(g_wifi_ssid), "%s", net->ssid);
+        char title[160];
+        snprintf(title, sizeof(title), "Password for %s", net->ssid);
+        colmenu_prompt(title, wifi_connect_with_password, NULL);
+    }
+}
+static void wifi_rescan(void * ctx) { (void)ctx; colmenu_rescan(); }
+
+/* Saved-networks blob is "SSID:password" per line ('\:' escapes a colon in the
+ * SSID). Copy the password for `ssid` into `out` (empty if not saved). */
+static void wifi_saved_password(const char * blob, const char * ssid, char * out, size_t outsz)
+{
+    out[0] = '\0';
+    if(!blob || !*blob) return;
+    char * dup = strdup(blob), * save = NULL;
+    for(char * line = strtok_r(dup, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        if(line[0] == '\0') continue;
+        int len = (int)strlen(line), colon = -1;
+        for(int j = 0; j < len; j++)
+            if(line[j] == ':' && (j == 0 || line[j-1] != '\\')) { colon = j; break; }
+        if(colon < 0) continue;
+        const char * pwd = line + colon + 1;
+        line[colon] = '\0';
+        char name[96]; int si = 0, di = 0;
+        while(line[si] && di < (int)sizeof(name) - 1) {
+            if(line[si] == '\\' && line[si+1] == ':') { name[di++] = ':'; si += 2; }
+            else name[di++] = line[si++];
+        }
+        name[di] = '\0';
+        if(strcmp(name, ssid) == 0) { snprintf(out, outsz, "%s", pwd); break; }
+    }
+    free(dup);
+}
+
+/* Scan line format from `gsmenu.sh get gs wifi networks`:  SSID:SECURITY:SIGNAL
+ * (literal ':' in the SSID escaped as '\:'; SECURITY "--" = open, else secured). */
 static void build_networks(colmenu_emit_t * e)
 {
-    colmenu_emit_label(e, "Available networks");
+    char * saved = colmenu_get("gs", "wifi", "savednetworks", NULL);
+    char * out   = colmenu_get("gs", "wifi", "networks", NULL);
     int n = 0;
-    char * out = colmenu_get("gs", "wifi", "networks", NULL);
     if(out && *out) {
         char * save = NULL;
         for(char * line = strtok_r(out, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-            char ssid[128] = {0};
-            sscanf(line, "%127[^\t\n]", ssid);
-            if(ssid[0]) { colmenu_emit_action(e, LV_SYMBOL_WIFI, ssid, connect_ssid, strdup(ssid)); n++; }
+            if(line[0] == '\0') continue;
+            /* split on the last two UNescaped colons: SSID : SECURITY : SIGNAL */
+            int len = (int)strlen(line), last = -1, prev = -1;
+            for(int i = 0; i < len; i++)
+                if(line[i] == ':' && (i == 0 || line[i-1] != '\\')) { prev = last; last = i; }
+            if(last < 0 || prev < 0) continue;
+            const char * security = line + prev + 1;
+            line[last] = '\0';
+            line[prev] = '\0';
+            char ssid[96]; int si = 0, di = 0;          /* unescape '\:' → ':' */
+            while(line[si] && di < (int)sizeof(ssid) - 1) {
+                if(line[si] == '\\' && line[si+1] == ':') { ssid[di++] = ':'; si += 2; }
+                else ssid[di++] = line[si++];
+            }
+            ssid[di] = '\0';
+            if(ssid[0] == '\0') continue;
+
+            wifi_net_t * net = malloc(sizeof(*net));
+            snprintf(net->ssid, sizeof(net->ssid), "%s", ssid);
+            net->secured = (security[0] != '\0' && strcmp(security, "--") != 0);
+            wifi_saved_password(saved, ssid, net->saved, sizeof(net->saved));
+
+            const char * icon = !net->secured ? LV_SYMBOL_WIFI      /* open           */
+                              : net->saved[0] ? LV_SYMBOL_OK         /* password known */
+                              : LV_SYMBOL_EYE_CLOSE;                 /* needs password */
+            colmenu_emit_action(e, icon, ssid, connect_network, net);
+            n++;
         }
     }
     free(out);
-    if(n == 0) colmenu_emit_label(e, "(scan runs on hardware)");
+    free(saved);
+    if(n == 0) colmenu_emit_label(e, "No networks found");
+    /* Always present + focusable — re-scan, and keeps an empty list navigable. */
+    colmenu_emit_action(e, LV_SYMBOL_REFRESH, "Rescan", wifi_rescan, NULL);
 }
 static const colmenu_page_t networks_page = { .title="Networks", .type="gs", .page="wifi", .build=build_networks };
-static const colmenu_item_t wifi_items[] = {
-    { .kind=COLMENU_VALUE,   .icon=LV_SYMBOL_SETTINGS,  .label="IP",       .param="IP" },
-    { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_WIFI,      .label="Networks", .sub=&networks_page },
-    { .kind=COLMENU_TEXT,    .icon=LV_SYMBOL_EYE_CLOSE, .label="Password", .param="password" },
-    { .kind=COLMENU_SWITCH,  .icon=LV_SYMBOL_WIFI,      .label="Hotspot",  .param="hotspot" },
-};
-static const colmenu_page_t wifi_page = { "WiFi", "gs", "wifi", wifi_items, 4 };
+
+/* Connected-network submenu: Disconnect + Forget. (Forget is best-effort — the
+ * backend may not implement `set gs wifi forget`.) */
+static void wifi_disconnect(void * ctx) { (void)ctx; colmenu_exec("gsmenu.sh set gs wifi disconnect"); }
+static void wifi_forget(void * ctx)
+{
+    (void)ctx;
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "gsmenu.sh set gs wifi forget \"%s\"", g_connected_ssid);
+    colmenu_exec(cmd);
+}
+static void build_connected(colmenu_emit_t * e)
+{
+    colmenu_emit_value(e, LV_SYMBOL_WIFI,  "Network",    g_connected_ssid);
+    colmenu_emit_action(e, LV_SYMBOL_CLOSE, "Disconnect", wifi_disconnect, NULL);
+    colmenu_emit_action(e, LV_SYMBOL_TRASH, "Forget",     wifi_forget,     NULL);
+}
+static const colmenu_page_t wifi_connected_page = { .title="Connected", .type="gs", .page="wifi", .build=build_connected };
+
+/* WiFi main page (dynamic — reflects the live connection state). */
+static void build_wifi(colmenu_emit_t * e)
+{
+    char * ip = colmenu_get("gs", "wifi", "IP", NULL);
+    colmenu_emit_value(e, LV_SYMBOL_SETTINGS, "IP", (ip && *ip) ? ip : "-");
+    free(ip);
+
+    char * ssid = colmenu_get("gs", "wifi", "ssid", NULL);
+    if(ssid && *ssid) {                              /* connected → enter for actions */
+        snprintf(g_connected_ssid, sizeof(g_connected_ssid), "%s", ssid);
+        char lbl[160];
+        snprintf(lbl, sizeof(lbl), LV_SYMBOL_OK " %s", ssid);
+        colmenu_emit_submenu(e, LV_SYMBOL_WIFI, lbl, &wifi_connected_page);
+    } else {
+        colmenu_emit_value(e, LV_SYMBOL_WIFI, "Not connected", "");
+    }
+    free(ssid);
+
+    colmenu_emit_submenu(e, LV_SYMBOL_WIFI, "Networks", &networks_page);
+    colmenu_emit_switch (e, LV_SYMBOL_WIFI, "Hotspot", "gs", "wifi", "hotspot", NULL);
+}
+static const colmenu_page_t wifi_page = { .title="WiFi", .type="gs", .page="wifi", .build=build_wifi };
 
 /* DVR-Player: a recordings browser (like the old create_gs_dvr_menu); selecting
  * a file starts playback on dvr_screen, and the player's Stop button returns. */

@@ -583,6 +583,19 @@ lv_obj_t * colstack_column_origin(colstack_t * cs, int idx)
     return cs->cols[idx].origin;
 }
 
+/* Re-run the builder of the top (non-root) column into a freshly-cleared body —
+ * used to refresh a dynamic list in place (e.g. a wifi re-scan). */
+void colstack_rebuild_current(colstack_t * cs)
+{
+    if(cs->depth <= 1) return;
+    int i = cs->depth - 1;
+    lv_obj_t * origin = cs->cols[i].origin;
+    cs_item_t * it = origin ? lv_obj_get_user_data(origin) : NULL;
+    if(!it || !it->builder) return;
+    lv_obj_clean(cs->cols[i].body);
+    it->builder(cs, cs->cols[i].body, it->user);
+}
+
 void colstack_set_enabled(lv_obj_t * row, bool enabled)
 {
     if(enabled) lv_obj_remove_state(row, LV_STATE_DISABLED);   /* for the key handler */

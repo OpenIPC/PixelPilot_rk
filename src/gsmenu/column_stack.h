@@ -103,6 +103,9 @@ void colstack_set_enabled(lv_obj_t * row, bool enabled);
 /* The row that opened column `idx` (idx 1 = first pushed from the root). */
 lv_obj_t * colstack_column_origin(colstack_t * cs, int idx);
 
+/* Re-run the top column's builder into a cleared body (refresh a dynamic list). */
+void colstack_rebuild_current(colstack_t * cs);
+
 /* Resize the current (top) column to fit its widest row (clamped). Call after
  * a column has been fully populated. */
 void colstack_autofit(colstack_t * cs);

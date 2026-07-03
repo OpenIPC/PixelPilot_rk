@@ -643,20 +643,31 @@ static void add_value_row(lv_obj_t * body, const char * icon, const char * label
 {
     lv_obj_t * row = lv_obj_create(body);
     lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    /* a card, like the focusable rows but dimmer, so read-only info is still
+     * clearly legible against the column instead of faint floating text */
+    lv_obj_set_style_bg_color(row, lv_color_hex(0x161b24), 0);
+    lv_obj_set_style_bg_opa(row, 140, 0);
+    lv_obj_set_style_radius(row, 6, 0);
+    lv_obj_set_style_margin_bottom(row, 4, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_hor(row, 12, 0);
-    lv_obj_set_style_pad_ver(row, 8, 0);
+    lv_obj_set_style_pad_ver(row, 10, 0);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    if(icon) { lv_obj_t * ic = lv_label_create(row); lv_label_set_text(ic, icon); lv_obj_set_style_pad_right(ic, 8, 0); }
+    if(icon) {
+        lv_obj_t * ic = lv_label_create(row);
+        lv_label_set_text(ic, icon);
+        lv_obj_set_style_text_color(ic, lv_color_hex(0xf2f4f8), 0);
+        lv_obj_set_style_pad_right(ic, 8, 0);
+    }
     lv_obj_t * l = lv_label_create(row);
     lv_label_set_text(l, label);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xf2f4f8), 0);
     lv_obj_set_flex_grow(l, 1);
     lv_obj_t * v = lv_label_create(row);
     lv_label_set_text(v, value ? value : "-");
-    lv_obj_set_style_text_color(v, lv_color_hex(0x8a93a6), 0);
+    lv_obj_set_style_text_color(v, lv_color_hex(0xc7cfdd), 0);   /* brighter value */
 }
 
 /* ── text entry (floating textarea + on-screen keyboard overlay) ───────────── */
@@ -671,6 +682,12 @@ typedef struct {
     lv_obj_t *   overlay;     /* dim backdrop + panel, floated on the top layer */
     lv_group_t * group;       /* the keyboard's own input group               */
     lv_group_t * prev_group;  /* group to restore on close                    */
+    /* prompt mode (colmenu_prompt): a standalone text entry with a custom OK
+     * handler instead of the gsmenu.sh set — used e.g. for a wifi password. */
+    const char * title;                              /* overlay caption (else param) */
+    void (*on_ok)(const char * text, void * user);   /* custom OK; NULL = generic set */
+    void *       user;
+    bool         owned;                              /* free this ctx on close       */
 } text_ctx_t;
 
 /* Deferred teardown — ok/cancel arrive from the keyboard's own event, so
@@ -684,6 +701,7 @@ static void text_close_cb(void * p)
     if(t->group)   { lv_group_delete(t->group); t->group = NULL; }
     if(t->overlay) { lv_obj_delete(t->overlay); t->overlay = NULL; }
     control_mode = GSMENU_CONTROL_MODE_NAV;
+    if(t->owned) free(t);   /* standalone prompt ctx (row-owned ctx frees itself) */
 }
 
 /* After the async set: on success update the row's value + fire on_change; either
@@ -702,6 +720,11 @@ static void text_set_done(void * ctx, int rc)
 static void text_ok_cb(lv_event_t * e)
 {
     text_ctx_t * t = lv_event_get_user_data(e);
+    if(t->on_ok) {                       /* prompt mode: hand the text to the caller */
+        t->on_ok(lv_textarea_get_text(t->ta), t->user);
+        lv_async_call(text_close_cb, t);
+        return;
+    }
     char cmd[400];
     snprintf(cmd, sizeof(cmd), "gsmenu.sh set %s %s %s \"%s\"",
              t->type, t->page, t->param, lv_textarea_get_text(t->ta));
@@ -740,14 +763,15 @@ static void open_text(void * ctx)
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * title = lv_label_create(panel);
-    lv_label_set_text(title, t->param);
+    lv_label_set_text(title, t->title ? t->title : t->param);
     lv_obj_set_style_text_color(title, lv_color_hex(0x8a93a6), 0);
 
     lv_obj_t * ta = lv_textarea_create(panel);
     lv_textarea_set_one_line(ta, true);
     lv_obj_set_width(ta, LV_PCT(100));
     lv_obj_add_style(ta, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
-    char * cur = colmenu_get(t->type, t->page, t->param, NULL);
+    /* prompt mode starts empty; a bound field preloads its current value */
+    char * cur = t->on_ok ? NULL : colmenu_get(t->type, t->page, t->param, NULL);
     lv_textarea_set_text(ta, cur ? cur : "");
     free(cur);
     t->ta = ta;
@@ -773,6 +797,18 @@ static void open_text(void * ctx)
     lv_indev_set_group(indev_drv, t->group);
     lv_group_focus_obj(kb);
     control_mode = GSMENU_CONTROL_MODE_KEYBOARD;
+}
+
+/* Standalone on-screen-keyboard prompt: on OK, `on_ok` is called with the entered
+ * text (nothing is written to gsmenu.sh). Used e.g. for a wifi network password. */
+void colmenu_prompt(const char * title, void (*on_ok)(const char * text, void * user), void * user)
+{
+    text_ctx_t * t = calloc(1, sizeof(text_ctx_t));
+    t->title = title;
+    t->on_ok = on_ok;
+    t->user  = user;
+    t->owned = true;
+    open_text(t);
 }
 
 static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * pg)
@@ -1002,6 +1038,10 @@ lv_obj_t   * colmenu_emit_container(colmenu_emit_t * e) { return e->body; }
 lv_group_t * colmenu_emit_group(colmenu_emit_t * e)     { return colstack_cur_group(e->cs); }
 
 void colmenu_pop(void) { colstack_pop(g_cs); }
+
+/* Deferred so it's safe to call from a row's own event (the rebuild deletes it). */
+static void rescan_async(void * p) { (void)p; colstack_rebuild_current(g_cs); }
+void colmenu_rescan(void) { lv_async_call(rescan_async, NULL); }
 
 lv_group_t * colmenu_root_group(void) { return colstack_root_group(g_cs); }
 void colmenu_set_root_back(void (*cb)(void * ctx), void * ctx) { colstack_set_root_back(g_cs, cb, ctx); }
