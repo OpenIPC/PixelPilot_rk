@@ -95,7 +95,11 @@ static void refresh_active_styling(colstack_t * cs)
 static lv_obj_t * make_column(colstack_t * cs, const char * title)
 {
     lv_obj_t * col = lv_obj_create(cs->stack);
-    lv_obj_set_size(col, CS_COL_WIDTH, LV_PCT(100));
+    /* Height fits the content (short pages don't waste the whole screen) but is
+     * capped at the viewport so long lists still bound their scroll area. */
+    lv_obj_set_width(col, CS_COL_WIDTH);
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(col, LV_PCT(100), 0);
     lv_obj_set_style_bg_color(col, lv_color_hex(0x0b0e14), 0);
     lv_obj_set_style_bg_opa(col, LV_OPA_COVER, 0);
     /* light text inherited by all rows — otherwise the default (dark) theme text
@@ -113,10 +117,17 @@ static lv_obj_t * make_column(colstack_t * cs, const char * title)
     lv_obj_set_style_pad_all(hdr, 10, 0);
     lv_obj_set_width(hdr, LV_PCT(100));
 
-    /* scrollable body that holds the rows */
+    /* scrollable body that holds the rows. Height fits the rows (so the column
+     * wraps its content) but is capped in pixels at the viewport minus the
+     * header, so a long list bounds its own scroll area while the header stays
+     * put. NOTE: flex_grow does NOT work under a SIZE_CONTENT parent (the child
+     * collapses), so the body must be SIZE_CONTENT with an explicit max. */
     lv_obj_t * body = lv_obj_create(col);
-    lv_obj_set_size(body, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_flex_grow(body, 1);
+    lv_obj_set_width(body, LV_PCT(100));
+    lv_obj_set_height(body, LV_SIZE_CONTENT);
+    lv_obj_update_layout(cs->stack);
+    int32_t vh = lv_obj_get_content_height(cs->stack);
+    if(vh > 100) lv_obj_set_style_max_height(body, vh - 52 /*header+pads*/, 0);
     lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(body, 0, 0);
     lv_obj_set_style_pad_all(body, 6, 0);
