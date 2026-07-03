@@ -384,6 +384,7 @@ static void bind_row(lv_obj_t * row, const colmenu_page_t * pg, const colmenu_it
     b->type = pg->type; b->page = pg->page; b->param = it->param;
     b->on_change = it->on_change; b->on_live = it->on_live;
     colstack_set_binding(row, do_set, b);
+    colstack_set_row_param(row, it->param);   /* for external reflect (see colmenu_reflect_switch) */
     if(it->on_live) colstack_set_slider_live(row, do_live, b);
     lv_obj_add_event_cb(row, free_bind_cb, LV_EVENT_DELETE, b);
 }
@@ -1037,6 +1038,11 @@ void colmenu_emit_action(colmenu_emit_t * e, const char * icon, const char * lab
 /* Deferred so it's safe to call from a row's own event (the rebuild deletes it). */
 static void rescan_async(void * p) { (void)p; colstack_rebuild_current(g_cs); }
 void colmenu_rescan(void) { lv_async_call(rescan_async, NULL); }
+
+void colmenu_reflect_switch(const char * param, bool on)
+{
+    if(g_cs) colstack_reflect_switch(g_cs, param, on);
+}
 
 lv_group_t * colmenu_root_group(void) { return colstack_root_group(g_cs); }
 void colmenu_set_root_back(void (*cb)(void * ctx), void * ctx) { colstack_set_root_back(g_cs, cb, ctx); }

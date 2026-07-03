@@ -15,7 +15,7 @@ extern lv_group_t * default_group;
 extern lv_obj_t * dvr_screen;
 extern lv_indev_t * indev_drv;
 extern lv_group_t * dvr_group;
-lv_group_t * dvr_page_group;
+extern lv_group_t * dvr_page_group;   /* now defined in gs_dvrplayer.c */
 
 
 char path[256];

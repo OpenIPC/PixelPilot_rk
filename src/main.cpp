@@ -644,6 +644,13 @@ extern "C" {
         osd_publish_bool_fact("dvr.recording", NULL, 0, false);
     }
 
+    /* C-callable wrapper so the menu (C) can set the raw DVR framerate without
+     * touching the C++ Dvr* directly. */
+    void dvr_set_video_framerate(Dvr* dvr, int f);   /* defined in dvr.cpp */
+    void dvr_set_raw_fps(int fps) {
+        if (dvr_raw) dvr_set_video_framerate(dvr_raw, fps);
+    }
+
     // Switch DVR mode at runtime. Stops any active recording.
     // mode: 0=raw, 1=reencode, 2=both
     void dvr_set_mode(int mode) {

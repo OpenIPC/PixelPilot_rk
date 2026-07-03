@@ -6,6 +6,9 @@ enum RXMode {
     APFPV
 };
 
+/* Defined in menu.c (kept out of the old menu so it survives its removal). */
+extern enum RXMode RXMODE;
+
 void toggle_rec_enabled(void);
 void create_gs_system_receiver_menu(lv_obj_t * parent);
 void create_gs_system_display_menu(lv_obj_t * parent);

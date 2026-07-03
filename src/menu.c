@@ -18,7 +18,31 @@ extern lv_group_t * main_group;   /* focused by input.cpp toggle_screen() */
 extern lv_group_t * osd_group;
 extern bool menu_active;
 extern uint64_t gtotal_tunnel_data;   /* tunnel bytes from the VTX (drone) */
-extern enum RXMode RXMODE;             /* WFB vs APFPV receiver mode */
+
+/* WFB vs APFPV receiver mode. Owned here (not in the old menu's gs_system.c) so
+ * it outlives the old menu. */
+enum RXMode RXMODE = WFB;
+
+/* DVR backend (defined in main.cpp / dvr.cpp). */
+extern int dvr_enabled;
+void dvr_start_all(void);
+void dvr_stop_all(void);
+
+/* Toggle DVR recording (hardware button, from input.cpp). Formerly poked an
+ * lv_switch that only the old menu created — which was NULL under the column
+ * menu — so drive the recorder directly instead. */
+void toggle_rec_enabled(void)
+{
+#ifndef USE_SIMULATOR
+    if(dvr_enabled) dvr_stop_all();
+    else            dvr_start_all();
+#else
+    dvr_enabled = !dvr_enabled;
+    printf("toggle_rec_enabled -> %s\n", dvr_enabled ? "recording" : "stopped");
+#endif
+    /* keep the menu's "Enabled" switch in sync if the DVR page is open */
+    colmenu_reflect_switch("rec_enabled", dvr_enabled != 0);
+}
 
 /* Drone detection: watch the tunnel-data counter; when it's flowing the drone
  * is present and its pages become active, otherwise they grey out. Mirrors the

@@ -35,6 +35,18 @@ extern float live_colortrans_offset;
 extern gamma_lut_controller lut_ctrl;
 void dvr_reenc_notify_colortrans(int enabled);
 void drm_set_video_scale(float factor);
+/* DVR backend live setters — mirror the old gs_system.c widget callbacks so a
+ * change takes effect immediately (a gsmenu.sh set alone only applies on restart). */
+void dvr_reenc_set_osd(int enabled);
+void dvr_reenc_set_fps(int fps);
+void dvr_reenc_set_bitrate(int kbps);
+void dvr_reenc_set_codec(int idx);
+void dvr_reenc_set_resolution(int idx);
+void dvr_set_mode(int mode);
+void dvr_set_max_size(int mb);
+void dvr_set_raw_fps(int fps);
+void dvr_start_all(void);
+void dvr_stop_all(void);
 #endif
 
 static void on_live_colortrans(const char * value)
@@ -69,6 +81,65 @@ static void on_video_scale(const char * value)
     printf("drm_set_video_scale(%.2f);\n", factor);
     fflush(stdout);
 #endif
+}
+
+/* ── GS DVR live hooks ───────────────────────────────────────────────────────
+ * These restore the "apply immediately" behaviour the old gs_system.c widget
+ * callbacks had. Without them a change to a DVR setting only persists to config
+ * (gsmenu.sh) and takes effect on the next restart. The dropdown value strings
+ * come straight from gsmenu.sh's option lists. */
+#ifdef USE_SIMULATOR
+#define DVR_LIVE(call, fmt, ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while(0)
+#else
+#define DVR_LIVE(call, fmt, ...) do { call; } while(0)
+#endif
+
+static void on_rec_enabled(const char * value)   /* start/stop recording now */
+{
+    int on = value && strcmp(value, "on") == 0;
+    if(on) DVR_LIVE(dvr_start_all(), "dvr_start_all()%s", "");
+    else   DVR_LIVE(dvr_stop_all(),  "dvr_stop_all()%s",  "");
+}
+static void on_dvr_osd(const char * value)       /* burn OSD into the re-encode */
+{
+    int on = (value && strcmp(value, "on") == 0) ? 1 : 0;
+    DVR_LIVE(dvr_reenc_set_osd(on), "dvr_reenc_set_osd(%d)", on);
+}
+static void on_dvr_mode(const char * value)      /* raw=0, reencode=1, both=2 */
+{
+    int mode = 0;
+    if(value) { if(!strcmp(value, "reencode")) mode = 1; else if(!strcmp(value, "both")) mode = 2; }
+    DVR_LIVE(dvr_set_mode(mode), "dvr_set_mode(%d)", mode);
+}
+static void on_dvr_max_size(const char * value)  /* param is in units of 100 MB */
+{
+    int mb = (value ? atoi(value) : 0) * 100;
+    DVR_LIVE(dvr_set_max_size(mb), "dvr_set_max_size(%d)", mb);
+}
+static void on_rec_fps(const char * value)       /* raw recorder framerate */
+{
+    int fps = value ? atoi(value) : 0;
+    if(fps > 0) DVR_LIVE(dvr_set_raw_fps(fps), "dvr_set_raw_fps(%d)", fps);
+}
+static void on_dvr_reenc_codec(const char * value)      /* h264=0, h265=1 */
+{
+    int idx = (value && strcmp(value, "h265") == 0) ? 1 : 0;
+    DVR_LIVE(dvr_reenc_set_codec(idx), "dvr_reenc_set_codec(%d)", idx);
+}
+static void on_dvr_reenc_resolution(const char * value) /* 720p=0, 1080p=1 */
+{
+    int idx = (value && strcmp(value, "1080p") == 0) ? 1 : 0;
+    DVR_LIVE(dvr_reenc_set_resolution(idx), "dvr_reenc_set_resolution(%d)", idx);
+}
+static void on_dvr_reenc_fps(const char * value)
+{
+    int fps = value ? atoi(value) : 0;
+    if(fps > 0) DVR_LIVE(dvr_reenc_set_fps(fps), "dvr_reenc_set_fps(%d)", fps);
+}
+static void on_dvr_reenc_bitrate(const char * value)
+{
+    int kbps = value ? atoi(value) : 0;
+    if(kbps > 0) DVR_LIVE(dvr_reenc_set_bitrate(kbps), "dvr_reenc_set_bitrate(%d)", kbps);
 }
 
 /* Full-screen editors reached from the menu (built by the app elsewhere). Each
@@ -297,15 +368,15 @@ static const colmenu_item_t sys_display_items[] = {
 };
 static const colmenu_page_t sys_display_page = { "Display", "gs", "system", sys_display_items, 5 };
 static const colmenu_item_t sys_dvr_items[] = {
-    { .kind=COLMENU_SWITCH,   .label="Enabled",           .param="rec_enabled" },
-    { .kind=COLMENU_DROPDOWN, .label="Mode",              .param="dvr_mode" },
-    { .kind=COLMENU_SLIDER,   .label="Max file size (MB)", .param="dvr_max_size" },
-    { .kind=COLMENU_DROPDOWN, .label="Raw FPS",           .param="rec_fps" },
-    { .kind=COLMENU_DROPDOWN, .label="Codec",             .param="dvr_reenc_codec" },
-    { .kind=COLMENU_DROPDOWN, .label="Resolution",        .param="dvr_reenc_resolution" },
-    { .kind=COLMENU_DROPDOWN, .label="Re-encode FPS",     .param="dvr_reenc_fps" },
-    { .kind=COLMENU_DROPDOWN, .label="Bitrate (kbps)",    .param="dvr_reenc_bitrate" },
-    { .kind=COLMENU_SWITCH,   .label="Record OSD in DVR", .param="dvr_osd" },
+    { .kind=COLMENU_SWITCH,   .label="Enabled",           .param="rec_enabled",          .on_change=on_rec_enabled },
+    { .kind=COLMENU_DROPDOWN, .label="Mode",              .param="dvr_mode",             .on_change=on_dvr_mode },
+    { .kind=COLMENU_SLIDER,   .label="Max file size (MB)", .param="dvr_max_size",         .on_change=on_dvr_max_size },
+    { .kind=COLMENU_DROPDOWN, .label="Raw FPS",           .param="rec_fps",              .on_change=on_rec_fps },
+    { .kind=COLMENU_DROPDOWN, .label="Codec",             .param="dvr_reenc_codec",      .on_change=on_dvr_reenc_codec },
+    { .kind=COLMENU_DROPDOWN, .label="Resolution",        .param="dvr_reenc_resolution", .on_change=on_dvr_reenc_resolution },
+    { .kind=COLMENU_DROPDOWN, .label="Re-encode FPS",     .param="dvr_reenc_fps",        .on_change=on_dvr_reenc_fps },
+    { .kind=COLMENU_DROPDOWN, .label="Bitrate (kbps)",    .param="dvr_reenc_bitrate",    .on_change=on_dvr_reenc_bitrate },
+    { .kind=COLMENU_SWITCH,   .label="Record OSD in DVR", .param="dvr_osd",              .on_change=on_dvr_osd },
 };
 static const colmenu_page_t sys_dvr_page = { "DVR", "gs", "system", sys_dvr_items, 9 };
 static const colmenu_item_t system_items[] = {

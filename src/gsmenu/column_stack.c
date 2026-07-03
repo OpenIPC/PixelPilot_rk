@@ -29,6 +29,7 @@ typedef enum {
 typedef struct {
     cs_role_t          role;
     colstack_t *       cs;
+    const char *       param;       /* bound gsmenu.sh param (for external reflect) */
     lv_obj_t *         label;       /* main text label (measured for autofit)    */
     /* submenu */
     colstack_builder_t builder;
@@ -567,6 +568,32 @@ void colstack_set_binding(lv_obj_t * row, void (*on_change)(void * ctx, const ch
 {
     cs_item_t * it = lv_obj_get_user_data(row);
     if(it) { it->on_change = on_change; it->ctx = ctx; }
+}
+
+void colstack_set_row_param(lv_obj_t * row, const char * param)
+{
+    cs_item_t * it = lv_obj_get_user_data(row);
+    if(it) it->param = param;
+}
+
+void colstack_reflect_switch(colstack_t * cs, const char * param, bool on)
+{
+    if(!param) return;
+    /* search every visible column so it still works if the user has stepped into
+     * a child column (e.g. an open dropdown) of the page holding the switch. */
+    for(int c = 0; c < cs->depth; c++) {
+        lv_obj_t * body = cs->cols[c].body;
+        uint32_t n = lv_obj_get_child_count(body);
+        for(uint32_t i = 0; i < n; i++) {
+            lv_obj_t * row = lv_obj_get_child(body, i);
+            cs_item_t * it = lv_obj_get_user_data(row);
+            if(!it || it->role != CS_SWITCH || !it->sw || !it->param) continue;
+            if(strcmp(it->param, param) != 0) continue;
+            if(on) lv_obj_add_state(it->sw, LV_STATE_CHECKED);
+            else   lv_obj_remove_state(it->sw, LV_STATE_CHECKED);
+            return;
+        }
+    }
 }
 
 void colstack_set_slider_live(lv_obj_t * row, void (*on_live)(void * ctx, const char * value),

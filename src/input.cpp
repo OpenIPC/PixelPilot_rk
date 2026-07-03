@@ -541,6 +541,12 @@ void handle_keyboard_input(void) {
                     timer = lv_timer_create(simulate_traffic, 50, NULL);
                 break;
 #endif
+#ifdef USE_SIMULATOR
+            case 'r':
+            case 'R':
+                toggle_rec_enabled();   /* simulate the hardware record button (sim only) */
+                break;
+#endif
             case 'q':
             case 'Q':
                 raise(SIGINT);

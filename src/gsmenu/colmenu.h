@@ -82,6 +82,11 @@ void colmenu_emit_action (colmenu_emit_t * e, const char * icon, const char * la
 /* Re-run the current dynamic column's builder (e.g. a wifi re-scan). Deferred. */
 void colmenu_rescan(void);
 
+/* Reflect an external state change onto a bound switch (found by gsmenu.sh param)
+ * without firing its on_change — e.g. a hardware button toggling DVR recording
+ * should move the "Enabled" switch if that page is open. No-op if not shown. */
+void colmenu_reflect_switch(const char * param, bool on);
+
 /* Open a floating on-screen-keyboard prompt; on OK, `on_ok` gets the typed text
  * (nothing is written to gsmenu.sh). For e.g. a wifi password. */
 void colmenu_prompt(const char * title, void (*on_ok)(const char * text, void * user), void * user);

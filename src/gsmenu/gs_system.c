@@ -17,7 +17,8 @@ extern lv_group_t * default_group;
 extern lv_obj_t * menu;
 extern lv_indev_t * indev_drv;
 extern lv_obj_t * sub_gs_system_page;
-enum RXMode RXMODE = WFB;
+/* RXMODE now lives in menu.c so it survives removal of the old menu. */
+extern enum RXMode RXMODE;
 
 lv_obj_t * rx_codec;
 lv_obj_t * rx_mode;
@@ -162,13 +163,8 @@ static void reload_dvr_mode_fn(lv_obj_t *page, lv_obj_t *parameter) {
     lv_unlock();
 }
 
-void toggle_rec_enabled()
-{
-    lv_obj_t * rec_switch = lv_obj_get_child_by_type(rec_enabled,0,&lv_switch_class);
-    if (lv_obj_has_state(rec_switch, LV_STATE_CHECKED)) lv_obj_clear_state(rec_switch, LV_STATE_CHECKED);
-    else lv_obj_add_state(rec_switch, LV_STATE_CHECKED);
-    lv_obj_send_event(rec_switch, LV_EVENT_VALUE_CHANGED, NULL);
-}
+/* toggle_rec_enabled() now lives in menu.c and drives the DVR backend directly
+ * (the old version poked an lv_switch that only the old menu created). */
 
 void rec_enabled_cb(lv_event_t *e) {
     lv_event_code_t event = lv_event_get_code(e);

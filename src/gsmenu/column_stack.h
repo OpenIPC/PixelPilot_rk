@@ -82,6 +82,15 @@ lv_obj_t * colstack_add_title(colstack_t * cs, lv_obj_t * col, const char * text
 void colstack_set_binding(lv_obj_t * row, void (*on_change)(void * ctx, const char * value),
                           void * ctx);
 
+/* Tag a row with its gsmenu.sh param so its switch can be found and updated by
+ * an external state change (see colstack_reflect_switch). */
+void colstack_set_row_param(lv_obj_t * row, const char * param);
+
+/* Set the visual state of a bound switch (found by `param`) in any visible
+ * column, WITHOUT firing its binding — for state changed outside the menu
+ * (e.g. a hardware button toggling DVR recording). No-op if not shown. */
+void colstack_reflect_switch(colstack_t * cs, const char * param, bool on);
+
 /* Attach a "live" callback to a slider row: fired with the formatted value on
  * every adjustment while editing, and again with the original value if the edit
  * is cancelled — for live-preview effects (e.g. DRM video scaling). */
