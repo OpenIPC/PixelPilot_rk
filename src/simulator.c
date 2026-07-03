@@ -32,9 +32,6 @@ int dvr_reenc_get_bitrate(void) { return 8000; }
 int dvr_reenc_get_codec(void)   { return 0; }
 int dvr_reenc_get_resolution(void) { return 1; }
 int dvr_get_max_size(void)      { return 4000; }
-bool restream_get_enabled()      { return false; }
-void restream_scan_clients(char* buf, size_t buf_len) { return; }
-const char* restream_get_manual_ip() { return ""; }
 void my_log_cb(lv_log_level_t level, const char * buf)
 {
   printf("%s",buf);

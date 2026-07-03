@@ -422,6 +422,12 @@ case "$@" in
         echo -n "10000"
         emit_values "5000\n10000\n15000\n20000\n25000\n30000\n35000\n40000\n45000\n50000"
         ;;
+    "get gs system rec_enabled"*)
+        echo 0
+        ;;
+    "get gs system dvr_osd"*)
+        echo 0
+        ;;
 
     "set gs system rx_codec"*)              : ;;
     "set gs system rx_mode"*)               : ;;
@@ -485,6 +491,7 @@ case "$@" in
 
     "set gs wifi connect"*)     : ;;
     "set gs wifi disconnect"*)  : ;;
+    "set gs wifi forget"*)      : ;;   # integrator: forget/remove the saved network ($4 = SSID)
     "set gs wifi wlan"*)        : ;;
     "set gs wifi hotspot"*)     : ;;
 
