@@ -79,14 +79,6 @@ void colmenu_emit_submenu_gated(colmenu_emit_t * e, const char * icon, const cha
 void colmenu_emit_action (colmenu_emit_t * e, const char * icon, const char * label,
                           void (*on_activate)(void * ctx), void * ctx);
 
-/* Custom-widget escape hatch: the column body to build any lv_obj into, and the
- * input group to add focusable widgets to (e.g. a table, chart, custom control). */
-lv_obj_t   * colmenu_emit_container(colmenu_emit_t * e);
-lv_group_t * colmenu_emit_group(colmenu_emit_t * e);
-
-/* Pop the current column — custom builders wire their own back key to this. */
-void colmenu_pop(void);
-
 /* Re-run the current dynamic column's builder (e.g. a wifi re-scan). Deferred. */
 void colmenu_rescan(void);
 

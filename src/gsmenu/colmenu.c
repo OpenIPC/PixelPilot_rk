@@ -1034,11 +1034,6 @@ void colmenu_emit_action(colmenu_emit_t * e, const char * icon, const char * lab
     lv_obj_add_event_cb(row, emit_action_delete, LV_EVENT_DELETE, a);
 }
 
-lv_obj_t   * colmenu_emit_container(colmenu_emit_t * e) { return e->body; }
-lv_group_t * colmenu_emit_group(colmenu_emit_t * e)     { return colstack_cur_group(e->cs); }
-
-void colmenu_pop(void) { colstack_pop(g_cs); }
-
 /* Deferred so it's safe to call from a row's own event (the rebuild deletes it). */
 static void rescan_async(void * p) { (void)p; colstack_rebuild_current(g_cs); }
 void colmenu_rescan(void) { lv_async_call(rescan_async, NULL); }
