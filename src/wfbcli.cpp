@@ -20,7 +20,7 @@
 #include <msgpack.hpp>
 #include "spdlog/spdlog.h"
 
-#include "gsmenu/gs_system.h"
+#include "menu.h"
 #include "wfbcli.hpp"
 extern "C" {
 #include "osd.h"

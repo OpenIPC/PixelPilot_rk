@@ -59,9 +59,6 @@ extern "C" {
 #include "pixelpilot_config.h"
 #include <iostream>
 #include "WiFiRSSIMonitor.hpp"
-#include "gsmenu/gs_system.h"
-#include "gsmenu/air_actions.h"
-#include "gsmenu/gs_actions.h"
 #include "menu.h"
 
 

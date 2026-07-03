@@ -47,44 +47,16 @@ set(SIMULATOR_SOURCES
         src/gsmenu/colmenu_pages.c
         src/gsmenu/executor.h
         src/gsmenu/executor.c
-        src/gsmenu/air_telemetry.h
-        src/gsmenu/air_telemetry.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c
-        src/gsmenu/air_camera.h
-        src/gsmenu/air_camera.c
-        src/gsmenu/air_actions.h
-        src/gsmenu/air_actions.c
-        src/gsmenu/gs_wifi.h
-        src/gsmenu/gs_wifi.c
-        src/gsmenu/ui.h
         src/gsmenu/helper.h
         src/gsmenu/helper.c
-        src/gsmenu/gs_main.c
-        src/gsmenu/gs_main.h
-        src/gsmenu/gs_dvr.h
-        src/gsmenu/gs_dvr.c
         src/gsmenu/gs_dvrplayer.h
         src/gsmenu/gs_dvrplayer.c
-        src/gsmenu/gs_wfbng.h
-        src/gsmenu/gs_wfbng.c
-        src/gsmenu/gs_apfpv.h
-        src/gsmenu/gs_apfpv.c
-        src/gsmenu/gs_system.h
-        src/gsmenu/gs_system.c
-        src/gsmenu/gs_actions.h
-        src/gsmenu/gs_actions.c
         src/gsmenu/gs_scripts.h
         src/gsmenu/gs_scripts.c
         src/gsmenu/gs_connection_checker.h
         src/gsmenu/gs_connection_checker.c
-        src/gsmenu/air_wfbng.h
-        src/gsmenu/air_wfbng.c
-        src/gsmenu/air_alink.h
-        src/gsmenu/air_alink.c
-        src/gsmenu/air_aalink.h
-        src/gsmenu/air_aalink.c
-        src/gsmenu/ui.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
         src/lvosd.h
@@ -102,45 +74,18 @@ set(LIB_SOURCE_FILES
         src/drm.c
         src/gsmenu/executor.h
         src/gsmenu/executor.c
-        src/gsmenu/air_telemetry.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c
-        src/gsmenu/air_camera.h
-        src/gsmenu/air_camera.c
-        src/gsmenu/air_actions.h
-        src/gsmenu/air_actions.c
-        src/gsmenu/gs_wifi.h
-        src/gsmenu/gs_wifi.c
-        src/gsmenu/ui.h
         src/gsmenu/helper.h
         src/gsmenu/helper.c
-        src/gsmenu/gs_main.c
-        src/gsmenu/gs_main.h
-        src/gsmenu/gs_dvr.h
-        src/gsmenu/gs_dvr.c
         src/gsmenu/gs_dvrplayer.h
         src/gsmenu/gs_dvrplayer.c
-        src/gsmenu/gs_wfbng.h
-        src/gsmenu/gs_wfbng.c
-        src/gsmenu/gs_apfpv.h
-        src/gsmenu/gs_apfpv.c
-        src/gsmenu/gs_system.h
-        src/gsmenu/gs_system.c
-        src/gsmenu/air_wfbng.h
-        src/gsmenu/air_wfbng.c
-        src/gsmenu/air_alink.h
-        src/gsmenu/air_alink.c
-        src/gsmenu/air_aalink.h
-        src/gsmenu/air_aalink.c
-        src/gsmenu/gs_actions.h
-        src/gsmenu/gs_actions.c
         src/gsmenu/gs_scripts.h
         src/gsmenu/gs_scripts.c
         src/gsmenu/gs_connection_checker.h
         src/gsmenu/gs_connection_checker.c
         src/gsmenu/styles.h
         src/gsmenu/styles.c
-        src/gsmenu/ui.c
         src/gsmenu/column_stack.h
         src/gsmenu/column_stack.c
         src/gsmenu/colmenu.h

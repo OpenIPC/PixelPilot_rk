@@ -13,7 +13,7 @@
 #include "main.h"
 #include "lvgl/lvgl.h"
 #include "input.h"
-#include "gsmenu/gs_system.h"
+#include "menu.h"
 
 extern YAML::Node config;
 extern lv_group_t *main_group;

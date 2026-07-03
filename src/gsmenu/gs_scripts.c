@@ -44,9 +44,6 @@ typedef struct {
                              to escalate to SIGKILL if the script ignores it   */
 } script_runner_t;
 
-static lv_obj_t *g_parent_page;
-static lv_obj_t *g_scripts_section;
-static menu_page_data_t *g_menu_page_data;
 static char *g_script_names[MAX_SCRIPT_COUNT];
 static int g_script_count;
 static lv_obj_t *g_confirm_msgbox;
@@ -56,7 +53,6 @@ static char g_pending_script[256];
  * run time so the feature works from colmenu (no menu_page_data there). */
 static lv_group_t *g_return_group;
 
-static void build_script_list(void);
 static script_runner_t g_runner = {
     .pid = -1,
     .fd = -1,
@@ -273,8 +269,6 @@ static void close_runner_ui(void)
     /* Restore focus to wherever the run was launched from. */
     if (g_return_group) {
         lv_indev_set_group(indev_drv, g_return_group);
-    } else if (g_menu_page_data && g_menu_page_data->indev_group) {
-        lv_indev_set_group(indev_drv, g_menu_page_data->indev_group);
     }
 }
 
@@ -462,8 +456,6 @@ static void confirm_cancel_cb(lv_event_t *e)
     /* Restore focus to wherever the run was launched from. */
     if (g_return_group) {
         lv_indev_set_group(indev_drv, g_return_group);
-    } else if (g_menu_page_data && g_menu_page_data->indev_group) {
-        lv_indev_set_group(indev_drv, g_menu_page_data->indev_group);
     }
 }
 
@@ -542,70 +534,3 @@ void gs_scripts_run(const char *name)
     show_confirm_dialog(NULL);
 }
 
-static void run_script_cb(lv_event_t *e)
-{
-    gs_scripts_run((const char *)lv_event_get_user_data(e));
-}
-
-static void build_script_list(void)
-{
-    if (!g_parent_page || !g_menu_page_data) {
-        return;
-    }
-
-    if (g_scripts_section && lv_obj_is_valid(g_scripts_section)) {
-        lv_obj_del(g_scripts_section);
-        g_scripts_section = NULL;
-    }
-
-    /* Set the page group as default so every new focusable widget (the inner
-     * lv_btn created by create_button) auto-registers into the correct group.
-     * This also ensures generic_back_event_handler receives key events so
-     * HOME / back navigation works. */
-    lv_group_set_default(g_menu_page_data->indev_group);
-
-    g_scripts_section = lv_menu_section_create(g_parent_page);
-    lv_obj_add_style(g_scripts_section, &style_openipc_section, 0);
-
-    g_script_count = collect_scripts(g_script_names, MAX_SCRIPT_COUNT);
-
-    if (g_script_count == 0) {
-        create_text(g_scripts_section, LV_SYMBOL_WARNING, "No scripts found", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-        create_text(g_scripts_section, NULL, "Place .sh files in " SCRIPT_DIR, NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    }
-
-    for (int i = 0; i < g_script_count; i++) {
-        /* Build a display label with a play icon; user_data keeps the raw name
-         * so the execute path is not affected. */
-        char display[300];
-        snprintf(display, sizeof(display), LV_SYMBOL_PLAY "  %s", g_script_names[i]);
-        lv_obj_t *row = create_button(g_scripts_section, display);
-        lv_obj_t *btn = lv_obj_get_child_by_type(row, 0, &lv_button_class);
-        lv_obj_add_event_cb(btn, run_script_cb, LV_EVENT_CLICKED, g_script_names[i]);
-    }
-
-    /* Restore the global default group. */
-    lv_group_set_default(default_group);
-}
-
-void gs_scripts_page_refresh(lv_obj_t *page)
-{
-    (void)page;
-    clear_script_names();
-    if (g_scripts_section && lv_obj_is_valid(g_scripts_section)) {
-        lv_obj_del(g_scripts_section);
-        g_scripts_section = NULL;
-    }
-    build_script_list();
-}
-
-void gs_scripts_init_in_page(lv_obj_t *parent, menu_page_data_t *menu_page_data)
-{
-    g_parent_page = parent;
-    g_menu_page_data = menu_page_data;
-
-    create_text(parent, LV_SYMBOL_DIRECTORY, "Custom Scripts", NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-    create_text(parent, NULL, "Scripts are loaded from " SCRIPT_DIR, NULL, NULL, false, LV_MENU_ITEM_BUILDER_VARIANT_1);
-
-    build_script_list();
-}

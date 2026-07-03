@@ -3,7 +3,6 @@
 
 #include "lvgl/lvgl.h"
 #include "styles.h"
-#include "ui.h"
 #include "helper.h"
 #include "../input.h"
 #include "executor.h"

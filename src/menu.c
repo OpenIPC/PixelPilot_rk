@@ -4,17 +4,17 @@
 #include "lvgl/lvgl.h"
 #include "input.h"
 #include "menu.h"
-#include "gsmenu/ui.h"
+#include "gsmenu/helper.h"               /* find_resource_file() */
 #include "gsmenu/styles.h"
 #include "gsmenu/gs_dvrplayer.h"
 #include "gsmenu/air_txprofiles.h"
 #include "gsmenu/colmenu.h"
 #include "gsmenu/colmenu_pages.h"
-#include "gsmenu/gs_system.h"            /* enum RXMode */
 #include "gsmenu/gs_connection_checker.h" /* update_network_status() */
 #include "lvosd.h"
 
-extern lv_group_t * main_group;   /* focused by input.cpp toggle_screen() */
+/* Focused by input.cpp's toggle_screen() to open the menu. Was in the old ui.c. */
+lv_group_t * main_group;
 extern lv_group_t * osd_group;
 extern bool menu_active;
 extern uint64_t gtotal_tunnel_data;   /* tunnel bytes from the VTX (drone) */
@@ -94,6 +94,28 @@ static void colmenu_return_to_osd(void * ctx)
  * PP Main Menu — the cascading column menu (colmenu). toggle_screen() in
  * input.cpp loads pp_menu_screen and focuses main_group to open it.
  */
+
+/* The OpenIPC header/logo bar at the top of the menu screen (was ui.c). */
+static lv_obj_t * pp_header_create(lv_obj_t * screen) {
+    lv_obj_t *header = lv_obj_create(screen);
+    lv_obj_set_pos(header, 0, 0);
+    lv_obj_set_size(header, LV_PCT(100), LV_PCT(20));
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x0b0e14), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(header, 210, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* thin accent line along the bottom edge for a modern header */
+    lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(header, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(header, lv_color_hex(0x4c60d8), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(header, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t *obj = lv_img_create(header);
+    lv_image_set_src(obj, find_resource_file("OpenIPC__OPENIPC_logo_white.png"));
+    lv_image_set_inner_align(obj, LV_IMAGE_ALIGN_CENTER);
+    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
+    lv_image_set_scale(obj, lv_disp_get_ver_res(NULL) / 30);
+    return header;
+}
+
 void pp_menu_main(void)
 {
     style_init();

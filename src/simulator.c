@@ -8,8 +8,6 @@
 #include "menu.h"
 #include "input.h"
 #include "gsmenu/helper.h"
-#include "gsmenu/air_actions.h"
-#include "gsmenu/gs_actions.h"
 
 
 int dvr_enabled = 0;

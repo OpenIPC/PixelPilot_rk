@@ -19,7 +19,6 @@
 #ifndef USE_SIMULATOR
 #include "../drm.h"       /* gamma_lut_controller, gamma_lut_enable/disable */
 #endif
-#include "gs_system.h"    /* enum RXMode */
 #include "gs_scripts.h"   /* dynamic /media/dvr/scripts lookup + runner */
 
 extern MenuAction airactions[]; extern size_t airactions_count;
