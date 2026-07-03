@@ -40,6 +40,8 @@ typedef struct {
     char *output;
     size_t output_len;
     lv_group_t *group;
+    uint32_t term_tick;   /* tick when SIGTERM was sent (0 = not stopping); used
+                             to escalate to SIGKILL if the script ignores it   */
 } script_runner_t;
 
 static lv_obj_t *g_parent_page;
@@ -166,8 +168,15 @@ static void runner_append(const char *text)
     g_runner.output[g_runner.output_len] = '\0';
 
     if (g_runner.output_ta && lv_obj_is_valid(g_runner.output_ta)) {
-        lv_textarea_set_text(g_runner.output_ta, g_runner.output);
-        lv_textarea_set_cursor_pos(g_runner.output_ta, LV_TEXTAREA_CURSOR_LAST);
+        lv_obj_t *ta = g_runner.output_ta;
+        lv_textarea_set_text(ta, g_runner.output);
+        lv_textarea_set_cursor_pos(ta, LV_TEXTAREA_CURSOR_LAST);
+        /* scroll the newest output into view */
+        lv_obj_update_layout(ta);
+        int32_t sb = lv_obj_get_scroll_bottom(ta);
+        if (sb > 0) {
+            lv_obj_scroll_by(ta, 0, -sb, LV_ANIM_OFF);
+        }
     }
 }
 
@@ -198,10 +207,17 @@ static void script_poll_timer_cb(lv_timer_t *timer)
     }
 
     if (g_runner.running && g_runner.pid > 0) {
+        /* Escalate to SIGKILL if the script ignored SIGTERM for over a second. */
+        if (g_runner.term_tick &&
+            lv_tick_elaps(g_runner.term_tick) > 1000) {
+            kill(-g_runner.pid, SIGKILL);
+            g_runner.term_tick = 0;
+        }
         int status = 0;
         pid_t ret = waitpid(g_runner.pid, &status, WNOHANG);
         if (ret == g_runner.pid) {
             g_runner.running = false;
+            g_runner.term_tick = 0;
             runner_finish_message(status);
             if (g_runner.fd >= 0) {
                 close(g_runner.fd);
@@ -227,12 +243,15 @@ static void close_runner_ui(void)
     }
 
     if (g_runner.running && g_runner.pid > 0) {
-        kill(g_runner.pid, SIGTERM);
+        /* Tearing down — force-kill the whole process group (SIGKILL can't be
+         * ignored) so nothing is left running when the dialog closes. */
+        kill(-g_runner.pid, SIGKILL);
         waitpid(g_runner.pid, NULL, 0);
     }
 
     g_runner.running = false;
     g_runner.pid = -1;
+    g_runner.term_tick = 0;
 
     if (g_runner.msgbox && lv_obj_is_valid(g_runner.msgbox)) {
         lv_msgbox_close(g_runner.msgbox);
@@ -269,7 +288,12 @@ static void script_stop_cb(lv_event_t *e)
 {
     (void)e;
     if (g_runner.running && g_runner.pid > 0) {
-        kill(g_runner.pid, SIGTERM);
+        /* The child did setsid(), so it leads its own process group. Signal the
+         * whole GROUP (negative pid) — otherwise a foreground child of the shell
+         * (a loop, a sleep, a spawned tool) keeps running and the script never
+         * actually stops. */
+        kill(-g_runner.pid, SIGTERM);
+        g_runner.term_tick = lv_tick_get() ? lv_tick_get() : 1;
         runner_append("\nStopping script...\n");
     }
 }
