@@ -81,7 +81,9 @@ static void refresh_active_styling(colstack_t * cs)
 {
     for(int i = 0; i < cs->depth; i++) {
         bool active = (i == cs->depth - 1);
-        lv_obj_set_style_border_width(cs->cols[i].col, active ? 2 : 1, 0);
+        /* constant border WIDTH (only the colour changes) so a column's content
+         * doesn't shift by a pixel when it goes from active to inactive. */
+        lv_obj_set_style_border_width(cs->cols[i].col, 2, 0);
         lv_obj_set_style_border_color(cs->cols[i].col,
                                       active ? lv_color_hex(0x4c60d8) : lv_color_hex(0x39424f), 0);
         /* de-emphasise columns the user has stepped back from — but only slightly,
@@ -626,7 +628,7 @@ static int32_t label_text_w(lv_obj_t * label)
 static int32_t role_ctrl_w(const cs_item_t * it)
 {
     switch(it->role) {
-        case CS_SLIDER:   return 160;   /* slider bar + value + gaps            */
+        case CS_SLIDER:   return label_text_w(it->slider_val) + 120 /*bar*/ + 60;
         case CS_DROPDOWN: {             /* value (capped) + chevron + gaps      */
             int32_t vw = label_text_w(it->value_lbl);
             if(vw > 380) vw = 380;
@@ -655,13 +657,29 @@ void colstack_autofit(colstack_t * cs)
             w = label_text_w(ch) + 24 + SLACK;
         } else {
             cs_item_t * it = lv_obj_get_user_data(ch);
-            if(!it) continue;
-            w = label_text_w(it->label) + role_ctrl_w(it) + 34 /*icon*/ + 24 /*pad*/ + SLACK;
+            if(!it) {
+                /* not a colstack row (e.g. an emit_value info card): sum its
+                 * label children so a long value/SSID still widens the column. */
+                int32_t sum = 0;
+                uint32_t m = lv_obj_get_child_count(ch);
+                for(uint32_t j = 0; j < m; j++) {
+                    lv_obj_t * gc = lv_obj_get_child(ch, j);
+                    if(lv_obj_check_type(gc, &lv_label_class)) sum += label_text_w(gc) + 8;
+                }
+                if(!sum) continue;
+                w = sum + 24 /*pad*/ + SLACK;
+            } else {
+                w = label_text_w(it->label) + role_ctrl_w(it) + 34 /*icon*/ + 24 /*pad*/ + SLACK;
+            }
         }
         if(w > need) need = w;
     }
     if(need > CS_COL_MAX) need = CS_COL_MAX;
     lv_obj_set_width(cs->cols[top].col, need);
+    /* Force the flex/label layout to settle at the new width now — otherwise a
+     * LONG_WRAP label that wrapped at the old width keeps its stale line break
+     * until some later event (e.g. moving a slider) re-flows it. */
+    lv_obj_update_layout(cs->cols[top].col);
 }
 
 /* ── lifecycle ─────────────────────────────────────────────────────────────── */
