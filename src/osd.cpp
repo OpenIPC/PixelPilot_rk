@@ -1967,34 +1967,45 @@ cairo_surface_t * surface_from_embedded_png(const char * png, size_t length)
 }
 
 
+/* LVGL renders into this cached (normal RAM) shadow buffer instead of the
+ * write-combined DRM dumb buffers. Alpha blending is read-modify-write, and
+ * uncached reads on ARM are extremely slow — rendering directly into the dumb
+ * buffers is what made the menu sluggish. The shadow always holds the complete
+ * current UI; my_flush_cb copies it to the off-screen DRM buffer and flips. */
+static uint8_t * lvgl_shadow;
+
 void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_map)
 {
+	(void)area; (void)px_map;
 
-    struct modeset_buf *buf1 = &p->out->osd_bufs[0];
-    struct modeset_buf *buf2 = &p->out->osd_bufs[1];
-	int ret = pthread_mutex_lock(&osd_mutex);
-	assert(!ret);	
-    if (px_map == buf1->map) {
-		p->out->osd_buf_switch = 0;
-    } else if (px_map == buf2->map) {
-		p->out->osd_buf_switch = 1;
-    } else {
-        spdlog::error("Unknown buffer being flushed");
-    }
-
-	if (enable_live_colortrans) {
-		p->out->osd_bufs[p->out->osd_buf_switch].gl_fb_id = osd_gl_process(&p->out->osd_bufs[p->out->osd_buf_switch], false); // LVGL: straight alpha
+	/* Direct mode calls flush once per invalidated area. Acting on the
+	 * intermediate calls used to flip the visible buffer mid-frame — the
+	 * display thread commits on every video frame, so scanout could catch a
+	 * half-rendered frame (rows blinking out during navigation, stale fade
+	 * ghosts). Only publish once the frame is complete. */
+	if (!lv_display_flush_is_last(display)) {
+		lv_display_flush_ready(display);
+		return;
 	}
 
+	/* osd_buf_switch is only ever flipped on this thread (here and in the
+	 * Cairo OSD path), so the back buffer is stable: copy without the lock. */
+	int back = p->out->osd_buf_switch ^ 1;
+	struct modeset_buf *dst = &p->out->osd_bufs[back];
+	memcpy(dst->map, lvgl_shadow, dst->size);
+
+	int ret = pthread_mutex_lock(&osd_mutex);
+	assert(!ret);
+	p->out->osd_buf_switch = back;
+	if (enable_live_colortrans) {
+		dst->gl_fb_id = osd_gl_process(dst, false); // LVGL: straight alpha
+	}
 	ret = pthread_mutex_unlock(&osd_mutex);
 	assert(!ret);
 
-	{
-		struct modeset_buf *osd_buf = &p->out->osd_bufs[p->out->osd_buf_switch];
-		if (dvr_osd && frame_proc)
-			frame_proc->set_osd_blend(osd_buf->prime_fd, osd_buf->width, osd_buf->height,
-			                         osd_buf->stride / 4);
-	}
+	if (dvr_osd && frame_proc)
+		frame_proc->set_osd_blend(dst->prime_fd, dst->width, dst->height,
+		                         dst->stride / 4);
 
 	// tell the display thread that we have a update
 	ret = pthread_mutex_lock(&video_mutex);
@@ -2017,28 +2028,30 @@ uint32_t my_get_milliseconds() {
 }
 
 lv_display_t * display;
-static lv_draw_buf_t lvgl_draw_buf1, lvgl_draw_buf2;
+static lv_draw_buf_t lvgl_draw_buf1;
 
 void setup_lvgl(osd_thread_params *p) {
 
 	/* Initialize LVGL. */
     lv_init();
 
-	// Get the first two buffers from the OSD buffers
 	struct modeset_buf *buf1 = &p->out->osd_bufs[0];
-	struct modeset_buf *buf2 = &p->out->osd_bufs[1];
 
 	display = lv_display_create(buf1->width, buf1->height);
 	lv_display_set_color_format(display, LV_COLOR_FORMAT_ARGB8888);
 
-	// Pass the actual DRM pitch (buf->stride) so LVGL's row offsets match the
-	// hardware-aligned scanline stride. lv_display_set_buffers() would recompute
-	// stride as width*bpp and misalign on non-power-of-2 widths like 1366px.
+	/* Single cached shadow buffer as the one draw buffer (see my_flush_cb).
+	 * With one buffer LVGL renders in place and never runs its dual-buffer
+	 * dirty-area sync (which read back from uncached DRM memory every frame).
+	 * Keep the DRM pitch (buf->stride) so the shadow's row layout matches the
+	 * hardware-aligned scanline stride and the flush copy is one flat memcpy. */
+	size_t shadow_sz = ((size_t)buf1->size + 63) & ~(size_t)63;
+	lvgl_shadow = (uint8_t *)aligned_alloc(64, shadow_sz);
+	assert(lvgl_shadow);
+	memset(lvgl_shadow, 0, shadow_sz);
 	lv_draw_buf_init(&lvgl_draw_buf1, buf1->width, buf1->height,
-	                 LV_COLOR_FORMAT_ARGB8888, buf1->stride, buf1->map, buf1->size);
-	lv_draw_buf_init(&lvgl_draw_buf2, buf2->width, buf2->height,
-	                 LV_COLOR_FORMAT_ARGB8888, buf2->stride, buf2->map, buf2->size);
-	lv_display_set_draw_buffers(display, &lvgl_draw_buf1, &lvgl_draw_buf2);
+	                 LV_COLOR_FORMAT_ARGB8888, buf1->stride, lvgl_shadow, buf1->size);
+	lv_display_set_draw_buffers(display, &lvgl_draw_buf1, NULL);
 	lv_display_set_render_mode(display, LV_DISPLAY_RENDER_MODE_DIRECT);
 
 	lv_display_set_flush_cb(display, my_flush_cb);
