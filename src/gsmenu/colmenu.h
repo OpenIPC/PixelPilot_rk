@@ -24,6 +24,13 @@ typedef enum {
 
 struct colmenu_page;
 
+/* RX mode bitmask for item gating: bit 0=WFB, bit 1=APFPV. 0=show in all modes. */
+typedef enum {
+    COLMENU_MODE_WFB   = (1 << 0),
+    COLMENU_MODE_APFPV = (1 << 1),
+    COLMENU_MODE_ALL   = (1 << 0) | (1 << 1),
+} colmenu_mode_t;
+
 typedef struct colmenu_item {
     colmenu_kind_t              kind;
     const char *                icon;
@@ -31,6 +38,7 @@ typedef struct colmenu_item {
     const char *                param;      /* gsmenu.sh parameter               */
     int                         precision;  /* slider decimals                   */
     int                         display_scale; /* SLIDER: multiply displayed value by this (e.g., 100 for pos*100 MB) */
+    colmenu_mode_t              mode_mask;  /* bitmask: which RX modes show this item (0=all, COLMENU_MODE_*) */
     const struct colmenu_page * sub;        /* COLMENU_SUBMENU target            */
     void (*on_change)(const char * value);  /* domain hook after a set (optional)*/
     void (*on_live)(const char * value);    /* SLIDER: fired live while dragging  */

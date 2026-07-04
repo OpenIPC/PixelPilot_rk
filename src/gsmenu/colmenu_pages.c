@@ -258,9 +258,10 @@ static const colmenu_page_t air_aalink_page = { "AALink", "air", "aalink", air_a
 
 /* Camera sub-pages (all type=air page=camera) */
 static const colmenu_item_t cam_video_items[] = {
-    { .kind=COLMENU_DROPDOWN, .label="Size",       .param="size" },
-    { .kind=COLMENU_DROPDOWN, .label="Video Mode", .param="video_mode" },
-    { .kind=COLMENU_DROPDOWN, .label="FPS",        .param="fps" },
+    /* Size and FPS are WFB-specific; APFPV direct connection has fixed camera modes. */
+    { .kind=COLMENU_DROPDOWN, .label="Size",       .param="size",       .mode_mask=COLMENU_MODE_WFB },
+    { .kind=COLMENU_DROPDOWN, .label="Video Mode", .param="video_mode", .mode_mask=COLMENU_MODE_APFPV },
+    { .kind=COLMENU_DROPDOWN, .label="FPS",        .param="fps",        .mode_mask=COLMENU_MODE_WFB },
     { .kind=COLMENU_DROPDOWN, .label="Bitrate",    .param="bitrate" },
     { .kind=COLMENU_DROPDOWN, .label="Codec",      .param="codec" },
     { .kind=COLMENU_SLIDER,   .label="Gopsize",    .param="gopsize" },
@@ -304,9 +305,10 @@ static const colmenu_page_t camera_page = { "Camera", "air", "camera", camera_it
 
 static const colmenu_item_t air_tel_items[] = {
     { .kind=COLMENU_DROPDOWN, .label="Serial Port", .param="serial" },
-    { .kind=COLMENU_DROPDOWN, .label="Router",      .param="router" },
-    { .kind=COLMENU_LABEL,    .label="MSPOSD Settings" },
-    { .kind=COLMENU_SLIDER,   .label="OSD FPS",     .param="osd_fps" },
+    /* Router and MSPOSD are WFB-specific; not used in direct APFPV WiFi mode. */
+    { .kind=COLMENU_DROPDOWN, .label="Router",      .param="router", .mode_mask=COLMENU_MODE_WFB },
+    { .kind=COLMENU_LABEL,    .label="MSPOSD Settings", .mode_mask=COLMENU_MODE_WFB },
+    { .kind=COLMENU_SLIDER,   .label="OSD FPS",     .param="osd_fps", .mode_mask=COLMENU_MODE_WFB },
     { .kind=COLMENU_SWITCH,   .label="GS Rendering", .param="gs_rendering" },
 };
 static const colmenu_page_t air_tel_page = { "Telemetry", "air", "telemetry", air_tel_items, 5 };

@@ -832,6 +832,13 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
     }
     for(int i = 0; i < pg->count; i++) {
         const colmenu_item_t * it = &pg->items[i];
+
+        /* Skip items that don't match the current RX mode. */
+        if(it->mode_mask) {
+            int mode_bit = (RXMODE == APFPV) ? COLMENU_MODE_APFPV : COLMENU_MODE_WFB;
+            if(!(it->mode_mask & mode_bit)) continue;
+        }
+
         switch(it->kind) {
         case COLMENU_LABEL:
             colstack_add_title(cs, body, it->label);
