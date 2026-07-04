@@ -24,6 +24,7 @@ typedef enum {
     CS_DROPDOWN,
     CS_RADIO,
     CS_ACTION,
+    CS_TEXT,
 } cs_role_t;
 
 typedef struct {
@@ -707,7 +708,20 @@ void colstack_autofit(colstack_t * cs)
                 if(!sum) continue;
                 w = sum + 24 /*pad*/ + SLACK;
             } else {
-                w = label_text_w(it->label) + role_ctrl_w(it) + 34 /*icon*/ + 24 /*pad*/ + SLACK;
+                /* ACTION rows (including TEXT items) may have a value label child.
+                 * For TEXT items, this holds the current value (e.g., SSID or password).
+                 * If present, sum the value width instead of guessing. */
+                int32_t ctrl = role_ctrl_w(it);
+                if(it->role == CS_ACTION) {
+                    int32_t sum = 0;
+                    uint32_t m = lv_obj_get_child_count(ch);
+                    for(uint32_t j = 0; j < m; j++) {
+                        lv_obj_t * gc = lv_obj_get_child(ch, j);
+                        if(lv_obj_check_type(gc, &lv_label_class)) sum += label_text_w(gc) + 8;
+                    }
+                    if(sum > 0) ctrl = sum;
+                }
+                w = label_text_w(it->label) + ctrl + 34 /*icon*/ + 24 /*pad*/ + SLACK;
             }
         }
         if(w > need) need = w;
