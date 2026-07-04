@@ -44,6 +44,13 @@ void toggle_rec_enabled(void)
     colmenu_reflect_switch("rec_enabled", dvr_enabled != 0);
 }
 
+/* Return the current recording state (runtime, not config). Called by colmenu to
+ * sync the Display page's Enabled switch on page open. */
+int menu_is_recording(void)
+{
+    return dvr_enabled;
+}
+
 /* Drone detection: watch the tunnel-data counter; when it's flowing the drone
  * is present and its pages become active, otherwise they grey out. Mirrors the
  * old ui.c:check_connection_timer, but drives the column menu.

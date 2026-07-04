@@ -20,4 +20,7 @@ extern enum RXMode RXMODE;
 /* Toggle DVR recording (hardware button). Defined in menu.c. */
 void toggle_rec_enabled(void);
 
+/* Query current recording state (for menu sync). */
+int menu_is_recording(void);
+
 void pp_menu_main(void);

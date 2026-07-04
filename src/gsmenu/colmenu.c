@@ -2,6 +2,7 @@
 #include "column_stack.h"
 #include "styles.h"        /* dark theme styles for the keyboard */
 #include "../input.h"      /* control_mode for text entry */
+#include "../menu.h"       /* menu_is_recording() */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,6 +88,13 @@ char * colmenu_get(const char * type, const char * page, const char * param, cha
 {
     if(opts) *opts = NULL;
     if(!type || !param) return NULL;
+
+    /* rec_enabled is runtime state (are we recording RIGHT NOW), not config.
+     * Read it directly from the app instead of the shell script. */
+    if(strcmp(param, "rec_enabled") == 0) {
+        return strdup(menu_is_recording() ? "on" : "off");
+    }
+
     char errf[] = "/tmp/gsmenu_gerr_XXXXXX";
     int efd = mkstemp(errf);
     if(efd >= 0) close(efd);
