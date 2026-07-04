@@ -394,6 +394,9 @@ case "$@" in
         echo 1.0
         emit_values "0.5 1.0"
         ;;
+    "get gs system gs_live_colortrans")
+        echo 0
+        ;;
     "get gs system rec_fps")
         echo 60
         emit_values "60\n90\n120"
@@ -435,6 +438,7 @@ case "$@" in
     "set gs system connector"*)             : ;;
     "set gs system resolution"*)            : ;;
     "set gs system video_scale"*)           : ;;
+    "set gs system gs_live_colortrans"*)    : ;;
     "set gs system rec_fps"*)               : ;;
     "set gs system rec_enabled"*)           : ;;
     "set gs system dvr_mode"*)              : ;;
