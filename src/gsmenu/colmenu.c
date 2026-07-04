@@ -349,6 +349,7 @@ typedef struct {
     const char * type;
     const char * page;
     const char * param;
+    int          display_scale;    /* multiply slider display value by this (e.g., 100) */
     void (*on_change)(const char * value);
     void (*on_live)(const char * value);
 } bind_ctx_t;
@@ -390,6 +391,7 @@ static void bind_row(lv_obj_t * row, const colmenu_page_t * pg, const colmenu_it
 {
     bind_ctx_t * b = malloc(sizeof(bind_ctx_t));
     b->type = pg->type; b->page = pg->page; b->param = it->param;
+    b->display_scale = it->display_scale;
     b->on_change = it->on_change; b->on_live = it->on_live;
     colstack_set_binding(row, do_set, b);
     colstack_set_row_param(row, it->param);   /* for external reflect (see colmenu_reflect_switch) */
@@ -861,7 +863,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
             double f = pow(10, it->precision);
             lv_obj_t * row = colstack_add_slider(cs, body, it->icon, it->label,
                                                  (int32_t)(dmin * f), (int32_t)(dmax * f),
-                                                 (int32_t)(dv * f), it->precision);
+                                                 (int32_t)(dv * f), it->precision, it->display_scale);
             free(v); free(opts);
             bind_row(row, pg, it);
             break;

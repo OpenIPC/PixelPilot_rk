@@ -59,10 +59,11 @@ lv_obj_t * colstack_add_switch(colstack_t * cs, lv_obj_t * col, const char * ico
 
 /* An inline slider edited in place: ENTER toggles edit mode, LEFT/RIGHT adjust.
  * min/max/val are integers scaled by 10^precision; the label and the value
- * reported to a binding are formatted with `precision` decimals. */
+ * reported to a binding are formatted with `precision` decimals.
+ * display_scale: multiply the displayed value by this (e.g., 100 for slider_pos*100 MB). */
 lv_obj_t * colstack_add_slider(colstack_t * cs, lv_obj_t * col, const char * icon,
                                const char * text, int32_t min, int32_t max, int32_t val,
-                               int precision);
+                               int precision, int display_scale);
 
 /* A dropdown that opens a radio list in a NEW column (the requested behaviour).
  * `options` is a '\n'-separated list; `sel` is the initially selected index. */

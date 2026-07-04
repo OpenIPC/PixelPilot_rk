@@ -42,6 +42,7 @@ typedef struct {
     lv_obj_t *         slider;
     lv_obj_t *         slider_val;
     int                precision;   /* slider decimals (value = raw/10^prec)     */
+    int                display_scale; /* multiply displayed value by this (e.g., 100 for pos*100 MB) */
     /* dropdown */
     lv_obj_t *         value_lbl;   /* the "current value" text on the row      */
     char *             options;     /* '\n' separated, owned                    */
@@ -234,10 +235,12 @@ static void cancel_slider_edit(colstack_t * cs)
 {
     if(cs->edit_slider) {
         lv_slider_set_value(cs->edit_slider, cs->edit_start, LV_ANIM_OFF);
-        if(cs->edit_item && cs->edit_item->slider_val)
+        if(cs->edit_item && cs->edit_item->slider_val) {
+            double f = pow(10, cs->edit_item->precision);
+            double displayed = (cs->edit_start / f) * (cs->edit_item->display_scale ? cs->edit_item->display_scale : 1);
             lv_label_set_text_fmt(cs->edit_item->slider_val, "%.*f",
-                                  cs->edit_item->precision,
-                                  cs->edit_start / pow(10, cs->edit_item->precision));
+                                  cs->edit_item->precision, displayed);
+        }
         fire_slider_live(cs->edit_item, cs->edit_start);   /* revert live preview */
     }
     leave_slider_edit(cs);
@@ -276,8 +279,11 @@ static void item_key_cb(lv_event_t * e)
             v += (k == LV_KEY_RIGHT) ? step : -step;
             if(v < min) v = min; if(v > max) v = max;
             lv_slider_set_value(cs->edit_slider, v, LV_ANIM_OFF);
-            if(it->slider_val)
-                lv_label_set_text_fmt(it->slider_val, "%.*f", it->precision, v / pow(10, it->precision));
+            if(it->slider_val) {
+                double f = pow(10, it->precision);
+                double displayed = (v / f) * (it->display_scale ? it->display_scale : 1);
+                lv_label_set_text_fmt(it->slider_val, "%.*f", it->precision, displayed);
+            }
             fire_slider_live(it, v);   /* live-preview the effect as it moves */
         }
         else if(k == LV_KEY_ENTER) {
@@ -489,15 +495,18 @@ lv_obj_t * colstack_add_switch(colstack_t * cs, lv_obj_t * col, const char * ico
 
 lv_obj_t * colstack_add_slider(colstack_t * cs, lv_obj_t * col, const char * icon,
                                const char * text, int32_t min, int32_t max, int32_t val,
-                               int precision)
+                               int precision, int display_scale)
 {
     cs_item_t * it;
     lv_obj_t * row = base_row(cs, col, icon, text, &it);
     it->role = CS_SLIDER;
     it->precision = precision;
+    it->display_scale = display_scale;
 
     lv_obj_t * val_lbl = lv_label_create(row);
-    lv_label_set_text_fmt(val_lbl, "%.*f", precision, val / pow(10, precision));
+    double f = pow(10, precision);
+    double displayed = (val / f) * (display_scale ? display_scale : 1);
+    lv_label_set_text_fmt(val_lbl, "%.*f", precision, displayed);
     lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xf2f4f8), 0);
     lv_obj_set_style_pad_right(val_lbl, 8, 0);
 

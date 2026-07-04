@@ -30,6 +30,7 @@ typedef struct colmenu_item {
     const char *                label;
     const char *                param;      /* gsmenu.sh parameter               */
     int                         precision;  /* slider decimals                   */
+    int                         display_scale; /* SLIDER: multiply displayed value by this (e.g., 100 for pos*100 MB) */
     const struct colmenu_page * sub;        /* COLMENU_SUBMENU target            */
     void (*on_change)(const char * value);  /* domain hook after a set (optional)*/
     void (*on_live)(const char * value);    /* SLIDER: fired live while dragging  */
