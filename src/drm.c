@@ -458,6 +458,24 @@ void modeset_output_destroy(int fd, struct modeset_output *out)
 	free(out);
 }
 
+// Exact refresh rate in millihertz derived from the pixel clock.  The integer
+// vrefresh field rounds 59.94 and 60.00 to the same value, so it cannot be
+// used to tell them apart.
+static uint32_t mode_refresh_mhz(const drmModeModeInfo *m)
+{
+	if (!m->htotal || !m->vtotal)
+		return 0;
+	uint64_t num = (uint64_t)m->clock * 1000000;
+	uint64_t den = (uint64_t)m->htotal * m->vtotal;
+	if (m->flags & DRM_MODE_FLAG_INTERLACE)
+		num *= 2;
+	if (m->flags & DRM_MODE_FLAG_DBLSCAN)
+		den *= 2;
+	if (m->vscan > 1)
+		den *= m->vscan;
+	return (uint32_t)(num / den);
+}
+
 struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeConnector *conn, uint16_t mode_width, uint16_t mode_height, uint32_t mode_vrefresh, uint32_t video_plane_id, uint32_t osd_plane_id, float video_scale_factor)
 {
 	int ret;
@@ -484,17 +502,28 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 	int preferred_fc = -1;
 	if (mode_width>0 && mode_height>0 && mode_vrefresh>0) {
 		fc = -1;
+		int fc_progressive = 0;
+		uint32_t fc_diff_mhz = UINT32_MAX;
 		printf( "Available modes:\n");
 		for (int i = 0; i < conn->count_modes; i++ ) {
-			printf( "%d : %dx%d@%d\n",i, conn->modes[i].hdisplay, conn->modes[i].vdisplay , conn->modes[i].vrefresh );
+			uint32_t refresh_mhz = mode_refresh_mhz(&conn->modes[i]);
+			printf( "%d : %dx%d@%d (%u.%03u Hz)\n",i, conn->modes[i].hdisplay, conn->modes[i].vdisplay , conn->modes[i].vrefresh, refresh_mhz / 1000, refresh_mhz % 1000 );
 			if (conn->modes[i].hdisplay == mode_width &&
 			conn->modes[i].vdisplay == mode_height &&
 			conn->modes[i].vrefresh == mode_vrefresh
 			) {
-				if (fc < 0)
+				// Prefer progressive modes; among equals, pick the mode whose
+				// exact refresh is closest to the requested rate, so eg @60
+				// selects 60.000 Hz and not 59.940 Hz (both have vrefresh 60).
+				int progressive = (conn->modes[i].flags & DRM_MODE_FLAG_INTERLACE) == 0;
+				uint32_t target_mhz = mode_vrefresh * 1000;
+				uint32_t diff_mhz = refresh_mhz > target_mhz ? refresh_mhz - target_mhz : target_mhz - refresh_mhz;
+				if (fc < 0 || (progressive && !fc_progressive) ||
+				    (progressive == fc_progressive && diff_mhz < fc_diff_mhz)) {
 					fc = i;
-				if (fc >= 0 && (conn->modes[i].flags & DRM_MODE_FLAG_INTERLACE) == 0) // prefer progressive modes
-					fc = i;
+					fc_progressive = progressive;
+					fc_diff_mhz = diff_mhz;
+				}
 			} else if (conn->modes[i].type & DRM_MODE_TYPE_PREFERRED) {
 				preferred_fc = i;
 			}
@@ -506,7 +535,8 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 			fprintf(stderr, "couldn't find a matching mode, useing preferred mode %dx%d@%d\n", conn->modes[preferred_fc].hdisplay, conn->modes[preferred_fc].vdisplay , conn->modes[preferred_fc].vrefresh);
 			fc = preferred_fc;
 		}
-		printf( "Using screen mode %dx%d@%d\n",conn->modes[fc].hdisplay, conn->modes[fc].vdisplay , conn->modes[fc].vrefresh );
+		uint32_t used_mhz = mode_refresh_mhz(&conn->modes[fc]);
+		printf( "Using screen mode %dx%d@%d (%u.%03u Hz)\n",conn->modes[fc].hdisplay, conn->modes[fc].vdisplay , conn->modes[fc].vrefresh, used_mhz / 1000, used_mhz % 1000 );
 	}
 	memcpy(&out->mode, &conn->modes[fc], sizeof(out->mode));
 	if (drmModeCreatePropertyBlob(fd, &out->mode, sizeof(out->mode), &out->mode_blob_id) != 0) {
@@ -586,13 +616,16 @@ void *modeset_print_modes(int fd)
 		}
 		for (int i = 0; i < conn->count_modes; i++ ) {
 			info = conn->modes[i];
+			uint32_t refresh_mhz = mode_refresh_mhz(&info);
 			// Assuming modes list is sorted
-			if (info.hdisplay == prev_h && info.vdisplay == prev_v && info.vrefresh == prev_refresh)
+			if (info.hdisplay == prev_h && info.vdisplay == prev_v && refresh_mhz == prev_refresh)
 				continue;
-			printf("%dx%d@%d\n", info.hdisplay, info.vdisplay, info.vrefresh);
+			printf("%dx%d@%d (%u.%03u Hz%s)\n", info.hdisplay, info.vdisplay, info.vrefresh,
+			       refresh_mhz / 1000, refresh_mhz % 1000,
+			       (info.flags & DRM_MODE_FLAG_INTERLACE) ? ", interlaced" : "");
 			prev_h = info.hdisplay;
 			prev_v = info.vdisplay;
-			prev_refresh = info.vrefresh;
+			prev_refresh = refresh_mhz;
 			at_least_one = 1;
 		}
 		drmModeFreeConnector(conn);

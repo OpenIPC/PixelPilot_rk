@@ -397,7 +397,8 @@ void *__FRAME_THREAD__(void *param)
 
 void *__DISPLAY_THREAD__(void *param)
 {
-	int ret;	
+	int ret;
+	SchedulingHelper::set_thread_params_max_realtime("DISPLAY_THREAD",SchedulingHelper::PRIORITY_REALTIME_MID);
 	pthread_setname_np(pthread_self(), "__DISPLAY");
 
 	while (!frm_eos) {
@@ -431,7 +432,10 @@ void *__DISPLAY_THREAD__(void *param)
 		// show DRM FB in plane
 		uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
 		if (fb_id != 0) {
-			flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : DRM_MODE_ATOMIC_ALLOW_MODESET;
+			// Steady-state flips only update plane FB_IDs — no modeset is
+			// needed, so commit with flags=0 (blocking, vsynced) instead of
+			// ALLOW_MODESET, which permits heavier driver validation paths.
+			flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : 0;
 			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
 			assert(ret>0);
 		}
@@ -445,9 +449,22 @@ void *__DISPLAY_THREAD__(void *param)
 				ret = set_drm_object_property(output_list->video_request, &output_list->osd_plane, "FB_ID", output_list->osd_bufs[output_list->osd_buf_switch].fb);
 			assert(ret>0);
 		}
-		drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);
+		int commit_ret = drmModeAtomicCommit(drm_fd, output_list->video_request, flags, NULL);
 		ret = pthread_mutex_unlock(&osd_mutex);
 		assert(!ret);
+		if (commit_ret) {
+			if (commit_ret == -EBUSY && (flags & DRM_MODE_ATOMIC_NONBLOCK)) {
+				// Previous flip still pending — this frame is dropped.
+				spdlog::debug("Atomic commit EBUSY, frame dropped");
+			} else {
+				static uint64_t last_commit_warn_ms = 0;
+				uint64_t warn_now = get_time_ms();
+				if (warn_now - last_commit_warn_ms > 1000) {
+					last_commit_warn_ms = warn_now;
+					spdlog::warn("drmModeAtomicCommit failed: {}", commit_ret);
+				}
+			}
+		}
 		osd_publish_uint_fact("video.displayed_frame", NULL, 0, 1);
 		uint64_t decode_and_handover_display_ms=get_time_ms()-decoding_pts;
 		osd_publish_uint_fact("video.decode_and_handover_ms", NULL, 0, decode_and_handover_display_ms);
@@ -983,11 +1000,11 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
 	uint64_t period_start=0;
     auto cb=[&packet,/*&decoder_stalled_count,*/ &bytes_received, &period_start](std::shared_ptr<std::vector<uint8_t>> frame){
         // Let the gst pull thread run at quite high priority
-        static bool first= false;
+        static bool first= true;
         static int stall_count = 0;
         static uint64_t last_stall_idr_ms = 0;
         if(first){
-            SchedulingHelper::set_thread_params_max_realtime("DisplayThread",SchedulingHelper::PRIORITY_REALTIME_LOW);
+            SchedulingHelper::set_thread_params_max_realtime("GstPullThread",SchedulingHelper::PRIORITY_REALTIME_LOW);
             first= false;
         }
 		bytes_received += frame->size();
