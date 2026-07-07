@@ -60,6 +60,7 @@ pixelpilot_config.h
 .vscode/
 build/
 build_sim/
+build-test/
 .apt_cache/
 output/
 debian-*-generic-arm64.tar.xz

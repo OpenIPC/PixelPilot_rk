@@ -162,6 +162,8 @@ set(LIB_SOURCE_FILES
         src/WiFiRSSIMonitor.hpp
         src/WiFiRSSIMonitor.cpp
         src/scheduling_helper.hpp
+        src/latency_probe.hpp
+        src/latency_probe.cpp
         src/gstrtpreceiver.cpp
         src/gstrtpreceiver.h)
 set(SOURCE_FILES
@@ -253,6 +255,8 @@ if(BUILD_TESTS)
     # Test source files
     set(TEST_SOURCES
       tests/test_osd.cpp
+      tests/test_latency_probe.cpp
+      tests/test_latency_probe_integration.cpp
       src/main.h
       src/main.cpp
     )

@@ -199,5 +199,10 @@
             "height": 0,
             "facts": []
         }
-    ]
+    ],
+    "latency_probe": {
+        "enable": false,
+        "host": "10.5.0.10",
+        "port": 5602
+    }
 }

@@ -4,6 +4,7 @@
 //
 
 #include "gstrtpreceiver.h"
+#include "latency_probe.hpp"
 #include "gst/gstparse.h"
 #include "gst/gstpipeline.h"
 #include "gst/net/gstnetaddressmeta.h"
@@ -782,22 +783,32 @@ namespace {
     }
 
     static GstPadProbeReturn udp_last_hop_probe(GstPad*, GstPadProbeInfo* info, gpointer) {
-        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+        if (!(GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER))
             return GST_PAD_PROBE_OK;
+        GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
+        if (!buf) return GST_PAD_PROBE_OK;
+
+        // Latency-probe hook runs first and is cheap when active==false.
+        if (latency_probe::active.load(std::memory_order_acquire)) {
+            GstMapInfo map;
+            if (gst_buffer_map(buf, &map, GST_MAP_READ)) {
+                latency_probe::on_rtp_buffer(map.data, map.size,
+                                             latency_probe::now_us());
+                gst_buffer_unmap(buf, &map);
+            }
         }
 
-        if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER) {
-            GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
-            if (buf) {
-                on_incoming_stream_buffer(buf, "udpsrc");
-                maybe_track_rtp_sequence(buf);
-            }
+        // Existing IDR-tracking path.
+        if (g_idr_enabled.load(std::memory_order_relaxed)) {
+            on_incoming_stream_buffer(buf, "udpsrc");
+            maybe_track_rtp_sequence(buf);
         }
         return GST_PAD_PROBE_OK;
     }
 
     static void attach_last_hop_probes(GstElement* pipeline) {
-        if (!g_idr_enabled.load(std::memory_order_relaxed)) {
+        if (!g_idr_enabled.load(std::memory_order_relaxed) &&
+            !latency_probe::active.load(std::memory_order_acquire)) {
             return;
         }
 
