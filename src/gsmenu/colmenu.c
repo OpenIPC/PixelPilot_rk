@@ -90,9 +90,11 @@ char * colmenu_get(const char * type, const char * page, const char * param, cha
     if(!type || !param) return NULL;
 
     /* rec_enabled is runtime state (are we recording RIGHT NOW), not config.
-     * Read it directly from the app instead of the shell script. */
+     * Read it directly from the app instead of the shell script. Return the
+     * switch's 0/1 convention (the builder does atoi(v)) — NOT "on"/"off",
+     * which atoi()s to 0 and would leave the switch stuck off while recording. */
     if(strcmp(param, "rec_enabled") == 0) {
-        return strdup(menu_is_recording() ? "on" : "off");
+        return strdup(menu_is_recording() ? "1" : "0");
     }
 
     char errf[] = "/tmp/gsmenu_gerr_XXXXXX";
