@@ -828,6 +828,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
         colmenu_emit_t e = { cs, body };
         pg->build(&e);
         colstack_autofit(cs);
+        colstack_ensure_escapable(cs);    /* empty list (only captions) → keep Back working */
         return;
     }
     for(int i = 0; i < pg->count; i++) {
@@ -907,6 +908,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
         }
     }
     colstack_autofit(cs);
+    colstack_ensure_escapable(cs);        /* an all-caption static page mustn't strand Back */
 }
 
 /* ── public ────────────────────────────────────────────────────────────────── */

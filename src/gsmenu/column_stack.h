@@ -119,3 +119,10 @@ void colstack_rebuild_current(colstack_t * cs);
 /* Resize the current (top) column to fit its widest row (clamped). Call after
  * a column has been fully populated. */
 void colstack_autofit(colstack_t * cs);
+
+/* Guarantee the top (non-root) column can be left with Back. A dynamic page that
+ * emits only captions (e.g. an empty list showing just a "none found" note) leaves
+ * the column's input group with no focusable row — so no object receives the Back
+ * key and the user is stranded. Call after a column is populated: if the group is
+ * empty it drops in an inert, invisible focusable catcher so Back still pops. */
+void colstack_ensure_escapable(colstack_t * cs);

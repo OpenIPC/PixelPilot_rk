@@ -655,6 +655,30 @@ void colstack_set_enabled(lv_obj_t * row, bool enabled)
     lv_obj_set_style_opa(row, enabled ? LV_OPA_COVER : LV_OPA_40, 0);
 }
 
+void colstack_ensure_escapable(colstack_t * cs)
+{
+    if(cs->depth <= 1) return;                       /* root is never a dead end   */
+    int top = cs->depth - 1;
+    if(lv_group_get_obj_count(cs->cols[top].group) > 0) return;   /* already navigable */
+
+    /* An inert, zero-footprint focusable row: the group auto-focuses it (it is the
+     * only member), so the Back key lands on item_key_cb and pops the column. The
+     * page's own "none found" caption stays the visible content; this is invisible.
+     * NOTE: it must NOT be hidden or disabled — focus_next_core skips both. */
+    lv_obj_t * row = lv_obj_create(cs->cols[top].body);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, 0, 0);
+
+    cs_item_t * it = calloc(1, sizeof(cs_item_t));
+    it->cs   = cs;
+    it->role = CS_ACTION;                            /* forward keys inert; Back pops */
+    lv_obj_set_user_data(row, it);
+
+    lv_group_add_obj(cs->cols[top].group, row);
+    lv_obj_add_event_cb(row, item_key_cb, LV_EVENT_KEY, it);
+    lv_obj_add_event_cb(row, item_delete_cb, LV_EVENT_DELETE, it);
+}
+
 /* Size the current (top) column to fit its widest row, clamped to [MIN,MAX].
  * Labels wrap only when they'd exceed MAX — so short pages stay compact and
  * long labels (e.g. verbose slider descriptions) get a wider column instead of
