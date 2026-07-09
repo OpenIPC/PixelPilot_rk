@@ -296,10 +296,7 @@ static void colmenu_exec_cb(const char * cmd, void (*done)(void * ctx, int rc), 
     if(ofd >= 0) close(ofd);
     if(efd >= 0) close(efd);
 
-    x->spinner = lv_spinner_create(lv_layer_top());
-    lv_obj_set_size(x->spinner, 60, 60);
-    lv_obj_add_style(x->spinner, &style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_center(x->spinner);
+    x->spinner = openipc_spinner_create(lv_layer_top());
 
     /* freeze the menu on an empty group until the command finishes */
     x->loader_group = lv_group_create();
@@ -647,10 +644,7 @@ static void dyn_load_start(colstack_t * cs, lv_obj_t * body, const colmenu_page_
     dl->cs = cs; dl->body = body; dl->pg = pg;
     dl->target_group = colstack_cur_group(cs);
 
-    dl->spinner = lv_spinner_create(lv_layer_top());
-    lv_obj_set_size(dl->spinner, 60, 60);
-    lv_obj_add_style(dl->spinner, &style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_center(dl->spinner);
+    dl->spinner = openipc_spinner_create(lv_layer_top());
 
     /* freeze the menu on an empty group until the scan finishes */
     dl->loader_group = lv_group_create();

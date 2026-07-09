@@ -18,6 +18,9 @@ extern lv_style_t style_openipc_lightdark_background;
 
 int style_init(void);
 
+/* Create an OSD-themed loading spinner (accent arc, transparent track) on parent. */
+lv_obj_t * openipc_spinner_create(lv_obj_t * parent);
+
 #ifdef __cplusplus
 }
 #endif

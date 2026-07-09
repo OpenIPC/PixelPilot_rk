@@ -226,9 +226,7 @@ void run_command_and_block(lv_event_t* e, const char *command, callback_fn callb
     data->callback_fn = callback;
     
     // Show loading screen
-    data->spinner = lv_spinner_create(lv_layer_top());
-    lv_obj_add_style(data->spinner,&style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_center(data->spinner);
+    data->spinner = openipc_spinner_create(lv_layer_top());
     
     // Create worker thread
     pthread_create(&data->thread_id, NULL, worker_thread, data);

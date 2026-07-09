@@ -115,3 +115,26 @@ int style_init(void) {
 
     return 0;
 }
+
+/* Loading spinner themed for the translucent OSD: an accent-blue indicator arc
+ * on a small dark disc that matches the menu panels. The default LVGL track ring
+ * (an opaque grey circle) is hidden so only the moving arc shows.
+ *
+ * The disc is NOT just cosmetic: the OSD renders on a transparent screen composited
+ * over live video by the DRM overlay, and the spinner's arc animates — so its area
+ * is redrawn every frame. A fully-transparent (unpainted) region leaves a white
+ * trail there on real hardware instead of showing the video through, so the disc
+ * gives the animated area actual (theme-dark) pixels to paint each frame. */
+lv_obj_t * openipc_spinner_create(lv_obj_t * parent)
+{
+    lv_obj_t * sp = lv_spinner_create(parent);
+    lv_obj_set_size(sp, 64, 64);
+    lv_obj_center(sp);
+    lv_obj_add_style(sp, &style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(sp, COL_DARK, LV_PART_MAIN);       /* themed dark disc */
+    lv_obj_set_style_bg_opa(sp, OPA_DARK, LV_PART_MAIN);
+    lv_obj_set_style_radius(sp, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(sp, 8, LV_PART_MAIN);               /* inset arc from edge */
+    lv_obj_set_style_arc_opa(sp, LV_OPA_TRANSP, LV_PART_MAIN);   /* hide the track ring */
+    return sp;
+}
