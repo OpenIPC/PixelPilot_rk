@@ -16,6 +16,7 @@
 #include "colmenu_pages.h"
 #include "helper.h"       /* show_restart_notice(), find_first_focusable_obj() */
 #include "../menu.h"      /* MenuAction, screens */
+#include "../main.h"      /* sig_handler() — graceful shutdown / restart */
 #ifndef USE_SIMULATOR
 #include "../drm.h"       /* gamma_lut_controller, gamma_lut_enable/disable */
 #endif
@@ -315,6 +316,19 @@ static const colmenu_page_t air_tel_page = { "Telemetry", "air", "telemetry", ai
 
 /* ── Actions (dynamic: Reboot + script-provided actions) ───────────────────── */
 
+#ifdef USE_SIMULATOR
+/* The simulator links simulator.c instead of main.cpp, so sig_handler() is
+ * undefined there; provide a local one that just exits with the given code. */
+void sig_handler(int code) { exit(code); }
+#endif
+
+/* Restart / Exit PixelPilot go through the app's own graceful-shutdown path:
+ * sig_handler() sets return_value = code and trips signal_flag, so main() returns
+ * that code. The pixelpilot.sh launcher loop restarts on any exit code except
+ * 2/143/137 — hence exit(1) restarts PixelPilot and exit(2) quits it for good. */
+static void run_restart_pp(void * c) { (void)c; sig_handler(1); }
+static void run_exit_pp   (void * c) { (void)c; sig_handler(2); }
+
 static void run_reboot_air(void * c) { (void)c; colmenu_exec("gsmenu.sh button air actions Reboot"); }
 static void run_reboot_gs (void * c) { (void)c; colmenu_exec("gsmenu.sh button gs actions Reboot"); }
 static void run_action(void * ctx)   { colmenu_exec((const char *)ctx); }
@@ -329,6 +343,8 @@ static void run_custom_script(void * ctx) { gs_scripts_run((const char *)ctx); }
 
 static void build_gs_actions(colmenu_emit_t * e)
 {
+    colmenu_emit_action(e, LV_SYMBOL_REFRESH, "Restart PixelPilot", run_restart_pp, NULL);
+    colmenu_emit_action(e, LV_SYMBOL_CLOSE,   "Exit PixelPilot",    run_exit_pp,    NULL);
     colmenu_emit_action(e, LV_SYMBOL_POWER, "Reboot", run_reboot_gs, NULL);
     for(size_t i = 0; i < gsactions_count; i++)
         colmenu_emit_action(e, LV_SYMBOL_PLAY, gsactions[i].label, run_action, strdup(gsactions[i].action));
