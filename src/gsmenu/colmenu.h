@@ -57,6 +57,11 @@ typedef struct colmenu_page {
     /* Dynamic pages: build the rows at runtime (e.g. from a scan). When set,
      * items/count are ignored and build() runs each time the page is opened. */
     void (*build)(colmenu_emit_t * e);
+    /* Optional (dynamic pages only): NULL-terminated list of gsmenu.sh params to
+     * warm on a worker thread behind a spinner before build() runs, so a slow read
+     * (e.g. the WiFi scan) never freezes the UI. build()'s colmenu_get() calls for
+     * these params are then served from the prefetch cache. */
+    const char * const * prefetch;
 } colmenu_page_t;
 
 /* Create the column engine inside `parent`. */

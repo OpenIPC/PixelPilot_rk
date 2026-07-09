@@ -511,7 +511,10 @@ static void build_networks(colmenu_emit_t * e)
     /* Always present + focusable — re-scan, and keeps an empty list navigable. */
     colmenu_emit_action(e, LV_SYMBOL_REFRESH, "Rescan", wifi_rescan, NULL);
 }
-static const colmenu_page_t networks_page = { .title="Networks", .type="gs", .page="wifi", .build=build_networks };
+/* `networks` triggers the (slow) iw scan; warm both it and the saved list on a
+ * worker thread behind a spinner so opening/rescanning doesn't freeze the UI. */
+static const char * const networks_prefetch[] = { "networks", "savednetworks", NULL };
+static const colmenu_page_t networks_page = { .title="Networks", .type="gs", .page="wifi", .build=build_networks, .prefetch=networks_prefetch };
 
 /* Connected-network submenu: Disconnect + Forget. (Forget is best-effort — the
  * backend may not implement `set gs wifi forget`.) */

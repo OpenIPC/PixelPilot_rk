@@ -53,7 +53,7 @@ static volatile bool g_loading;
 static volatile bool g_pending_close;   /* drone lost mid-load: close after build */
 static void close_drone_subtree(void);
 
-/* Values pre-fetched by the loader worker, consulted by backend_get during the
+/* Values pre-fetched by the loader worker, consulted by colmenu_get during the
  * (main-thread) build so no gsmenu.sh reads happen while creating widgets. */
 typedef struct { char * param; char * value; char * opts; } prefetch_entry_t;
 typedef struct { prefetch_entry_t * items; int count; } prefetch_cache_t;
@@ -68,12 +68,16 @@ static void strip_nl(char * s) { size_t n = s ? strlen(s) : 0; while(n && (s[n-1
 /* Read `gsmenu.sh get <type> <page> <param>`; returns malloc'd current value
  * (NULL if the script doesn't implement it), and *opts = malloc'd option/range
  * blob after the 0x1e separator. */
-char * colmenu_get(const char * type, const char * page, const char * param, char ** opts);
-static char * backend_get(const char * type, const char * page, const char * param, char ** opts)
+char * colmenu_get(const char * type, const char * page, const char * param, char ** opts)
 {
-    /* During an async page build, serve values the worker already fetched so we
-     * never shell out from the main (render) thread. */
-    if(g_prefetch && param) {
+    if(opts) *opts = NULL;
+    if(!type || !param) return NULL;
+
+    /* During a page build a loader worker has already fetched the slow reads; serve
+     * them from the cache so we never shell out from the main (render) thread —
+     * for static value items and for the gets a dynamic build() makes (the WiFi
+     * scan). The worker itself runs with g_prefetch == NULL, so it fetches for real. */
+    if(g_prefetch) {
         for(int i = 0; i < g_prefetch->count; i++) {
             if(g_prefetch->items[i].param && strcmp(g_prefetch->items[i].param, param) == 0) {
                 if(opts) *opts = g_prefetch->items[i].opts ? strdup(g_prefetch->items[i].opts) : NULL;
@@ -81,13 +85,6 @@ static char * backend_get(const char * type, const char * page, const char * par
             }
         }
     }
-    return colmenu_get(type, page, param, opts);
-}
-
-char * colmenu_get(const char * type, const char * page, const char * param, char ** opts)
-{
-    if(opts) *opts = NULL;
-    if(!type || !param) return NULL;
 
     /* rec_enabled is runtime state (are we recording RIGHT NOW), not config.
      * Read it directly from the app instead of the shell script. Return the
@@ -574,14 +571,124 @@ static void loader_cancel_cb(lv_event_t * e)
     lv_label_set_text(pl->label, "Cancelling ...");
 }
 
+/* ── Dynamic-page prefetch (spinner) ───────────────────────────────────────────
+ * A dynamic page that declares a `prefetch` list (e.g. the WiFi Networks scan)
+ * gets its slow gsmenu.sh reads warmed on a worker thread behind a spinner, then
+ * build() runs on the main thread reading those values from the cache. Used for
+ * both opening the page and re-scanning it (both go through submenu_builder). */
+typedef struct {
+    colstack_t *           cs;
+    lv_obj_t *             body;
+    const colmenu_page_t * pg;
+    lv_obj_t *             spinner;
+    lv_group_t *           loader_group;   /* empty group: freezes nav while loading */
+    lv_group_t *           target_group;   /* column's group to focus once built     */
+    lv_timer_t *           poll;
+    prefetch_cache_t *     cache;          /* filled by the worker, read by the build */
+    volatile bool          done;
+} dyn_load_t;
+
+/* Worker: warm the page's prefetch params into a cache (touches no LVGL). */
+static void * dyn_load_thread(void * arg)
+{
+    dyn_load_t * dl = arg;
+    const colmenu_page_t * pg = dl->pg;
+    int n = 0;
+    for(const char * const * p = pg->prefetch; *p; p++) n++;
+
+    prefetch_cache_t * c = calloc(1, sizeof(*c));
+    c->items = calloc(n > 0 ? n : 1, sizeof(prefetch_entry_t));
+    g_prefetching = true;   /* colmenu_get records get failures instead of showing */
+    for(const char * const * p = pg->prefetch; *p; p++) {
+        char * opts = NULL;
+        char * v = colmenu_get(pg->type, pg->page, *p, &opts);
+        c->items[c->count].param = strdup(*p);
+        c->items[c->count].value = v;
+        c->items[c->count].opts  = opts;
+        c->count++;
+    }
+    g_prefetching = false;
+    dl->cache = c;
+    __atomic_store_n(&dl->done, true, __ATOMIC_RELEASE);
+    return NULL;
+}
+
+/* Main-thread poll: once the worker is done, build the page from the cache. */
+static void dyn_load_poll(lv_timer_t * t)
+{
+    dyn_load_t * dl = lv_timer_get_user_data(t);
+    if(!__atomic_load_n(&dl->done, __ATOMIC_ACQUIRE)) return;
+
+    lv_obj_delete(dl->spinner);
+    g_loading = false;
+
+    /* Attach the keypad to the column BEFORE building so the first row added gets
+     * the visible focus (matches page_load_poll). */
+    lv_indev_set_group(indev_drv, dl->target_group);
+    lv_group_delete(dl->loader_group);
+
+    g_prefetch = dl->cache;
+    build_page(dl->cs, dl->body, dl->pg);   /* build()'s colmenu_get hits the cache */
+    g_prefetch = NULL;
+    free_cache(dl->cache);
+
+    /* pin the freshly-built column to the top (see page_load_poll) */
+    lv_anim_delete(dl->body, NULL);
+    lv_obj_scroll_to_y(dl->body, 0, LV_ANIM_OFF);
+    flush_get_error(NULL);   /* report any read that failed during the load */
+
+    lv_timer_delete(dl->poll);
+    free(dl);
+}
+
+static void dyn_load_start(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * pg)
+{
+    dyn_load_t * dl = calloc(1, sizeof(*dl));
+    dl->cs = cs; dl->body = body; dl->pg = pg;
+    dl->target_group = colstack_cur_group(cs);
+
+    dl->spinner = lv_spinner_create(lv_layer_top());
+    lv_obj_set_size(dl->spinner, 60, 60);
+    lv_obj_add_style(dl->spinner, &style_openipc, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_center(dl->spinner);
+
+    /* freeze the menu on an empty group until the scan finishes */
+    dl->loader_group = lv_group_create();
+    lv_indev_set_group(indev_drv, dl->loader_group);
+
+    g_loading = true;
+    dl->poll = lv_timer_create(dyn_load_poll, 20, dl);
+
+    pthread_t th;
+    if(pthread_create(&th, NULL, dyn_load_thread, dl) != 0) {
+        /* thread spawn failed — fall back to a synchronous build */
+        lv_timer_delete(dl->poll);
+        lv_obj_delete(dl->spinner);
+        lv_indev_set_group(indev_drv, dl->target_group);
+        lv_group_delete(dl->loader_group);
+        g_loading = false;
+        build_page(cs, body, pg);
+        free(dl);
+        return;
+    }
+    pthread_detach(th);
+}
+
 static void submenu_builder(colstack_t * cs, lv_obj_t * body, void * user)
 {
     const colmenu_page_t * pg = (const colmenu_page_t *)user;
 
     /* Dynamic pages build their own rows (interleaving reads + widgets) so they
-     * can't be prefetched; trivial pages have nothing slow to fetch. Both build
-     * inline. Only static pages with value items get the async progress bar. */
-    if(pg->build || !page_needs_load(pg)) { build_page(cs, body, pg); return; }
+     * can't be prefetched item-by-item; a page that declares a `prefetch` list
+     * (e.g. the WiFi scan) warms those reads behind a spinner first. Trivial pages
+     * have nothing slow to fetch. Only static pages with value items get the async
+     * progress bar. */
+    if(pg->build) {
+        if(pg->prefetch) dyn_load_start(cs, body, pg);
+        else             build_page(cs, body, pg);
+        return;
+    }
+    if(!page_needs_load(pg)) { build_page(cs, body, pg); return; }
 
     int total = 0;
     for(int i = 0; i < pg->count; i++)
@@ -848,7 +955,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
             break;
 
         case COLMENU_VALUE: {
-            char * v = backend_get(pg->type, pg->page, it->param, NULL);
+            char * v = colmenu_get(pg->type, pg->page, it->param, NULL);
             add_value_row(body, it->icon, it->label, v);
             free(v);
             break;
@@ -859,7 +966,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
             break;
 
         case COLMENU_SWITCH: {
-            char * v = backend_get(pg->type, pg->page, it->param, NULL);
+            char * v = colmenu_get(pg->type, pg->page, it->param, NULL);
             lv_obj_t * row = colstack_add_switch(cs, body, it->icon, it->label, v && atoi(v));
             free(v);
             bind_row(row, pg, it);
@@ -867,7 +974,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
         }
         case COLMENU_SLIDER: {
             char * opts = NULL;
-            char * v = backend_get(pg->type, pg->page, it->param, &opts);
+            char * v = colmenu_get(pg->type, pg->page, it->param, &opts);
             double dv = v ? atof(v) : 0, dmin = 0, dmax = 100;
             if(opts) sscanf(opts, "%lf %lf", &dmin, &dmax);
             double f = pow(10, it->precision);
@@ -880,7 +987,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
         }
         case COLMENU_DROPDOWN: {
             char * opts = NULL;
-            char * v = backend_get(pg->type, pg->page, it->param, &opts);
+            char * v = colmenu_get(pg->type, pg->page, it->param, &opts);
             int sel = option_index(opts, v);
             lv_obj_t * row = colstack_add_dropdown(cs, body, it->icon, it->label,
                                                    opts ? opts : "", sel);
@@ -889,7 +996,7 @@ static void build_page(colstack_t * cs, lv_obj_t * body, const colmenu_page_t * 
             break;
         }
         case COLMENU_TEXT: {
-            char * v = backend_get(pg->type, pg->page, it->param, NULL);
+            char * v = colmenu_get(pg->type, pg->page, it->param, NULL);
             lv_obj_t * row = colstack_add_action(cs, body, it->icon, it->label);
             lv_obj_t * val = lv_label_create(row);
             lv_label_set_text(val, v ? v : "");
