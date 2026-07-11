@@ -2605,13 +2605,6 @@ typedef struct png_closure
  * current UI; my_flush_cb copies it to the off-screen DRM buffer and flips. */
 static uint8_t * lvgl_shadow;
 
-/* LVGL renders into this cached (normal RAM) shadow buffer instead of the
- * write-combined DRM dumb buffers. Alpha blending is read-modify-write, and
- * uncached reads on ARM are extremely slow — rendering directly into the dumb
- * buffers is what made the menu sluggish. The shadow always holds the complete
- * current UI; my_flush_cb copies it to the off-screen DRM buffer and flips. */
-static uint8_t * lvgl_shadow;
-
 void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_map)
 {
 	(void)area; (void)px_map;
