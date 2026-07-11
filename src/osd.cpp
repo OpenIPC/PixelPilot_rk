@@ -1077,16 +1077,19 @@ private:
 	double r, g, b, a;
 };
 
-// Warning border that fades in proportionally as a bound signal fact drops below
-// a threshold (e.g. link RSSI). Four edge bars form a soft red gradient, opaque
-// at the screen edge and transparent inward; the container's opacity is driven
-// by how far past the threshold the value is (threshold -> 0, critical -> max).
-// Straight (non-premultiplied) alpha — relies on the OSD plane being composited
-// in "Coverage" blend mode (see drm.c) / RGA PRE_MUL fallback.
+// Warning border that fades in proportionally as a signal drops below a
+// threshold (e.g. link RSSI). Accepts one or more facts and reacts to the BEST
+// (highest) value among them, so with several antennas it only starts reacting
+// once even the strongest one drops below `threshold`. Four edge bars form a
+// soft red gradient, opaque at the screen edge and transparent inward; the
+// container's opacity is driven by how far past the threshold the best value is
+// (threshold -> 0, critical -> max). Straight (non-premultiplied) alpha — relies
+// on the OSD plane being composited in "Coverage" blend mode (see drm.c) / RGA
+// PRE_MUL fallback.
 class SignalWarningWidget: public Widget {
 public:
-	SignalWarningWidget(int pos_x, int pos_y, double threshold, double critical):
-		Widget(pos_x, pos_y, 1), threshold(threshold), critical(critical) {};
+	SignalWarningWidget(int pos_x, int pos_y, double threshold, double critical, uint num_facts):
+		Widget(pos_x, pos_y, num_facts), threshold(threshold), critical(critical) {};
 
 	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
 		// Transparent full-screen container; the four edge bars are its children
@@ -1120,16 +1123,24 @@ public:
 		if (!vig || !dirty) return;
 		dirty = false;
 
+		// React to the best (highest) value among all bound facts, so with
+		// multiple antennas the border only appears once even the strongest one
+		// has dropped below the threshold.
+		bool have = false;
+		double best = 0.0;
+		for (auto& a : args) {
+			if (!a.isDefined()) continue;
+			double v = (double)a;
+			if (!have || v > best) { best = v; have = true; }
+		}
+
 		double s = 0.0;  // severity 0..1
-		if (args[0].isDefined()) {
-			double v = (double)args[0];
-			if (v <= threshold) {
-				if (critical == threshold) {
-					s = 1.0;  // no ramp configured: full intensity once past
-				} else {
-					s = (threshold - v) / (threshold - critical);
-					if (s < 0.0) s = 0.0; else if (s > 1.0) s = 1.0;
-				}
+		if (have && best <= threshold) {
+			if (critical == threshold) {
+				s = 1.0;  // no ramp configured: full intensity once past
+			} else {
+				s = (threshold - best) / (threshold - critical);
+				if (s < 0.0) s = 0.0; else if (s > 1.0) s = 1.0;
 			}
 		}
 
@@ -2474,8 +2485,8 @@ public:
 				auto a = color_j.at("alpha").template get<double>();
 				addWidget(new BoxWidget(x, y, width, height, r, g, b, a), matchers);
 			} else if(type == "SignalWarningWidget") {
-				if (matchers.size() != 1) {
-					spdlog::error("SignalWarningWidget '{}' needs exactly one fact", name);
+				if (matchers.empty()) {
+					spdlog::error("SignalWarningWidget '{}' needs at least one fact", name);
 					continue;
 				}
 				double threshold = widget_j.at("threshold").template get<double>();
@@ -2485,7 +2496,7 @@ public:
 				if (widget_j.contains("critical")) {
 					critical = widget_j.at("critical").template get<double>();
 				}
-				addWidget(new SignalWarningWidget(x, y, threshold, critical), matchers);
+				addWidget(new SignalWarningWidget(x, y, threshold, critical, (uint)matchers.size()), matchers);
 			} else if(type == "BarChartWidget") {
 				auto width = widget_j.at("width").template get<uint>();
 				auto height = widget_j.at("height").template get<uint>();

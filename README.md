@@ -354,10 +354,13 @@ Specific widgets expect quite concrete facts as input:
 * `{"type": "IconSelectorWidget", "ranges_and_icons": [{"range": [0, 10], "icon_path": "0_10.png"}, {"range": [11, 20], ...}]}` - shows
   different icon depending on the range where the value lands to.
 * `{"type": "SignalWarningWidget", "threshold": -80, "critical": -95}` - draws a red warning border
-  around the video that fades in as a bound fact drops below `threshold`, reaching full intensity at
+  around the video that fades in as the signal drops below `threshold`, reaching full intensity at
   `critical`. Omit `critical` for a simple on/off (full border the moment the value crosses `threshold`).
-  Expects exactly one numeric fact and treats lower values as worse, so it suits RSSI in dBm, e.g.
-  `wfbcli.rx.ant_stats.rssi_avg`. The widget's `x`/`y` are ignored (it always covers the whole screen).
+  Accepts **one or more** numeric facts and reacts to the **best (highest)** value among them, so you
+  can bind every antenna's RSSI (`wfbcli.rx.ant_stats.rssi_avg` with different `ant_id` tags) and the
+  border only appears once even the strongest antenna has dropped below `threshold`. Lower values are
+  treated as worse, so it suits RSSI in dBm. The widget's `x`/`y` are ignored (it always covers the
+  whole screen).
 * `{"type": "MspDisplayPortWidget", "font_path": "font.png", "udp_port": 14551}` - renders an MSP
   DisplayPort OSD coming from a flight controller (Betaflight / INAV / ArduPilot). It listens for
   DisplayPort messages over UDP (`udp_port`, default 14551) and draws the character grid using the
