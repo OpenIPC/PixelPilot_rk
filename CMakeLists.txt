@@ -27,7 +27,6 @@ set(CMAKE_CXX_STANDARD 17) #C17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 pkg_check_modules(LIBDRM REQUIRED libdrm)
-pkg_check_modules(CAIRO IMPORTED_TARGET REQUIRED cairo)
 pkg_check_modules(SPDLOG REQUIRED spdlog)
 
 find_package(PNG REQUIRED)
@@ -166,13 +165,12 @@ else()
       ${RGA_INCLUDE_DIRS}
   )
   
-  target_link_libraries(${PROJECT_NAME} 
-      rockchip_mpp 
-      pthread 
-      drm 
-      m 
-      PkgConfig::CAIRO
-      spdlog::spdlog 
+  target_link_libraries(${PROJECT_NAME}
+      rockchip_mpp
+      pthread
+      drm
+      m
+      spdlog::spdlog
       fmt::fmt
       nlohmann_json::nlohmann_json 
       yaml-cpp 
@@ -206,6 +204,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_BINARY_DIR}")
 # Testing
 if(BUILD_TESTS)
     find_package(Catch2 REQUIRED)
+    pkg_check_modules(CAIRO cairo)
 
     # Test source files
     set(TEST_SOURCES

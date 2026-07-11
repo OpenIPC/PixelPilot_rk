@@ -1,18 +1,16 @@
 /**
  * A graphical OSD overlay on top of the video.
- * It receives a ton of various data-points ("Facts") other parts of the system publish using
- * osd_publish_* and osd_add_* functions and uses this data to draw a graphical and/or textual
- * widgets on the screen.
- * The whole OSD is configured using config-file (JSON) which currently is basically a list of
- * widgets, their positions, additional options and "subscriptions" to the "Facts".
+ * It receives data-points ("Facts") from other parts of the system via osd_publish_* / osd_add_*
+ * and uses this data to render LVGL widgets on the screen.
+ * The whole OSD is configured using a JSON config file: a list of widgets, positions, options
+ * and "subscriptions" to Facts.
  *
  * OSD runs in a separate thread and receives all the facts via queue.
- *
- * We also have `ExternalSurfaceWidget` which is a bit special - it doesn't read any facts but
- * displays a surface that is provided via shm by external program. Right now it is used to display
- * MSP/Displayport OSD.
  */
 #include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <csetjmp>
 extern "C" {
 #include "drm.h"
 #include "mavlink.h"
@@ -30,6 +28,8 @@ extern "C" {
 #include <variant>
 #include <queue>
 #include <mutex>
+#include <thread>
+#include <atomic>
 #include <condition_variable>
 #include <chrono>
 #include <deque>
@@ -39,13 +39,24 @@ extern "C" {
 #include <regex>
 #include <utility>
 #include <filesystem>
+#ifdef TEST
 #include <cairo.h>
+#endif
 #include <time.h>
 #include <stdint.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 #include <fmt/ranges.h>
 #include "../lvgl/lvgl.h"
+#include "../lvgl/src/draw/lv_image_decoder_private.h"
+#include "../lvgl/src/draw/sw/lv_draw_sw_gradient.h"  // lv_gradient_init_stops() for SignalWarningWidget
+#include <png.h>
 #include "osd_gl.hpp"
 
 #ifdef BUILD_TESTS
@@ -772,22 +783,23 @@ public:
 		}
 	};
 
-	virtual void draw(cairo_t *cr) {};
+	virtual void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) {}
+	virtual void tick() {}
 
 	virtual void setFact(uint idx, Fact fact) {
         if (idx >= args.size()) throw std::out_of_range("setFact index out of range");
         args[idx] = fact;
 	}
 
+#ifdef TEST
+	virtual void draw(cairo_t *cr) {}
 	int x(cairo_t *cr) {
 		cairo_surface_t *target = cairo_get_target(cr);
 		int w = cairo_image_surface_get_width(target);
-		//int h = cairo_image_surface_get_height(target);
 		return (w + pos_x) % w;
 	}
 	int y(cairo_t *cr) {
 		cairo_surface_t *target = cairo_get_target(cr);
-		//int w = cairo_image_surface_get_width(target);
 		int h = cairo_image_surface_get_height(target);
 		return (h + pos_y) % h;
 	}
@@ -797,8 +809,12 @@ public:
 		int h = cairo_image_surface_get_height(target);
 		return std::pair((w + pos_x) % w, (h + pos_y) % h);
 	}
+#endif
 
 protected:
+	int absX(int screen_w) const { return (screen_w + pos_x) % screen_w; }
+	int absY(int screen_h) const { return (screen_h + pos_y) % screen_h; }
+
 	int pos_x, pos_y;
 	std::vector<Fact> args;
 };
@@ -808,12 +824,16 @@ class TextWidget: public Widget {
 public:
 	TextWidget(int pos_x, int pos_y, std::string text): Widget(pos_x, pos_y), text(text) {};
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x, y);
-		cairo_show_text(cr, text.c_str());
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		lv_obj_t* label = lv_label_create(parent);
+		lv_obj_set_pos(label, absX(screen_w), absY(screen_h));
+		lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, LV_PART_MAIN);
+		lv_obj_set_style_border_width(label, 0, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(label, 0, LV_PART_MAIN);
+		lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
+		lv_label_set_text(label, text.c_str());
 	}
+
 protected:
 	std::string text;
 };
@@ -821,21 +841,29 @@ protected:
 
 class IconTextWidget: public Widget {
 public:
-	IconTextWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string text):
-		Widget(pos_x, pos_y), text(text), icon(icon) {};
+	IconTextWidget(int pos_x, int pos_y, std::string icon_path, std::string text):
+		Widget(pos_x, pos_y), text(text), icon_path(std::move(icon_path)) {};
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		cairo_set_source_surface(cr, icon, x, y - 20);
-		cairo_paint(cr);
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x + 40, y);
-		cairo_show_text(cr, text.c_str());
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		int ax = absX(screen_w), ay = absY(screen_h);
+		lv_icon = lv_image_create(parent);
+		lv_obj_set_pos(lv_icon, ax, ay - 20);
+		lv_image_set_src(lv_icon, icon_path.c_str());
+
+		lv_label = lv_label_create(parent);
+		lv_obj_set_pos(lv_label, ax + 40, ay - 20);
+		lv_obj_set_style_bg_opa(lv_label, LV_OPA_TRANSP, LV_PART_MAIN);
+		lv_obj_set_style_border_width(lv_label, 0, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(lv_label, 0, LV_PART_MAIN);
+		lv_obj_set_style_text_color(lv_label, lv_color_white(), LV_PART_MAIN);
+		lv_label_set_text(lv_label, text.c_str());
 	}
 
 protected:
 	std::string text;
-	cairo_surface_t *icon;
+	std::string icon_path;
+	lv_obj_t* lv_icon = nullptr;
+	lv_obj_t* lv_label = nullptr;
 };
 
 
@@ -846,12 +874,42 @@ public:
         _tokens = tokenize(tpl);
     };
 
+#ifdef TEST
     virtual void draw(cairo_t *cr) {
         auto [x, y] = xy(cr);
         std::unique_ptr<std::string> msg = render_tpl();
         cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
         cairo_move_to(cr, x, y);
         cairo_show_text(cr, msg->c_str());
+    }
+#endif
+
+    void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+        lv_label = lv_label_create(parent);
+        lv_obj_set_pos(lv_label, absX(screen_w), absY(screen_h));
+        lv_obj_set_style_bg_opa(lv_label, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(lv_label, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(lv_label, 0, LV_PART_MAIN);
+        lv_obj_set_style_text_color(lv_label, lv_color_white(), LV_PART_MAIN);
+        lv_label_set_text(lv_label, "?");
+    }
+
+    void setFact(uint idx, Fact fact) override {
+        Widget::setFact(idx, fact);
+        dirty = true;
+    }
+
+    void tick() override {
+        if (dirty) {
+            updateLvLabel();
+            dirty = false;
+        }
+    }
+
+    virtual void updateLvLabel() {
+        if (!lv_label) return;
+        auto text = render_tpl();
+        lv_label_set_text(lv_label, text->c_str());
     }
 
     std::unique_ptr<std::string> render_tpl() {
@@ -967,26 +1025,33 @@ protected:
     std::string tpl;
     std::vector<Token> _tokens;
     uint num_args;
+    lv_obj_t* lv_label = nullptr;
+    bool dirty = false;
 };
 
 
 class IconTplTextWidget: public TplTextWidget {
 public:
-	IconTplTextWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string tpl, uint num_args):
-		TplTextWidget(pos_x, pos_y, tpl, num_args), icon(icon) {};
+	IconTplTextWidget(int pos_x, int pos_y, std::string icon_path, std::string tpl, uint num_args):
+		TplTextWidget(pos_x, pos_y, tpl, num_args), icon_path(std::move(icon_path)) {}
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		std::unique_ptr<std::string> msg = render_tpl();
-		cairo_set_source_surface(cr, icon, x, y - 20);
-		cairo_paint(cr);
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x + 40, y);
-		cairo_show_text(cr, msg->c_str());
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		int ax = absX(screen_w), ay = absY(screen_h);
+		lv_obj_t* icon_obj = lv_image_create(parent);
+		lv_obj_set_pos(icon_obj, ax, ay - 20);
+		lv_image_set_src(icon_obj, icon_path.c_str());
+
+		lv_label = lv_label_create(parent);
+		lv_obj_set_pos(lv_label, ax + 40, ay - 20);
+		lv_obj_set_style_bg_opa(lv_label, LV_OPA_TRANSP, LV_PART_MAIN);
+		lv_obj_set_style_border_width(lv_label, 0, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(lv_label, 0, LV_PART_MAIN);
+		lv_obj_set_style_text_color(lv_label, lv_color_white(), LV_PART_MAIN);
+		lv_label_set_text(lv_label, "?");
 	}
 
 protected:
-	cairo_surface_t *icon;
+	std::string icon_path;
 };
 
 class BoxWidget: public Widget {
@@ -994,16 +1059,120 @@ public:
 	BoxWidget(int pos_x, int pos_y, uint w, uint h, double r, double g, double b, double a):
 		Widget(pos_x, pos_y), w(w), h(h), r(r), g(g), b(b), a(a) {};
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		cairo_set_source_rgba(cr, r, g, b, a);
-		cairo_rectangle(cr, x, y, w, h);
-		cairo_fill(cr);
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		lv_obj_t* box = lv_obj_create(parent);
+		lv_obj_set_pos(box, absX(screen_w), absY(screen_h));
+		lv_obj_set_size(box, w, h);
+		lv_obj_set_style_bg_color(box, lv_color_make(
+			(uint8_t)(r * 255), (uint8_t)(g * 255), (uint8_t)(b * 255)), LV_PART_MAIN);
+		lv_obj_set_style_bg_opa(box, (lv_opa_t)(a * 255), LV_PART_MAIN);
+		lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
+		lv_obj_set_style_radius(box, 0, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(box, 0, LV_PART_MAIN);
+		lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
 	}
 
 private:
 	uint w, h;
 	double r, g, b, a;
+};
+
+// Warning border that fades in proportionally as a bound signal fact drops below
+// a threshold (e.g. link RSSI). Four edge bars form a soft red gradient, opaque
+// at the screen edge and transparent inward; the container's opacity is driven
+// by how far past the threshold the value is (threshold -> 0, critical -> max).
+// Straight (non-premultiplied) alpha — relies on the OSD plane being composited
+// in "Coverage" blend mode (see drm.c) / RGA PRE_MUL fallback.
+class SignalWarningWidget: public Widget {
+public:
+	SignalWarningWidget(int pos_x, int pos_y, double threshold, double critical):
+		Widget(pos_x, pos_y, 1), threshold(threshold), critical(critical) {};
+
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		// Transparent full-screen container; the four edge bars are its children
+		// so one opacity value scales the whole border.
+		vig = lv_obj_create(parent);
+		lv_obj_remove_style_all(vig);
+		lv_obj_set_pos(vig, 0, 0);
+		lv_obj_set_size(vig, screen_w, screen_h);
+		lv_obj_clear_flag(vig, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_clear_flag(vig, LV_OBJ_FLAG_CLICKABLE);
+
+		int b = (int)(screen_h * kBorderPct / 100.0);  // border band (px)
+		if (b < 1) b = 1;
+		//     x            y            w          h          grad      direction        edge@start
+		mkBar(0,           0,           b,         screen_h,  &grad[0], LV_GRAD_DIR_HOR, true);   // left
+		mkBar(screen_w-b,  0,           b,         screen_h,  &grad[1], LV_GRAD_DIR_HOR, false);  // right
+		mkBar(0,           0,           screen_w,  b,         &grad[2], LV_GRAD_DIR_VER, true);   // top
+		mkBar(0,           screen_h-b,  screen_w,  b,         &grad[3], LV_GRAD_DIR_VER, false);  // bottom
+
+		lv_obj_move_background(vig);
+		lv_obj_add_flag(vig, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_set_style_opa(vig, 0, LV_PART_MAIN);
+	}
+
+	void setFact(uint idx, Fact fact) override {
+		Widget::setFact(idx, fact);
+		dirty = true;
+	}
+
+	void tick() override {
+		if (!vig || !dirty) return;
+		dirty = false;
+
+		double s = 0.0;  // severity 0..1
+		if (args[0].isDefined()) {
+			double v = (double)args[0];
+			if (v <= threshold) {
+				if (critical == threshold) {
+					s = 1.0;  // no ramp configured: full intensity once past
+				} else {
+					s = (threshold - v) / (threshold - critical);
+					if (s < 0.0) s = 0.0; else if (s > 1.0) s = 1.0;
+				}
+			}
+		}
+
+		lv_opa_t opa = (lv_opa_t)(s * kMaxOpa);
+		int q = opa / 8;  // quantise to avoid churn on small fluctuations
+		if (q == last_q) return;
+		last_q = q;
+		if (opa == 0) {
+			lv_obj_add_flag(vig, LV_OBJ_FLAG_HIDDEN);
+		} else {
+			lv_obj_set_style_opa(vig, opa, LV_PART_MAIN);
+			lv_obj_clear_flag(vig, LV_OBJ_FLAG_HIDDEN);
+		}
+	}
+
+private:
+	// One edge bar: an alpha gradient, opaque at the screen edge (frac 0 when
+	// edge_at_start) fading to transparent toward the centre.
+	void mkBar(int x, int y, int w, int h, lv_grad_dsc_t* g, lv_grad_dir_t dir, bool edge_at_start) {
+		lv_obj_t* bar = lv_obj_create(vig);
+		lv_obj_remove_style_all(bar);
+		lv_obj_set_pos(bar, x, y);
+		lv_obj_set_size(bar, w, h);
+		lv_color_t red = lv_color_hex(0xff0000);
+		lv_color_t colors[2] = { red, red };
+		lv_opa_t   opas[2]   = { edge_at_start ? LV_OPA_COVER : LV_OPA_TRANSP,
+		                         edge_at_start ? LV_OPA_TRANSP : LV_OPA_COVER };
+		uint8_t    fracs[2]  = { 0, 255 };
+		lv_gradient_init_stops(g, colors, opas, fracs, 2);
+		g->dir = dir;
+		lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+		lv_obj_set_style_bg_grad(bar, g, LV_PART_MAIN);
+	}
+
+	static constexpr double   kBorderPct = 12.0;  // gradient band, % of screen height
+	static constexpr lv_opa_t kMaxOpa    = 216;   // ~0.85 opacity at full severity
+
+	double threshold, critical;
+
+	lv_grad_dsc_t grad[4]{};   // one persistent descriptor per edge bar
+	lv_obj_t* vig = nullptr;
+	int last_q = -1;
+	bool dirty = false;
 };
 
 class BarChartWidget: public Widget {
@@ -1029,58 +1198,60 @@ public:
 		case Fact::T_UINT:
 			stats.add(static_cast<long>(fact.getUintValue()));
 		}
+		dirty = true;
 	}
 
-	virtual void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		// box
-		cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.4);
-		cairo_rectangle(cr, x, y, w, h);
-		cairo_fill(cr);
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		lv_chart = lv_chart_create(parent);
+		lv_obj_set_size(lv_chart, w, h);
+		lv_obj_set_pos(lv_chart, absX(screen_w), absY(screen_h));
+		lv_chart_set_type(lv_chart, LV_CHART_TYPE_BAR);
+		lv_chart_set_point_count(lv_chart, num_buckets);
+		lv_chart_set_range(lv_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 1000);
+		lv_obj_set_style_bg_opa(lv_chart, LV_OPA_TRANSP, LV_PART_MAIN);
 
-		std::vector<Stats> all_stats = stats.get_bucket_stats();
-		if (all_stats.size() < 3) {
-			SPDLOG_DEBUG("Can't draw bar chart - too few values");
-			return;
+		lv_chart_series_t* ser = lv_chart_add_series(lv_chart, lv_palette_main(LV_PALETTE_BLUE), LV_CHART_AXIS_PRIMARY_Y);
+		lv_chart_set_next_value(lv_chart, ser, 0);
+	}
+
+	void tick() override {
+		if (!dirty || !lv_chart) return;
+		updateChart();
+		dirty = false;
+	}
+
+private:
+	void updateChart() {
+		// Get stats for the entire window
+		Stats overall_stats = stats.get_stats_over_last_ms_result(window_ms);
+		double value = 0;
+
+		switch(stats_field) {
+			case STATS_MIN:
+				value = overall_stats.min;
+				break;
+			case STATS_MAX:
+				value = overall_stats.max;
+				break;
+			case STATS_SUM:
+				value = overall_stats.sum;
+				break;
+			case STATS_COUNT:
+				value = overall_stats.count;
+				break;
+			case STATS_AVG:
+				value = overall_stats.average;
+				break;
 		}
-		all_stats.pop_back(); // drop last bucket, because it is usually still not full
-		std::vector<double> stats = select_stats(all_stats);
-		double min = *std::min_element(stats.begin(), stats.end());
-		double max = *std::max_element(stats.begin(), stats.end());
 
-		// legend
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x + 2, y + 15);
-		cairo_show_text(cr, shorten(max).c_str());
+		// Update chart range
+		double max_val = value > 1000 ? value : 1000;
+		lv_chart_set_range(lv_chart, LV_CHART_AXIS_PRIMARY_Y, 0, (int32_t)max_val * 1.1);
 
-		cairo_move_to(cr, x + 2, y + h);
-		cairo_show_text(cr, shorten(min).c_str());
-
-		// bars
-		cairo_set_source_rgba(cr, 200.0, 200.0, 200.0, 0.8);
-
-		double scale = max - min;
-		SPDLOG_TRACE("Scale: {}, min {}, max {}", scale, min, max);
-		uint legend_w = 65;
-		uint chart_w = w - legend_w;
-
-		uint bar_pad = 4;
-		uint bar_w = (chart_w - (bar_pad * num_buckets)) / num_buckets;
-		uint bar_x = x + legend_w;
-		SPDLOG_TRACE(
-					 "chart_w {} bar_w {}, bar_x {}",
-					 chart_w, bar_w, bar_x
-                    );
-		for (auto val : stats) {
-			double normalized = val - min;
-			double bar_h = -1.0 * (normalized * (h - 10)) / scale;
-			// h -> max-min
-			// ? -> normalized
-			SPDLOG_TRACE("val {}, cairo_rectangle(cr, {}, {}, {}, {})",
-						 val, bar_x, y + h, bar_w, bar_h);
-			cairo_rectangle(cr, bar_x, y + h, bar_w, bar_h - 2);
-			cairo_fill(cr);
-			bar_x += (bar_pad + bar_w);
+		// Update chart with current value
+		lv_chart_series_t* ser = lv_chart_get_series_next(lv_chart, nullptr);
+		if (ser) {
+			lv_chart_set_next_value(lv_chart, ser, (int32_t)value);
 		}
 	}
 
@@ -1140,6 +1311,8 @@ private:
 	uint window_ms, num_buckets;
 	StatsField stats_field = STATS_SUM;
 	RunningAverage stats;
+	lv_obj_t* lv_chart = nullptr;
+	bool dirty = false;
 };
 
 /**
@@ -1151,89 +1324,60 @@ private:
 class PopupWidget: public Widget {
 public:
 	PopupWidget(int pos_x, int pos_y, uint timeout_ms, uint num_args) :
-		Widget(pos_x, pos_y, num_args), timeout(timeout_ms) {};
+		Widget(pos_x, pos_y, num_args), timeout_ms(timeout_ms) {}
 
-	virtual void setFact(uint _idx, Fact fact) {
-		auto now = std::chrono::steady_clock::now();
-		std::string msg = fact.getStrValue();
-		msgs.push_back(std::pair(now, msg));
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		lv_parent = parent;
+		ax = absX(screen_w);
+		ay = absY(screen_h);
 	}
 
-	void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		auto now = std::chrono::steady_clock::now();
+	void setFact(uint /*idx*/, Fact fact) override {
+		if (!lv_parent) return;
+		std::string msg = fact.getStrValue();
+		if (msg.empty()) return;
 
-		// Remove outdated messages
-		while (!msgs.empty() && (now - msgs.front().first > timeout)) {
-			msgs.pop_front();
-		}
-		uint y_offset = y;
-		for (auto [time, msg] : msgs) {
-			auto past = std::chrono::duration_cast<std::chrono::milliseconds>(now - time);
-			double fade_fraction = 1.0 - static_cast<double>(past.count()) / static_cast<double>(timeout.count());
+		lv_obj_t* label = lv_label_create(lv_parent);
+		lv_label_set_text(label, msg.c_str());
+		lv_obj_set_pos(label, ax, ay);
+		lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
+		lv_obj_set_style_bg_color(label, lv_color_black(), LV_PART_MAIN);
+		lv_obj_set_style_bg_opa(label, LV_OPA_50, LV_PART_MAIN);
+		lv_obj_set_style_border_width(label, 0, LV_PART_MAIN);
+		lv_obj_set_style_radius(label, 4, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(label, 8, LV_PART_MAIN);
 
-			// Cairo's `cairo_show_text` does not honour `\n`, so split the
-			// message on newlines and render each line on its own row.
-			std::vector<std::string> lines;
-			{
-				size_t start = 0;
-				while (start <= msg.size()) {
-					size_t nl = msg.find('\n', start);
-					if (nl == std::string::npos) {
-						lines.push_back(msg.substr(start));
-						break;
-					}
-					lines.push_back(msg.substr(start, nl - start));
-					start = nl + 1;
-				}
-			}
+		// Slide upward
+		lv_anim_t a_y;
+		lv_anim_init(&a_y);
+		lv_anim_set_exec_cb(&a_y, [](void* obj, int32_t v) {
+			lv_obj_set_y((lv_obj_t*)obj, v);
+		});
+		lv_anim_set_var(&a_y, label);
+		lv_anim_set_values(&a_y, ay, ay - 150);
+		lv_anim_set_duration(&a_y, timeout_ms);
+		lv_anim_set_completed_cb(&a_y, [](lv_anim_t* a) {
+			lv_obj_delete((lv_obj_t*)a->var);
+		});
+		lv_anim_start(&a_y);
 
-			// Compute the bounding box for the whole multi-line message so
-			// the background sits behind every line.
-			double padding = 5.0;
-			double max_width = 0.0;
-			double total_height = 0.0;
-			double line_spacing = 2.0;
-			std::vector<cairo_text_extents_t> extents_per_line(lines.size());
-			for (size_t i = 0; i < lines.size(); ++i) {
-				cairo_text_extents(cr, lines[i].c_str(), &extents_per_line[i]);
-				if (extents_per_line[i].width > max_width) {
-					max_width = extents_per_line[i].width;
-				}
-				total_height += extents_per_line[i].height;
-				if (i + 1 < lines.size()) {
-					total_height += line_spacing;
-				}
-			}
-
-			// Draw popup box
-			cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, fade_fraction / 3.0);
-			cairo_rectangle(cr,
-							x - padding,
-							y_offset + padding,
-							max_width + (padding * 2), -(total_height + (padding * 2)));
-			cairo_fill(cr);
-
-			// Draw popup text, line by line
-			cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, fade_fraction);
-			uint line_y = y_offset;
-			for (size_t i = lines.size(); i-- > 0; ) {
-				cairo_move_to(cr, x, line_y);
-				cairo_show_text(cr, lines[i].c_str());
-				if (i > 0) {
-					line_y -= extents_per_line[i].height + line_spacing;
-				}
-			}
-			y_offset += total_height + (padding * 2) + 2;
-		}
+		// Fade out (animate background and text opacity)
+		lv_anim_t a_opa;
+		lv_anim_init(&a_opa);
+		lv_anim_set_exec_cb(&a_opa, [](void* obj, int32_t v) {
+			lv_obj_set_style_bg_opa((lv_obj_t*)obj, (uint8_t)v, LV_PART_MAIN);
+			lv_obj_set_style_text_opa((lv_obj_t*)obj, (uint8_t)v, LV_PART_MAIN);
+		});
+		lv_anim_set_var(&a_opa, label);
+		lv_anim_set_values(&a_opa, 255, 0);  // 255=opaque, 0=transparent
+		lv_anim_set_duration(&a_opa, timeout_ms);
+		lv_anim_start(&a_opa);
 	}
 
 private:
-	std::deque<std::pair<
-				   std::chrono::time_point<std::chrono::steady_clock>,
-				   std::string
-				   >> msgs;
-	std::chrono::milliseconds timeout;
+	lv_obj_t* lv_parent = nullptr;
+	int ax = 0, ay = 0;
+	uint timeout_ms;
 };
 
 //
@@ -1242,30 +1386,50 @@ private:
 
 class DvrStatusWidget: public IconTextWidget {
 public:
-	DvrStatusWidget(int pos_x, int pos_y, cairo_surface_t *icon, std::string text) :
-		IconTextWidget(pos_x, pos_y, icon, text) {
+	DvrStatusWidget(int pos_x, int pos_y, std::string icon_path, std::string text) :
+		IconTextWidget(pos_x, pos_y, std::move(icon_path), std::move(text)) {
 		args.push_back(Fact());
-	};
+	}
 
-	void draw(cairo_t *cr) {
-		if(args[0].isDefined() && args[0].getBoolValue()) {
-			auto [x, y] = xy(cr);
-			cairo_save(cr);
-			cairo_set_source_surface(cr, icon, x, y - 20);
-			cairo_paint(cr);
-			cairo_set_source_rgba(cr, 255.0, 0.0, 0.0, 1);
-			cairo_move_to(cr, x + 40, y);
-			cairo_show_text(cr, text.c_str());
-			cairo_restore(cr);
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		IconTextWidget::createLvObjects(parent, screen_w, screen_h);
+		// Red text, initially hidden
+		lv_obj_set_style_text_color(lv_label, lv_color_make(255, 0, 0), LV_PART_MAIN);
+		lv_obj_add_flag(lv_icon, LV_OBJ_FLAG_HIDDEN);
+		lv_obj_add_flag(lv_label, LV_OBJ_FLAG_HIDDEN);
+	}
+
+	void setFact(uint idx, Fact fact) override {
+		Widget::setFact(idx, fact);
+		dirty = true;
+	}
+
+	void tick() override {
+		if (!dirty || !lv_icon) return;
+		updateStatus();
+		dirty = false;
+	}
+
+private:
+	void updateStatus() {
+		bool recording = args[0].isDefined() && args[0].getBoolValue();
+		if (recording) {
+			lv_obj_clear_flag(lv_icon, LV_OBJ_FLAG_HIDDEN);
+			lv_obj_clear_flag(lv_label, LV_OBJ_FLAG_HIDDEN);
+		} else {
+			lv_obj_add_flag(lv_icon, LV_OBJ_FLAG_HIDDEN);
+			lv_obj_add_flag(lv_label, LV_OBJ_FLAG_HIDDEN);
 		}
 	}
+
+	bool dirty = false;
 };
 
 class VideoWidget: public IconTplTextWidget {
 public:
   VideoWidget(int pos_x, int pos_y, uint window_size_ms, uint bucket_size_ms,
-              cairo_surface_t *icon, std::string tpl, uint num_args) :
-		IconTplTextWidget(pos_x, pos_y, icon, tpl, num_args),
+              std::string icon_path, std::string tpl, uint num_args) :
+		IconTplTextWidget(pos_x, pos_y, std::move(icon_path), tpl, num_args),
 		fps(window_size_ms, bucket_size_ms) {};
 
 	virtual void setFact(uint idx, Fact fact) {
@@ -1277,6 +1441,7 @@ public:
 		} else {
 			args[idx] = fact;
 		}
+		dirty = true;
 	}
 
 private:
@@ -1286,8 +1451,8 @@ private:
 class VideoBitrateWidget: public IconTplTextWidget {
 public:
   VideoBitrateWidget(int pos_x, int pos_y, uint window_size_ms, uint bucket_size_ms,
-					 cairo_surface_t *icon, std::string tpl, uint num_args) :
-		IconTplTextWidget(pos_x, pos_y, icon, tpl, num_args),
+					 std::string icon_path, std::string tpl, uint num_args) :
+		IconTplTextWidget(pos_x, pos_y, std::move(icon_path), tpl, num_args),
 		bps(window_size_ms, bucket_size_ms) {
 	  assert(num_args == 1);
   };
@@ -1299,6 +1464,7 @@ public:
 		bps.add(num_bytes);
 		// 125000 is 1_000_000 / 8 (megabits, not megabytes)
 		args[idx] = Fact(FactMeta("video_mbps"), bps.rate_per_second_over_last_ms(1000) / 125000.0);
+		dirty = true;
 	}
 
 private:
@@ -1308,8 +1474,8 @@ private:
 class VideoDecodeLatencyWidget: public IconTplTextWidget {
 public:
   VideoDecodeLatencyWidget(int pos_x, int pos_y, uint window_size_ms, uint bucket_size_ms,
-					 cairo_surface_t *icon, std::string tpl, uint num_args) :
-		IconTplTextWidget(pos_x, pos_y, icon, tpl, 3),  // 3 args, because we calculate min/max/avg
+					 std::string icon_path, std::string tpl, uint num_args) :
+		IconTplTextWidget(pos_x, pos_y, std::move(icon_path), tpl, 3),  // 3 args: min/max/avg
 		timing(window_size_ms, bucket_size_ms) {
 	  assert(num_args == 1);
   };
@@ -1322,6 +1488,7 @@ public:
 		args[0] = Fact(FactMeta("video_avg"), stats.average);
 		args[1] = Fact(FactMeta("video_min"), stats.min);
 		args[2] = Fact(FactMeta("video_max"), stats.max);
+		dirty = true;
 	}
 
 private:
@@ -1334,49 +1501,54 @@ public:
 	GPSWidget(int pos_x, int pos_y, uint num_args) :
 		Widget(pos_x, pos_y, num_args) {
 		assert(num_args == 3);
-	};
+	}
 
-	void draw(cairo_t *cr) {
-		if( !(args[0].isDefined() && args[1].isDefined() && args[2].isDefined()) ) return;
-		auto [x, y] = xy(cr);
-		std::string fix_type = "undef";
-		char buf[64];
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		lv_label = lv_label_create(parent);
+		lv_obj_set_pos(lv_label, absX(screen_w), absY(screen_h));
+		lv_obj_set_style_bg_opa(lv_label, LV_OPA_TRANSP, LV_PART_MAIN);
+		lv_obj_set_style_border_width(lv_label, 0, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(lv_label, 0, LV_PART_MAIN);
+		lv_obj_set_style_text_color(lv_label, lv_color_white(), LV_PART_MAIN);
+		lv_label_set_text(lv_label, "GPS: --");
+	}
+
+	void setFact(uint idx, Fact fact) override {
+		Widget::setFact(idx, fact);
+		dirty = true;
+	}
+
+	void tick() override {
+		if (!dirty) return;
+		updateLabel();
+		dirty = false;
+	}
+
+private:
+	void updateLabel() {
+		if (!lv_label) return;
+		if (!(args[0].isDefined() && args[1].isDefined() && args[2].isDefined())) return;
+		const char* fix_type = "undef";
 		switch (args[0].getUintValue()) {
-		case 0:
-			fix_type = "no GPS";
-			break;
-		case 1:
-			fix_type = "no fix";
-			break;
-		case 2:
-			fix_type = "2D fix";
-			break;
-		case 3:
-			fix_type = "3D fix";
-			break;
-		case 4:
-			fix_type = "DGPS/SBAS 3D";
-			break;
-		case 5:
-			fix_type = "RTK float 3D";
-			break;
-		case 6:
-			fix_type = "RTK Fixed 3D";
-			break;
-		case 7:
-			fix_type = "Static fixed";
-			break;
-		case 8:
-			fix_type = "PPP 3D";
-			break;
+		case 0: fix_type = "no GPS"; break;
+		case 1: fix_type = "no fix"; break;
+		case 2: fix_type = "2D fix"; break;
+		case 3: fix_type = "3D fix"; break;
+		case 4: fix_type = "DGPS/SBAS 3D"; break;
+		case 5: fix_type = "RTK float 3D"; break;
+		case 6: fix_type = "RTK Fixed 3D"; break;
+		case 7: fix_type = "Static fixed"; break;
+		case 8: fix_type = "PPP 3D"; break;
 		}
 		double lat = args[1].getIntValue() * 1.0e-7;
 		double lon = args[2].getIntValue() * 1.0e-7;
-		snprintf(buf, sizeof(buf), "%s Lat:%f, Lon:%f", fix_type.c_str(), lat, lon);
-		cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-		cairo_move_to(cr, x, y);
-		cairo_show_text(cr, buf);
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%s Lat:%f, Lon:%f", fix_type, lat, lon);
+		lv_label_set_text(lv_label, buf);
 	}
+
+	lv_obj_t* lv_label = nullptr;
+	bool dirty = false;
 };
 
 /**
@@ -1419,38 +1591,28 @@ public:
         }
         long cell_voltage_mv = voltage_mv / cells;
         args[0] = Fact(FactMeta("volts"), (double)cell_voltage_mv / 1000.0);
+        dirty = true;
     }
 
 
-    virtual void draw(cairo_t *cr) {
-        auto [x, y] = xy(cr);
-        const Fact& fact = args[0];
-        auto cell_voltage = fact.getDoubleValue();
-        auto cell_voltage_mv = cell_voltage * 1000;
-
-        std::unique_ptr<std::string> msg = render_tpl();
-
+    void updateLvLabel() override {
+        TplTextWidget::updateLvLabel();
+        if (!lv_label || !args[0].isDefined()) return;
+        double cell_voltage_mv = args[0].getDoubleValue() * 1000.0;
+        lv_color_t color;
         if (cell_voltage_mv <= critical_voltage_mv) {
-            // Draw in red
-            cairo_set_source_rgba(cr, 255.0, 0, 0, 1);
+            color = lv_color_make(255, 0, 0);
         } else {
-            // Now we know voltage is above critical
-            float remaining_percentage =
-                (float)(cell_voltage_mv - critical_voltage_mv) /
-                (max_voltage_mv - critical_voltage_mv);
-
-            if (remaining_percentage < warn_percentage) {
-                // Calculate green based on remaining percentage (0--warn_percentage% range)
-                double green_value = 255.0 * (remaining_percentage / warn_percentage);
-                // Transition from yellow through orange to red
-                cairo_set_source_rgba(cr, 255.0, green_value, 0, 1);
+            float remaining = (float)(cell_voltage_mv - critical_voltage_mv) /
+                              (float)(max_voltage_mv - critical_voltage_mv);
+            if (remaining < warn_percentage) {
+                uint8_t green = (uint8_t)(255.0f * (remaining / warn_percentage));
+                color = lv_color_make(255, green, 0);
             } else {
-                // White when above 20%
-                cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
+                color = lv_color_white();
             }
         }
-        cairo_move_to(cr, x, y);
-        cairo_show_text(cr, msg->c_str());
+        lv_obj_set_style_text_color(lv_label, color, LV_PART_MAIN);
     }
 protected:
     int critical_voltage_mv;
@@ -1461,37 +1623,648 @@ protected:
 class DebugWidget: public Widget {
 public:
 	DebugWidget(int pos_x, int pos_y, uint num_args) :
-		Widget(pos_x, pos_y, num_args) {};
+		Widget(pos_x, pos_y, num_args) {}
 
-	void draw(cairo_t *cr) {
-		auto [x, y] = xy(cr);
-		auto y_offset = y;
-		for (Fact &fact : args) {
-			std::string text = fact.asVerboseString();
-			cairo_set_source_rgba(cr, 255.0, 50.0, 50.0, 1);
-			cairo_move_to(cr, x, y_offset);
-			cairo_show_text(cr, text.c_str());
-			y_offset += 20;
-			SPDLOG_INFO("dbg draw {}", text);
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		int ax = absX(screen_w), ay = absY(screen_h);
+		for (uint i = 0; i < args.size(); i++) {
+			lv_obj_t* label = lv_label_create(parent);
+			lv_obj_set_pos(label, ax, ay + (int)(i * 36));
+			lv_obj_set_style_bg_color(label, lv_color_black(), LV_PART_MAIN);
+			lv_obj_set_style_bg_opa(label, LV_OPA_50, LV_PART_MAIN);
+			lv_obj_set_style_border_width(label, 0, LV_PART_MAIN);
+			lv_obj_set_style_radius(label, 4, LV_PART_MAIN);
+			lv_obj_set_style_pad_all(label, 8, LV_PART_MAIN);
+			lv_obj_set_style_text_color(label, lv_color_make(255, 50, 50), LV_PART_MAIN);
+			lv_label_set_text(label, "...");
+			lv_labels.push_back(label);
 		}
 	}
+
+	void setFact(uint idx, Fact fact) override {
+		Widget::setFact(idx, fact);
+		dirty = true;
+	}
+
+	void tick() override {
+		if (!dirty) return;
+		updateLabels();
+		dirty = false;
+	}
+
+private:
+	void updateLabels() {
+		for (uint i = 0; i < args.size() && i < lv_labels.size(); i++) {
+			if (lv_labels[i]) {
+				std::string text = args[i].asVerboseString();
+				SPDLOG_INFO("dbg draw {}", text);
+				lv_label_set_text(lv_labels[i], text.c_str());
+			}
+		}
+	}
+
+	std::vector<lv_obj_t*> lv_labels;
+	bool dirty = false;
 };
+
+class IconSelectorWidget : public Widget {
+public:
+    IconSelectorWidget(int pos_x, int pos_y,
+                       const std::vector<std::pair<std::pair<int, int>, std::filesystem::path>>& ranges_and_icons,
+                       const std::filesystem::path& assets_dir)
+        : Widget(pos_x, pos_y)
+    {
+        args.push_back(Fact());
+        for (const auto& [range, icon_path] : ranges_and_icons) {
+            std::filesystem::path full = icon_path.is_absolute() ? icon_path : assets_dir / icon_path;
+            lv_icon_paths[range] = "A:" + full.string();
+        }
+    }
+
+    void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+        lv_img = lv_image_create(parent);
+        lv_obj_set_pos(lv_img, absX(screen_w), absY(screen_h));
+        lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    void setFact(uint idx, Fact fact) override {
+        assert(idx == 0);
+        args[idx] = fact;
+        dirty = true;
+    }
+
+    void tick() override {
+        if (!dirty || !lv_img) return;
+        updateIcon();
+        dirty = false;
+    }
+
+private:
+    void updateIcon() {
+        if (!args[0].isDefined()) {
+            lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+
+        long value = 0;
+        switch (args[0].getType()) {
+            case Fact::T_BOOL:   value = args[0].getBoolValue() ? 1 : 0; break;
+            case Fact::T_INT:    value = args[0].getIntValue(); break;
+            case Fact::T_UINT:   value = static_cast<long>(args[0].getUintValue()); break;
+            case Fact::T_DOUBLE: value = static_cast<long>(args[0].getDoubleValue()); break;
+            case Fact::T_STRING:
+                try { value = std::stol(args[0].getStrValue()); } catch (...) { value = 0; }
+                break;
+            default:
+                lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+                return;
+        }
+
+        for (const auto& [range, path] : lv_icon_paths) {
+            if (value >= range.first && value <= range.second) {
+                if (current_path != path) {
+                    current_path = path;
+                    lv_image_set_src(lv_img, path.c_str());
+                }
+                lv_obj_clear_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+                return;
+            }
+        }
+        lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    std::map<std::pair<int, int>, std::string> lv_icon_paths;
+    lv_obj_t* lv_img = nullptr;
+    std::string current_path;
+    bool dirty = false;
+};
+
+struct DisplayInfo {
+	uint8_t char_width;
+	uint8_t char_height;
+	uint8_t font_width;
+	uint8_t font_height;
+	uint16_t num_chars;
+};
+
+class MspDisplayPortWidget: public Widget {
+public:
+	MspDisplayPortWidget(int pos_x, int pos_y, const std::string& font_path, uint udp_port = 14551)
+		: Widget(pos_x, pos_y), font_path(font_path), udp_port(udp_port),
+		  display_info({60, 32, 20, 20, 256}) {}  // Will be scaled to screen in createLvObjects
+
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		spdlog::info("creating MSP DisplayPort widget on UDP port {}", udp_port);
+
+		// Create UDP socket
+		udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+		if (udp_socket < 0) {
+			SPDLOG_ERROR("Failed to create UDP socket: {}", strerror(errno));
+			return;
+		}
+
+		struct sockaddr_in addr {};
+		addr.sin_family = AF_INET;
+		addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		addr.sin_port = htons(udp_port);
+
+		if (bind(udp_socket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			SPDLOG_ERROR("Failed to bind UDP socket: {}", strerror(errno));
+			close(udp_socket);
+			udp_socket = -1;
+			return;
+		}
+
+		// Socket stays in blocking mode for reader thread
+
+		// Scale display to fill screen: keep char grid, adjust font size
+		// Calculate font sizes to fit screen dimensions (with small margins)
+		int margin = 20;
+		int avail_width = screen_w - 2 * margin;
+		int avail_height = screen_h - 2 * margin;
+
+		display_info.font_width = avail_width / display_info.char_width;
+		display_info.font_height = avail_height / display_info.char_height;
+
+		spdlog::info("Screen scaling: {}x{} grid scaled to font size {}x{} for screen {}x{}",
+			display_info.char_width, display_info.char_height,
+			display_info.font_width, display_info.font_height,
+			screen_w, screen_h);
+
+		// Create canvas for display
+		canvas = lv_canvas_create(parent);
+		uint32_t display_width = display_info.char_width * display_info.font_width;
+		uint32_t display_height = display_info.char_height * display_info.font_height;
+
+		display_buffer = (uint32_t*)malloc(display_width * display_height * 4);
+		memset(display_buffer, 0, display_width * display_height * 4);
+
+		lv_canvas_set_buffer(canvas, display_buffer, display_width, display_height, LV_COLOR_FORMAT_ARGB8888);
+		int canvas_x = absX(screen_w);
+		int canvas_y = absY(screen_h);
+		lv_obj_set_pos(canvas, canvas_x, canvas_y);
+		lv_obj_set_size(canvas, display_width, display_height);
+
+		spdlog::info("Canvas: {}x{} @ ({},{}), screen={}x{}",
+			display_width, display_height, canvas_x, canvas_y, screen_w, screen_h);
+
+		// Initialize character map
+		memset(character_map, 0, sizeof(character_map));
+		last_refresh = std::chrono::steady_clock::now();
+
+		// TEST: Fill with test pattern to verify rendering
+		// Disabled - test pattern gets cleared by first MSP CLEAR command
+		// for (int i = 0; i < display_info.char_width && i < 10; i++) {
+		//	character_map[0][i] = 0x30 + i;  // '0'..'9'
+		// }
+
+		// Load font image
+		font_image = lv_image_create(parent);
+		lv_image_set_src(font_image, font_path.c_str());
+		lv_obj_add_flag(font_image, LV_OBJ_FLAG_HIDDEN);  // Don't display it directly
+
+		// Start UDP reader and MSP parser threads
+		running = true;
+		reader_thread = std::thread(&MspDisplayPortWidget::udpReaderLoop, this);
+		parser_thread = std::thread(&MspDisplayPortWidget::mspParserLoop, this);
+	}
+
+	void tick() override {
+		if (!canvas || !display_buffer) return;
+
+		// Render at ~60Hz independently of main OSD tick
+		auto now = std::chrono::steady_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refresh);
+
+		if (elapsed.count() >= 16) {  // ~60Hz
+			{
+				std::lock_guard<std::mutex> lock(char_map_mutex);
+				renderDisplay();
+			}
+			lv_obj_invalidate(canvas);
+			last_refresh = now;
+		}
+	}
+
+	~MspDisplayPortWidget() {
+		running = false;
+		if (reader_thread.joinable()) reader_thread.join();
+		if (parser_thread.joinable()) parser_thread.join();
+		if (udp_socket >= 0) close(udp_socket);
+		if (display_buffer) free(display_buffer);
+		if (canvas) lv_obj_del(canvas);
+		if (font_image) lv_obj_del(font_image);
+	}
+
+private:
+	void udpReaderLoop() {
+		pthread_setname_np(pthread_self(), "MSP-UDP-Reader");
+		spdlog::info("MSP UDP reader thread started");
+		uint8_t buffer[1024];
+		struct sockaddr_in src_addr;
+		socklen_t src_len = sizeof(src_addr);
+
+		while (running) {
+			int recv_len = recvfrom(udp_socket, buffer, sizeof(buffer), 0,
+									 (struct sockaddr*)&src_addr, &src_len);
+			if (recv_len > 0) {
+				static uint32_t packet_count = 0;
+				packet_count++;
+				if (packet_count <= 5) {
+					SPDLOG_DEBUG("Packet #{}: {} bytes", packet_count, recv_len);
+				} else if (packet_count % 100 == 0) {
+					spdlog::debug("MSP: received {} bytes (packet #{})", recv_len, packet_count);
+				}
+
+				std::vector<uint8_t> packet(buffer, buffer + recv_len);
+				{
+					std::lock_guard<std::mutex> lock(packet_queue_mutex);
+					packet_queue.push(packet);
+				}
+			}
+		}
+		spdlog::info("MSP UDP reader thread stopped");
+	}
+
+	void mspParserLoop() {
+		pthread_setname_np(pthread_self(), "MSP-Parser");
+		spdlog::info("MSP parser thread started");
+		while (running) {
+			std::vector<uint8_t> packet;
+			{
+				std::unique_lock<std::mutex> lock(packet_queue_mutex);
+				if (packet_queue.empty()) {
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					continue;
+				}
+				packet = packet_queue.front();
+				packet_queue.pop();
+			}
+
+			for (uint8_t byte : packet) {
+				processMspByte(byte);
+			}
+		}
+		spdlog::info("MSP parser thread stopped");
+	}
+
+	void processMspByte(uint8_t byte) {
+		// Simple MSP frame parser
+		// MSP v1: $ M < len cmd payload chk
+		enum { SYNC1, SYNC2, DIR, LEN, CMD, PAYLOAD, CHK };
+
+		switch (msp_state) {
+			case SYNC1:
+				if (byte == '$') {
+					msp_state = SYNC2;
+				}
+				break;
+			case SYNC2:
+				if (byte == 'M') {
+					msp_state = DIR;
+				} else {
+					msp_state = SYNC1;
+				}
+				break;
+			case DIR:
+				// Accept both $M< (inbound) and $M> (outbound)
+				if (byte == '<' || byte == '>') {
+					msp_state = LEN;
+				} else {
+					msp_state = SYNC1;
+				}
+				break;
+			case LEN:
+				msp_len = byte;
+				msp_checksum = msp_len ^ 0;  // Start checksum
+				msp_state = CMD;
+				break;
+			case CMD:
+				msp_cmd = byte;
+				msp_checksum ^= msp_cmd;
+				msp_payload_idx = 0;
+				msp_state = (msp_len > 0) ? PAYLOAD : CHK;
+				break;
+			case PAYLOAD:
+				msp_payload[msp_payload_idx++] = byte;
+				msp_checksum ^= byte;
+				if (msp_payload_idx >= msp_len) msp_state = CHK;
+				break;
+			case CHK:
+				if (msp_cmd == 182) {  // MSP_CMD_DISPLAYPORT
+					if (msp_checksum == byte) {
+						handleDisplayPort(msp_payload, msp_len);
+					} else {
+						spdlog::warn("MSP: Checksum mismatch (expected {} got {})", msp_checksum, byte);
+					}
+				}
+				msp_state = SYNC1;
+				break;
+		}
+	}
+
+	void handleDisplayPort(uint8_t* payload, uint8_t len) {
+		if (len < 1) return;
+
+		uint8_t subcmd = payload[0];
+		switch (subcmd) {
+			case 2:  // CLEAR
+				spdlog::debug("MSP: CLEAR screen");
+				memset(character_map, 0, sizeof(character_map));
+				break;
+			case 3:  // DRAW_STRING
+				if (len >= 4) {
+					uint8_t row = payload[1];
+					uint8_t col = payload[2];
+					uint8_t attrs = payload[3];
+					uint8_t page = attrs & 0x3;
+					uint8_t str_len = 0;
+
+					for (uint8_t i = 4; i < len; i++) {
+						if (payload[i] == '\0') break;
+						uint16_t char_code = payload[i] | (page << 8);
+
+						if (col < display_info.char_width && row < display_info.char_height) {
+							character_map[row][col] = char_code;
+							str_len++;
+						}
+						col++;
+					}
+					if (str_len > 0) {
+						spdlog::debug("MSP: DRAW_STRING row={} col={} page={} chars={}", row, col-str_len, page, str_len);
+					}
+				}
+				break;
+			case 5:  // SET_OPTIONS
+				if (len >= 3) {
+					uint8_t font = payload[1];
+					uint8_t is_hd = payload[2];
+					spdlog::debug("MSP: SET_OPTIONS font={} is_hd={}", font, is_hd);
+					// Update display_info based on font/hd settings
+					// For now, keep default 50x18 with 24x36 font
+				}
+				break;
+			default:
+				spdlog::debug("MSP: Unknown/unhandled DisplayPort subcmd={} len={}", subcmd, len);
+				break;
+		}
+	}
+
+	void loadFontAtlas() {
+		if (font_data) return;  // Already loaded
+
+		spdlog::info("Loading font atlas from: {}", font_path);
+
+		// Open PNG file
+		FILE* fp = fopen(font_path.c_str(), "rb");
+		if (!fp) {
+			spdlog::warn("Failed to open font file: {}", font_path);
+			return;
+		}
+
+		// Create PNG read structure
+		png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+		if (!png) {
+			fclose(fp);
+			spdlog::warn("Failed to create PNG read struct");
+			return;
+		}
+
+		png_infop info = png_create_info_struct(png);
+		if (!info) {
+			png_destroy_read_struct(&png, nullptr, nullptr);
+			fclose(fp);
+			spdlog::warn("Failed to create PNG info struct");
+			return;
+		}
+
+		// Set error handler (use setjmp for libpng error handling)
+		if (setjmp(png_jmpbuf(png))) {
+			png_destroy_read_struct(&png, &info, nullptr);
+			fclose(fp);
+			spdlog::warn("PNG read error");
+			return;
+		}
+
+		png_init_io(png, fp);
+		png_read_info(png, info);
+
+		uint32_t width = png_get_image_width(png, info);
+		uint32_t height = png_get_image_height(png, info);
+
+		// Get color type before transformations
+		png_byte color_type = png_get_color_type(png, info);
+		png_byte bit_depth = png_get_bit_depth(png, info);
+
+		spdlog::debug("PNG color_type={} bit_depth={}", (int)color_type, (int)bit_depth);
+
+		// Transform to RGBA8
+		if (bit_depth == 16) png_set_strip_16(png);
+		if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
+		if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
+		if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
+		if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
+		// Add alpha channel if not present
+		if (color_type == PNG_COLOR_TYPE_RGB) png_set_add_alpha(png, 0xFF, PNG_FILLER_AFTER);
+
+		png_read_update_info(png, info);
+
+		// Check actual rowbytes after transformation
+		uint32_t rowbytes = png_get_rowbytes(png, info);
+		spdlog::debug("After transforms: rowbytes={} (expected={})", rowbytes, width * 4);
+
+		// Allocate row pointers
+		png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
+		for (uint32_t y = 0; y < height; y++) {
+			row_pointers[y] = (png_byte*)malloc(rowbytes);
+		}
+
+		// Read PNG data
+		png_read_image(png, row_pointers);
+
+		// Convert to uint32_t ARGB buffer
+		uint32_t num_pixels = width * height;
+		font_data = (uint32_t*)malloc(num_pixels * sizeof(uint32_t));
+		if (font_data) {
+			for (uint32_t y = 0; y < height; y++) {
+				uint8_t* row = row_pointers[y];
+				for (uint32_t x = 0; x < width; x++) {
+					uint32_t idx = x * 4;
+					if (idx + 3 < rowbytes) {
+						uint8_t r = row[idx + 0];
+						uint8_t g = row[idx + 1];
+						uint8_t b = row[idx + 2];
+						uint8_t a = row[idx + 3];
+						font_data[y * width + x] = (a << 24) | (r << 16) | (g << 8) | b;
+					}
+				}
+			}
+			font_width_atlas = width;
+			font_height_atlas = height;
+
+			// Debug: sample pixels from different rows and columns to verify
+			spdlog::debug("Font atlas pixel samples (ARGB):");
+			uint32_t test_indices[] = {0, width/4, width/2, 3*width/4, width-1};
+			for (uint32_t idx : test_indices) {
+				if (idx < num_pixels) {
+					uint32_t pixel = font_data[idx];
+					uint8_t a = (pixel >> 24) & 0xFF;
+					uint8_t r = (pixel >> 16) & 0xFF;
+					uint8_t g = (pixel >> 8) & 0xFF;
+					uint8_t b = pixel & 0xFF;
+					spdlog::debug("  [{}] ARGB={:02x}{:02x}{:02x}{:02x}", idx, a, r, g, b);
+				}
+			}
+
+			spdlog::info("Font atlas loaded: {}x{} pixels, {} bytes",
+				font_width_atlas, font_height_atlas, num_pixels * sizeof(uint32_t));
+		}
+
+		// Clean up
+		for (uint32_t y = 0; y < height; y++) {
+			free(row_pointers[y]);
+		}
+		free(row_pointers);
+		png_destroy_read_struct(&png, &info, nullptr);
+		fclose(fp);
+	}
+
+	void renderDisplay() {
+		if (!canvas || !display_buffer) {
+			SPDLOG_WARN("renderDisplay: canvas={} buffer={}", (void*)canvas, (void*)display_buffer);
+			return;
+		}
+
+		uint32_t display_width = display_info.char_width * display_info.font_width;
+		uint32_t display_height = display_info.char_height * display_info.font_height;
+
+		// Clear buffer with transparent background so video shows through
+		uint32_t* buf = display_buffer;
+		uint32_t transparent = 0x00000000;  // ARGB8888: fully transparent
+		for (uint32_t i = 0; i < display_width * display_height; i++) {
+			buf[i] = transparent;
+		}
+
+		// Load font atlas if not loaded yet
+		if (!font_data) {
+			loadFontAtlas();
+			if (!font_data) {
+				SPDLOG_WARN("renderDisplay: font_data still null after loadFontAtlas()");
+			} else {
+				SPDLOG_DEBUG("renderDisplay: font atlas loaded, {}x{}", font_width_atlas, font_height_atlas);
+			}
+		}
+
+		// Count and draw characters
+		int char_count = 0;
+		for (uint8_t row = 0; row < display_info.char_height; row++) {
+			for (uint8_t col = 0; col < display_info.char_width; col++) {
+				uint16_t char_code = character_map[row][col];
+				if (char_code == 0) continue;
+
+				uint8_t page = (char_code >> 8) & 0x3;
+				uint8_t char_idx = char_code & 0xFF;
+
+				// Calculate character size in font atlas
+				// Atlas is organized as 4 pages (columns) × 256 chars (rows)
+				uint32_t atlas_char_width = font_width_atlas / 4;
+				uint32_t atlas_char_height = font_height_atlas / 256;
+
+				// Calculate source position in font atlas
+				int src_x = page * atlas_char_width;
+				int src_y = char_idx * atlas_char_height;
+
+				// Debug first character
+				if (char_count == 0) {
+					SPDLOG_DEBUG("First char: code=0x{:04x} page={} idx={} atlas_char_size={}x{}",
+						char_code, page, char_idx, atlas_char_width, atlas_char_height);
+				}
+
+				// Calculate destination position on canvas
+				int dst_x = col * display_info.font_width;
+				int dst_y = row * display_info.font_height;
+
+				// Copy character from atlas to canvas buffer with scaling
+				if (font_data && font_width_atlas > 0 && font_height_atlas > 0) {
+					for (int y = 0; y < (int)display_info.font_height && dst_y + y < (int)display_height; y++) {
+						for (int x = 0; x < (int)display_info.font_width && dst_x + x < (int)display_width; x++) {
+							// Scale from display coordinates back to atlas coordinates
+							int atlas_x = src_x + (x * atlas_char_width) / display_info.font_width;
+							int atlas_y = src_y + (y * atlas_char_height) / display_info.font_height;
+
+							// Bounds check on atlas
+							if (atlas_x >= 0 && atlas_x < (int)font_width_atlas &&
+								atlas_y >= 0 && atlas_y < (int)font_height_atlas) {
+								// Copy pixel from atlas to canvas
+								uint32_t pixel = font_data[atlas_y * font_width_atlas + atlas_x];
+								buf[(dst_y + y) * display_width + (dst_x + x)] = pixel;
+							}
+						}
+					}
+					char_count++;
+				} else if (!font_data) {
+					// Fallback: draw placeholder rectangle
+					uint8_t brightness = 200 + ((char_code & 0x3F) >> 1);
+					uint32_t color = (0xFF << 24) | (brightness << 16) | (brightness << 8) | brightness;
+					for (int y = 0; y < (int)display_info.font_height && dst_y + y < (int)display_height; y++) {
+						for (int x = 0; x < (int)display_info.font_width && dst_x + x < (int)display_width; x++) {
+							buf[(dst_y + y) * display_width + (dst_x + x)] = color;
+						}
+					}
+					char_count++;
+				}
+			}
+		}
+
+		if (char_count > 0) {
+			SPDLOG_DEBUG("renderDisplay: {} characters drawn", char_count);
+		}
+	}
+
+	int udp_socket = -1;
+	lv_obj_t* canvas = nullptr;
+	lv_obj_t* font_image = nullptr;
+	uint32_t* display_buffer = nullptr;
+	uint32_t* font_data = nullptr;  // Decoded font atlas pixels
+	uint32_t font_width_atlas = 0;
+	uint32_t font_height_atlas = 0;
+	std::string font_path;
+	std::vector<uint8_t> png_buffer;  // Keep PNG file in memory for decoder
+	uint udp_port;
+
+	DisplayInfo display_info;
+
+	uint16_t character_map[32][64];  // Max grid: 60x22 chars
+	std::chrono::steady_clock::time_point last_refresh;
+
+	// Threading
+	std::thread reader_thread;
+	std::thread parser_thread;
+	std::atomic<bool> running = false;
+	std::queue<std::vector<uint8_t>> packet_queue;
+	std::mutex packet_queue_mutex;
+	std::mutex char_map_mutex;
+
+	// MSP parser state (per-instance, not static)
+	int msp_state = 0;  // SYNC1
+	uint8_t msp_len = 0;
+	uint8_t msp_cmd = 0;
+	uint8_t msp_checksum = 0;
+	uint8_t msp_payload[256];
+	uint8_t msp_payload_idx = 0;
+};
+
 
 class ExternalSurfaceWidget: public Widget {
 public:
-	ExternalSurfaceWidget(int pos_x, int pos_y, std::string shm_name ): Widget(pos_x, pos_y), shm_name(shm_name)  {};
+	ExternalSurfaceWidget(int pos_x, int pos_y, std::string shm_name, uint refresh_interval_ms = 16)
+		: Widget(pos_x, pos_y), shm_name(shm_name), refresh_interval_ms(refresh_interval_ms) {}
 
-	virtual void init_shm(cairo_t *cr) {
-		SPDLOG_INFO("creating shm region {}", shm_name);
+	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
+		SPDLOG_INFO("creating shm region {} (refresh {}ms)", shm_name, refresh_interval_ms);
 
-		cairo_surface_t *target = cairo_get_target(cr);
-		int width = cairo_image_surface_get_width(target);
-		int height = cairo_image_surface_get_height(target);
+		shm_size = sizeof(SharedMemoryRegion) + (screen_w * screen_h * 4);
 
-		// Calculate total shared memory size
-		shm_size = sizeof(SharedMemoryRegion) + (width * height * 4); // Metadata + Image data
-
-		// Create shared memory region
 		int shm_fd = shm_open(shm_name.c_str(), O_CREAT | O_RDWR, 0666);
 		if (shm_fd == -1) {
 			perror("Failed to create shared memory");
@@ -1504,7 +2277,6 @@ public:
 			return;
 		}
 
-		// Map shared memory to process address space
 		auto *shm_region = static_cast<SharedMemoryRegion*>(
 			mmap(0, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0)
 		);
@@ -1514,33 +2286,33 @@ public:
 			return;
 		}
 
-		// Write metadata
-		shm_region->width = width;
-		shm_region->height = height;
+		shm_region->width = screen_w;
+		shm_region->height = screen_h;
 
-		// Create Cairo surface for the image data
-		shm_surface = cairo_image_surface_create_for_data(
-			shm_region->data, CAIRO_FORMAT_ARGB32, width, height, width * 4
-		);
+		canvas = lv_canvas_create(parent);
+		lv_canvas_set_buffer(canvas, (void*)shm_region->data, screen_w, screen_h, LV_COLOR_FORMAT_ARGB8888);
+		lv_obj_set_pos(canvas, absX(screen_w), absY(screen_h));
 
-		// Store pointer for cleanup
 		shm_data = reinterpret_cast<unsigned char*>(shm_region);
+		last_refresh = std::chrono::steady_clock::now();
 	}
 
+	void tick() override {
+		if (!canvas) return;
 
-	virtual void draw(cairo_t *cr) {
+		auto now = std::chrono::steady_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refresh);
 
-		if (! shm_surface) 
-			init_shm(cr);
-		auto [x, y] = xy(cr);
-		cairo_set_source_surface(cr, shm_surface, x, y); // Position at (0, 0)
-    	cairo_paint(cr); // Paint shm_surface onto base_surface
+		if (elapsed.count() >= refresh_interval_ms) {
+			lv_obj_invalidate(canvas);
+			last_refresh = now;
+		}
 	}
 
 	~ExternalSurfaceWidget() {
 		SPDLOG_INFO("bye, bye, shm region {}", shm_name);
-		if (shm_surface) {
-			cairo_surface_destroy(shm_surface);
+		if (canvas) {
+			lv_obj_del(canvas);
 		}
 		if (shm_data) {
 			munmap(shm_data, shm_size);
@@ -1549,110 +2321,27 @@ public:
 	}
 
 protected:
-	cairo_surface_t *shm_surface = nullptr;
+	lv_obj_t *canvas = nullptr;
 	unsigned char *shm_data = nullptr;
-	size_t shm_size;
+	size_t shm_size = 0;
 	std::string shm_name;
+	uint refresh_interval_ms;
+	std::chrono::steady_clock::time_point last_refresh;
 };
 
-class IconSelectorWidget : public Widget {
-public:
-    IconSelectorWidget(int pos_x, int pos_y, const std::vector<std::pair<std::pair<int, int>, std::filesystem::path>>& ranges_and_icons, const std::filesystem::path& assets_dir)
-        : Widget(pos_x, pos_y), assets_dir(assets_dir) {
-        args.push_back(Fact()); // Expect one fact as input
-
-        // Load and cache all icons during initialization
-        for (const auto& [range, icon_path] : ranges_and_icons) {
-            cairo_surface_t* icon = openIcon(icon_path);
-            if (icon) {
-                icon_cache[range] = icon;
-            }
-        }
-    }
-
-    virtual ~IconSelectorWidget() {
-        // Clean up cached icons
-        for (auto& [range, icon] : icon_cache) {
-            if (icon) {
-                cairo_surface_destroy(icon);
-            }
-        }
-    }
-
-    virtual void setFact(uint idx, Fact fact) override {
-        assert(idx == 0);
-        args[idx] = fact;
-        current_icon = selectIcon(fact);
-    }
-
-    virtual void draw(cairo_t *cr) override {
-        if (!current_icon) return;
-
-        auto [x, y] = xy(cr);
-        cairo_set_source_surface(cr, current_icon, x, y);
-        cairo_paint(cr);
-    }
-
-private:
-    cairo_surface_t* selectIcon(Fact& fact) {
-        if (!fact.isDefined()) return nullptr;
-
-        long value = 0;
-        
-        // Convert all fact types to comparable integer values
-        switch (fact.getType()) {
-            case Fact::T_BOOL:
-                value = fact.getBoolValue() ? 1 : 0;
-                break;
-            case Fact::T_INT:
-                value = fact.getIntValue();
-                break;
-            case Fact::T_UINT:
-                value = static_cast<long>(fact.getUintValue());
-                break;
-            case Fact::T_DOUBLE:
-                value = static_cast<long>(fact.getDoubleValue());
-                break;
-            case Fact::T_STRING:
-                try {
-                    value = std::stol(fact.getStrValue());
-                } catch (...) {
-                    // If string can't be converted to number, use 0
-                    value = 0;
-                }
-                break;
-            case Fact::T_UNDEF:
-            default:
-                return nullptr;
-        }
-
-        // Iterate through the configured ranges and select the appropriate icon
-        for (const auto& [range, icon] : icon_cache) {
-            if (value >= range.first && value <= range.second) {
-                return icon;
-            }
-        }
-
-        return nullptr; // No icon selected
-    }
-
-    cairo_surface_t* openIcon(const std::filesystem::path& icon_path) {
-        std::filesystem::path full_path = assets_dir / icon_path;
-        cairo_surface_t* icon = cairo_image_surface_create_from_png(full_path.c_str());
-        if (cairo_surface_status(icon) != CAIRO_STATUS_SUCCESS) {
-            spdlog::error("Failed to open icon: {}", full_path.string());
-            return nullptr;
-        }
-        return icon;
-    }
-
-    std::map<std::pair<int, int>, cairo_surface_t*> icon_cache; // Cache of loaded icons
-    std::filesystem::path assets_dir;
-    cairo_surface_t* current_icon = nullptr; // Currently selected icon
-};
 
 class Osd {
 public:
+	void createWidgets(lv_obj_t* parent, int screen_w, int screen_h) {
+		for (auto& widget : widgets)
+			widget->createLvObjects(parent, screen_w, screen_h);
+	}
+
+	void tick() {
+		for (auto& widget : widgets)
+			widget->tick();
+	}
+
 	void loadConfig(json cfg) {
 		json obj;
 		if (cfg.contains("format")) {
@@ -1708,9 +2397,28 @@ public:
 			if (type == "TextWidget") {
 				addWidget(new TextWidget(x, y, widget_j.at("text").template get<std::string>()),
 						  matchers);
-			}
-			else if (type == "ExternalSurfaceWidget") {
-				addWidget(new ExternalSurfaceWidget(x, y, name), matchers);
+			} else if (type == "ExternalSurfaceWidget") {
+				if (!widget_j.contains("shm_name")) {
+					spdlog::error("ExternalSurfaceWidget '{}' missing required 'shm_name'", name);
+					continue;
+				}
+				auto shm_name = widget_j.at("shm_name").template get<std::string>();
+				uint refresh_ms = 16;  // Default ~60Hz
+				if (widget_j.contains("refresh_interval_ms")) {
+					refresh_ms = widget_j.at("refresh_interval_ms").template get<uint>();
+				}
+				addWidget(new ExternalSurfaceWidget(x, y, shm_name, refresh_ms), matchers);
+			} else if (type == "MspDisplayPortWidget") {
+				if (!widget_j.contains("font_path")) {
+					spdlog::error("MspDisplayPortWidget '{}' missing required 'font_path'", name);
+					continue;
+				}
+				auto font_path = widget_j.at("font_path").template get<std::string>();
+				uint udp_port = 14551;  // Default MSP DisplayPort UDP port
+				if (widget_j.contains("udp_port")) {
+					udp_port = widget_j.at("udp_port").template get<uint>();
+				}
+				addWidget(new MspDisplayPortWidget(x, y, font_path, udp_port), matchers);
 			} else if (type == "IconSelectorWidget") {
 				std::vector<std::pair<std::pair<int, int>, std::filesystem::path>> ranges_and_icons;
 				for (const auto& range_icon : widget_j.at("ranges_and_icons")) {
@@ -1726,44 +2434,35 @@ public:
 			} else if(type == "IconTplTextWidget") {
 				auto tpl = widget_j.at("template").template get<std::string>();
 				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
-				addWidget(new IconTplTextWidget(x, y, icon, tpl, (uint)matchers.size()), matchers);
+				addWidget(new IconTplTextWidget(x, y, lvIconPath(assets_dir, icon_path),
+				                               tpl, (uint)matchers.size()), matchers);
 			} else if(type == "DvrStatusWidget") {
 				auto text = widget_j.at("text").template get<std::string>();
 				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
-				addWidget(new DvrStatusWidget(x, y, icon, text), matchers);
+				addWidget(new DvrStatusWidget(x, y, lvIconPath(assets_dir, icon_path), text), matchers);
 			} else if(type == "VideoWidget") {
 				auto tpl = widget_j.at("template").template get<std::string>();
 				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
 				uint window_size_s = widget_j.at("per_second_window_s").template get<uint>();
-				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();;
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
+				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();
 				addWidget(new VideoWidget(x, y, window_size_s * 1000, bucket_size_ms,
-										  icon, tpl, (uint)matchers.size()),
+				                         lvIconPath(assets_dir, icon_path), tpl, (uint)matchers.size()),
 						  matchers);
 			} else if(type == "VideoBitrateWidget") {
 				auto tpl = widget_j.at("template").template get<std::string>();
 				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
 				uint window_size_s = widget_j.at("per_second_window_s").template get<uint>();
-				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();;
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
+				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();
 				addWidget(new VideoBitrateWidget(x, y, window_size_s * 1000, bucket_size_ms,
-												 icon, tpl, (uint)matchers.size()),
+				                                lvIconPath(assets_dir, icon_path), tpl, (uint)matchers.size()),
 						  matchers);
 			} else if(type == "VideoDecodeLatencyWidget") {
 				auto tpl = widget_j.at("template").template get<std::string>();
 				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
 				uint window_size_s = widget_j.at("per_second_window_s").template get<uint>();
-				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();;
-				cairo_surface_t *icon = openIcon(name, assets_dir, icon_path);
-				if (icon == NULL) break;
+				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();
 				addWidget(new VideoDecodeLatencyWidget(x, y, window_size_s * 1000, bucket_size_ms,
-													   icon, tpl, 1),
+				                                      lvIconPath(assets_dir, icon_path), tpl, 1),
 						  matchers);
 			} else if(type == "BoxWidget") {
 				auto width = widget_j.at("width").template get<uint>();
@@ -1774,6 +2473,19 @@ public:
 				auto b = color_j.at("b").template get<double>();
 				auto a = color_j.at("alpha").template get<double>();
 				addWidget(new BoxWidget(x, y, width, height, r, g, b, a), matchers);
+			} else if(type == "SignalWarningWidget") {
+				if (matchers.size() != 1) {
+					spdlog::error("SignalWarningWidget '{}' needs exactly one fact", name);
+					continue;
+				}
+				double threshold = widget_j.at("threshold").template get<double>();
+				// Value at which the border reaches full intensity. Omit for an
+				// on/off effect (full intensity once past threshold).
+				double critical = threshold;
+				if (widget_j.contains("critical")) {
+					critical = widget_j.at("critical").template get<double>();
+				}
+				addWidget(new SignalWarningWidget(x, y, threshold, critical), matchers);
 			} else if(type == "BarChartWidget") {
 				auto width = widget_j.at("width").template get<uint>();
 				auto height = widget_j.at("height").template get<uint>();
@@ -1846,11 +2558,6 @@ public:
 		return this;
 	};
 
-	void draw(cairo_t *cr) {
-		for(auto &widget : widgets)
-			widget->draw(cr);
-	};
-
 	void setFact(Fact fact) {
 		for (auto& [matcher, widget, arg_idx] : matchers) {
 			if (matcher.matches(fact)) {
@@ -1867,39 +2574,9 @@ public:
 
 private:
 
-	cairo_surface_t *openIcon(std::string widget_name, std::filesystem::path base_path,
-							  std::filesystem::path icon_path) {
-		if (icon_path.is_relative()) {
-			icon_path = base_path / icon_path;
-		}
-		cairo_surface_t *icon = cairo_image_surface_create_from_png(icon_path.c_str());
-		if (cairo_surface_status(icon) != CAIRO_STATUS_SUCCESS) {
-			std::string status("OTHER_ERROR");
-			switch (cairo_surface_status(icon)) {
-			case CAIRO_STATUS_NULL_POINTER:
-				status = "NULL_POINTER";
-				break;
-			case CAIRO_STATUS_NO_MEMORY:
-				status = "NO_MEMORY";
-				break;
-			case CAIRO_STATUS_READ_ERROR:
-				status = "READ_ERROR";
-				break;
-			case CAIRO_STATUS_INVALID_CONTENT:
-				status = "INVALID_CONTENT";
-				break;
-			case CAIRO_STATUS_INVALID_FORMAT:
-				status = "INVALID_FORMAT";
-				break;
-			case CAIRO_STATUS_INVALID_VISUAL:
-				status = "INVALID_VISUAL";
-				break;
-			};
-			spdlog::error("Widget '{}': Can't open icon '{}': {}",
-						  widget_name, icon_path.string(), status);
-			return NULL;
-		}
-		return icon;
+	static std::string lvIconPath(const std::filesystem::path& base, std::filesystem::path icon) {
+		if (icon.is_relative()) icon = base / icon;
+		return "A:" + icon.string();
 	}
 
 	std::vector<Widget *> widgets;
@@ -1909,33 +2586,9 @@ private:
 
 std::queue<Fact> fact_queue;
 std::mutex mtx;
+std::mutex lvgl_mutex;  // Protects all LVGL operations
 std::condition_variable cv;
 pthread_mutex_t osd_mutex;
-
-void modeset_paint_buffer(struct modeset_buf *buf, Osd *osd) {
-	unsigned int j,k,off;
-	cairo_t* cr;
-	cairo_surface_t *surface;
-
-	int osd_x = buf->width - 300;
-	surface = cairo_image_surface_create_for_data(buf->map, CAIRO_FORMAT_ARGB32, buf->width, buf->height, buf->stride);
-	cr = cairo_create (surface);
-
-	// https://www.cairographics.org/FAQ/#clear_a_surface
-	cairo_save(cr);
-	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
-	cairo_paint(cr);
-	cairo_restore(cr);
-
-	cairo_select_font_face (cr, "Roboto", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-	cairo_set_font_size (cr, 20);
-
-	osd->draw(cr);
-
-	cairo_fill(cr);
-	cairo_destroy(cr);
-	cairo_surface_destroy(surface);
-}
 
 int osd_thread_signal;
 
@@ -1945,27 +2598,12 @@ typedef struct png_closure
 	unsigned int bytes_left;
 } png_closure_t;
 
-cairo_status_t on_read_png_stream(png_closure_t * closure, unsigned char * data, unsigned int length)
-{
-	if(length > closure->bytes_left) return CAIRO_STATUS_READ_ERROR;
-	
-	memcpy(data, closure->iter, length);
-	closure->iter += length;
-	closure->bytes_left -= length;
-	return CAIRO_STATUS_SUCCESS;
-}
-cairo_surface_t * surface_from_embedded_png(const char * png, size_t length)
-{
-	int rc = -1;
-	png_closure_t closure[1] = {{
-		.iter = (unsigned char *)png,
-		.bytes_left = (unsigned int)length,
-	}};
-	return cairo_image_surface_create_from_png_stream(
-		(cairo_read_func_t)on_read_png_stream,
-		closure);
-}
-
+/* LVGL renders into this cached (normal RAM) shadow buffer instead of the
+ * write-combined DRM dumb buffers. Alpha blending is read-modify-write, and
+ * uncached reads on ARM are extremely slow — rendering directly into the dumb
+ * buffers is what made the menu sluggish. The shadow always holds the complete
+ * current UI; my_flush_cb copies it to the off-screen DRM buffer and flips. */
+static uint8_t * lvgl_shadow;
 
 /* LVGL renders into this cached (normal RAM) shadow buffer instead of the
  * write-combined DRM dumb buffers. Alpha blending is read-modify-write, and
@@ -2063,13 +2701,47 @@ void setup_lvgl(osd_thread_params *p) {
 
 }
 
+static Osd *g_osd = nullptr;  // Global for fact processor thread
+
+void factProcessorLoop() {
+	pthread_setname_np(pthread_self(), "OSD-FactProc");
+	spdlog::info("OSD fact processor thread started");
+
+	while (!osd_thread_signal) {
+		std::vector<Fact> fact_buf;
+		{
+			std::unique_lock<std::mutex> lock(mtx);
+			// Wait for facts with 1ms timeout (continuous processing)
+			cv.wait_for(lock, std::chrono::milliseconds(1),
+				[/*fact_queue*/] { return !fact_queue.empty(); });
+
+			// Collect all available facts
+			while (!fact_queue.empty()) {
+				SPDLOG_DEBUG("got fact {}", fact_queue.front().asVerboseString());
+				fact_buf.push_back(fact_queue.front());
+				fact_queue.pop();
+			}
+		}
+
+		// Process facts with LVGL lock protection
+		if (g_osd) {
+			std::lock_guard<std::mutex> lock(lvgl_mutex);
+			for (const Fact& fact : fact_buf) {
+				g_osd->setFact(fact);
+			}
+		}
+	}
+	spdlog::info("OSD fact processor thread stopped");
+}
+
 void *__OSD_THREAD__(void *param) {
 	p = (osd_thread_params *)param;
 	Osd *osd = new Osd;
+	g_osd = osd;  // Store for fact processor thread
 	pthread_setname_np(pthread_self(), "__OSD");
 
 	osd->loadConfig(p->config);
-	auto last_display_at = std::chrono::steady_clock::now();
+	auto last_lvgl_tick_at = std::chrono::steady_clock::now();
 
 	int ret = pthread_mutex_init(&osd_mutex, NULL);
 	assert(!ret);
@@ -2083,80 +2755,64 @@ void *__OSD_THREAD__(void *param) {
 		spdlog::warn("OSD GL: init failed");
 	}
 
+	// LVGL is always initialized: OSD rendering now uses LVGL widgets
+	setup_lvgl(p);
+
+	// Full-screen transparent container on layer_bottom (below menu layer)
+	{
+		int screen_w = buf->width;
+		int screen_h = buf->height;
+		lv_obj_t* osd_cont = lv_obj_create(lv_layer_bottom());
+		lv_obj_set_pos(osd_cont, 0, 0);
+		lv_obj_set_size(osd_cont, screen_w, screen_h);
+		lv_obj_set_style_bg_opa(osd_cont, LV_OPA_TRANSP, LV_PART_MAIN);
+		lv_obj_set_style_border_width(osd_cont, 0, LV_PART_MAIN);
+		lv_obj_set_style_radius(osd_cont, 0, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(osd_cont, 0, LV_PART_MAIN);
+		lv_obj_clear_flag(osd_cont, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_set_style_text_font(osd_cont, &lv_font_montserrat_20, LV_PART_MAIN);
+		osd->createWidgets(osd_cont, screen_w, screen_h);
+	}
+
+	// Force an initial render so the video thread receives an OSD buffer signal
+	lv_task_handler();
+
+	// Start fact processor thread (runs continuously, independent of rendering)
+	std::thread fact_processor(factProcessorLoop);
+	fact_processor.detach();  // Let it run independently
+
 	if (gsmenu_enabled) {
-		setup_lvgl(p);
 		pp_menu_main();
 	}
 
+	// Main loop: focus purely on rendering
 	while (!osd_thread_signal) {
 
 		if (gsmenu_enabled) {
 			handle_keyboard_input();
+		}
+
+		{
+			std::lock_guard<std::mutex> lock(lvgl_mutex);
+
+			// Update time-based widgets at fixed intervals
+			auto now = std::chrono::steady_clock::now();
+			auto since_last_tick = now - last_lvgl_tick_at;
+			if (since_last_tick >= std::chrono::milliseconds(refresh_frequency_ms)) {
+				osd->tick();
+				last_lvgl_tick_at = now;
+			}
+
+			// Render frequently for smooth animations (~60Hz)
 			lv_task_handler();
 		}
 
-		std::unique_lock<std::mutex> lock(mtx);
-		std::vector<Fact> fact_buf;
-		auto since_last_display = std::chrono::steady_clock::now() - last_display_at;
-		auto wait = std::chrono::milliseconds(refresh_frequency_ms) - since_last_display;
-		bool got_fact = cv.wait_for(
-					lock,
-					wait,
-					[/*fact_queue*/] {
-						return !fact_queue.empty();
-					});
-		if (got_fact) {
-			// thread woke up because we got a new fact(s)
-			// copy all the facts to the temporary buffer to unlock the queue ASAP
-			for(; !fact_queue.empty(); fact_queue.pop()) {
-				SPDLOG_DEBUG("got fact {}", fact_queue.front().asVerboseString());
-				fact_buf.push_back(fact_queue.front());
-			}
-			lock.unlock();
-			for (Fact fact : fact_buf) {
-				osd->setFact(fact);
-			}
-			fact_buf.clear();
-		} else {
-			// thread woke up because of refresh timeout
-			lock.unlock();
-
-			if (! menu_active ) {
-				SPDLOG_DEBUG("refresh OSD");
-				int buf_idx = p->out->osd_buf_switch ^ 1;
-				struct modeset_buf *buf = &p->out->osd_bufs[buf_idx];
-				modeset_paint_buffer(buf, osd);
-
-				if (enable_live_colortrans) {
-					buf->gl_fb_id = osd_gl.process(buf, true); // Cairo: premultiplied alpha
-				}
-
-				int ret = pthread_mutex_lock(&osd_mutex);
-				assert(!ret);	
-				p->out->osd_buf_switch = buf_idx;
-				ret = pthread_mutex_unlock(&osd_mutex);
-				assert(!ret);
-
-				if (dvr_osd && frame_proc)
-					frame_proc->set_osd_blend(buf->prime_fd, buf->width, buf->height,
-					                         buf->stride / 4);
-
-				// tell the display thread that we have a update
-				ret = pthread_mutex_lock(&video_mutex);
-				assert(!ret);
-				osd_update_ready = true;
-				ret = pthread_cond_signal(&video_cond);
-				assert(!ret);
-				ret = pthread_mutex_unlock(&video_mutex);
-				assert(!ret);
-
-				last_display_at = std::chrono::steady_clock::now();
-			} else {
-				usleep(5000);
-			}
-		}
+		// Sleep briefly to avoid busy loop, ~60Hz
+		std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
+
 	spdlog::info("OSD thread done.");
+	g_osd = nullptr;
 	return nullptr;
 }
 

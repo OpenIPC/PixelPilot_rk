@@ -13,7 +13,6 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <drm_fourcc.h>
-#include <cairo.h>
 #include <pthread.h>
 #include <rockchip/rk_mpi.h>
 #include <assert.h>
@@ -747,7 +746,29 @@ int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq
 }
 
 
-int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane, 
+// Find the value of an enum property's named entry (e.g. "pixel blend mode" ->
+// "Coverage"). Returns 0 and sets *value on success, -1 if not found/not enum.
+static int get_drm_object_prop_enum(struct drm_object *obj, const char *prop_name,
+	const char *enum_name, uint64_t *value)
+{
+	for (int i = 0; i < obj->props->count_props; i++) {
+		drmModePropertyRes *p = obj->props_info[i];
+		if (!p || strcmp(p->name, prop_name))
+			continue;
+		if (!(p->flags & DRM_MODE_PROP_ENUM))
+			return -1;
+		for (int e = 0; e < p->count_enums; e++) {
+			if (!strcmp(p->enums[e].name, enum_name)) {
+				*value = p->enums[e].value;
+				return 0;
+			}
+		}
+		return -1;
+	}
+	return -1;
+}
+
+int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane,
 	int fb_id, uint32_t width, uint32_t height, int zpos)
 {
 	if (set_drm_object_property(req, &out->connector, "CRTC_ID", out->crtc.id) < 0)
@@ -797,6 +818,17 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 		return -1;
 	if (set_drm_object_property(req, plane, "zpos", zpos) < 0)
 		return -1;
+
+	// The OSD carries straight (non-premultiplied) alpha from LVGL. Ask the
+	// display controller to blend it as "Coverage" instead of the default
+	// "Pre-multiplied", otherwise semi-transparent COLOURED OSD pixels composite
+	// wrong (colour not scaled by alpha; a red gradient looks solid). Optional:
+	// silently skipped if the driver does not expose the property.
+	if (plane == &out->osd_plane) {
+		uint64_t coverage;
+		if (get_drm_object_prop_enum(plane, "pixel blend mode", "Coverage", &coverage) == 0)
+			set_drm_object_property(req, plane, "pixel blend mode", coverage);
+	}
 
 	return 0;
 }
