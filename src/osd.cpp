@@ -1133,23 +1133,33 @@ public:
 		if (!vig || !dirty) return;
 		dirty = false;
 
-		// React to the best (highest) value among all bound facts, so with
-		// multiple antennas the border only appears once even the strongest one
-		// has dropped below the threshold.
+		// Direction is inferred from where 'critical' sits relative to 'threshold':
+		//   critical < threshold  -> lower is worse (e.g. RSSI -75/-85)
+		//   critical > threshold  -> higher is worse (e.g. fec_recovered 10/20)
+		// React to the *most optimistic* reading among all bound facts (the highest
+		// when lower-is-worse, the lowest when higher-is-worse), so with multiple
+		// antennas the border only appears once even the best one is in warning range.
+		const bool higher_is_worse = (critical > threshold);
+
 		bool have = false;
 		double best = 0.0;
 		for (auto& a : args) {
 			if (!a.isDefined()) continue;
 			double v = (double)a;
-			if (!have || v > best) { best = v; have = true; }
+			if (!have) { best = v; have = true; }
+			else if (higher_is_worse ? (v < best) : (v > best)) { best = v; }
 		}
 
 		double s = 0.0;  // severity 0..1
-		if (have && best <= threshold) {
+		if (have) {
 			if (critical == threshold) {
-				s = 1.0;  // no ramp configured: full intensity once past
+				// No ramp: full intensity once past the threshold, either direction.
+				bool warn = higher_is_worse ? (best >= threshold) : (best <= threshold);
+				s = warn ? 1.0 : 0.0;
 			} else {
-				s = (threshold - best) / (threshold - critical);
+				// Ramps 0 at threshold -> 1 at critical; the clamp also suppresses
+				// the warning entirely while 'best' is on the healthy side.
+				s = (best - threshold) / (critical - threshold);
 				if (s < 0.0) s = 0.0; else if (s > 1.0) s = 1.0;
 			}
 		}
