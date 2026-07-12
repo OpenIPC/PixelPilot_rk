@@ -47,7 +47,7 @@ unsigned long long get_rx_bytes(const char *interface_name) {
             if (strncmp(iface, interface_name, strlen(interface_name)) == 0) {
                 rx_bytes += rb;
                 found = 1;
-                printf("Found interface %s: %llu bytes\n", iface, rb);
+                // printf("Found interface %s: %llu bytes\n", iface, rb);
             }
         }
     }
