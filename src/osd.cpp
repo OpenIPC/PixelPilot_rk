@@ -1820,6 +1820,9 @@ public:
 				character_map[row][col] = (uint16_t)((page << 8) | idx);
 			}
 		}
+		// Commit the preview to the front buffer so it presents like a real frame.
+		memcpy(render_map, character_map, sizeof(render_map));
+		frame_ready.store(true, std::memory_order_release);
 
 		// Load font image
 		font_image = lv_image_create(parent);
@@ -1861,6 +1864,7 @@ public:
 			display_info.char_width  = pending_cols.load();
 			display_info.char_height = pending_rows.load();
 			memset(character_map, 0, sizeof(character_map));  // dims changed; drop stale glyphs
+			memset(render_map, 0, sizeof(render_map));
 			configureCanvas();
 			pending_grid_change.store(false, std::memory_order_release);
 		}
@@ -1893,11 +1897,16 @@ public:
 			if (no_data_label) lv_obj_add_flag(no_data_label, LV_OBJ_FLAG_HIDDEN);
 		}
 
-		{
-			std::lock_guard<std::mutex> lock(char_map_mutex);
-			renderDisplay();
+		// Present a committed frame. Commits happen only on frame boundaries
+		// (DRAW_SCREEN, or the next CLEAR), so this always draws a whole frame.
+		// Between frames nothing is redrawn; the last full frame stays on screen.
+		if (frame_ready.exchange(false, std::memory_order_acq_rel)) {
+			{
+				std::lock_guard<std::mutex> lock(char_map_mutex);
+				renderDisplay();
+			}
+			lv_obj_invalidate(canvas);
 		}
-		lv_obj_invalidate(canvas);
 	}
 
 	~MspDisplayPortWidget() {
@@ -2069,11 +2078,22 @@ private:
 
 		uint8_t subcmd = payload[0];
 		switch (subcmd) {
-			case 2:  // CLEAR
-				spdlog::debug("MSP: CLEAR screen");
-				memset(character_map, 0, sizeof(character_map));
+			case 0:  // HEARTBEAT / KEEPALIVE - no frame action
+			case 1:  // RELEASE / CLOSE - no frame action
 				break;
-			case 3:  // DRAW_STRING
+			case 2:  // CLEAR: a new frame starts here, so the previous frame is now
+				// complete. Commit it, then wipe. This is the frame boundary for
+				// senders that never emit DRAW_SCREEN (e.g. the SITL harness, which
+				// only sends CLEAR + DRAW_STRING + HEARTBEAT).
+				spdlog::debug("MSP: CLEAR screen");
+				{
+					std::lock_guard<std::mutex> lock(char_map_mutex);
+					memcpy(render_map, character_map, sizeof(render_map));
+					frame_ready.store(true, std::memory_order_release);
+					memset(character_map, 0, sizeof(character_map));
+				}
+				break;
+			case 3:  // DRAW_STRING: write into the working buffer
 				if (len >= 4) {
 					uint8_t row = payload[1];
 					uint8_t col = payload[2];
@@ -2096,6 +2116,13 @@ private:
 					}
 				}
 				break;
+			case 4: {  // DRAW_SCREEN: frame finished -> commit working buffer to the
+				// front buffer so tick() presents a whole frame, not a half-drawn one.
+				std::lock_guard<std::mutex> lock(char_map_mutex);
+				memcpy(render_map, character_map, sizeof(render_map));
+				frame_ready.store(true, std::memory_order_release);
+				break;
+			}
 			case 5:  // SET_OPTIONS (INAV/Ardupilot/HDZero; Betaflight never sends this)
 				if (len >= 3) {
 					uint8_t font = payload[1];
@@ -2265,11 +2292,11 @@ private:
 			}
 		}
 
-		// Count and draw characters
+		// Count and draw characters from the committed front buffer.
 		int char_count = 0;
 		for (uint8_t row = 0; row < display_info.char_height; row++) {
 			for (uint8_t col = 0; col < display_info.char_width; col++) {
-				uint16_t char_code = character_map[row][col];
+				uint16_t char_code = render_map[row][col];
 				if (char_code == 0) continue;
 
 				uint8_t page = (char_code >> 8) & 0x3;
@@ -2355,7 +2382,7 @@ private:
 	int screen_h_ = 0;
 
 	// "No data" overlay shown when the UDP port goes quiet.
-	static constexpr int64_t NO_DATA_TIMEOUT_MS = 2000;
+	static constexpr int64_t NO_DATA_TIMEOUT_MS = 10000;
 	lv_obj_t* no_data_label = nullptr;
 	std::atomic<int64_t> last_data_ms{0};
 	bool showing_no_data = false;
@@ -2365,7 +2392,13 @@ private:
 	std::atomic<uint8_t> pending_cols{0};
 	std::atomic<uint8_t> pending_rows{0};
 
-	uint16_t character_map[32][64];  // Max grid: 60x22 chars
+	uint16_t character_map[32][64];  // Working buffer (parser thread): CLEAR/DRAW_STRING
+	uint16_t render_map[32][64];     // Front buffer: committed on DRAW_SCREEN, read by renderDisplay
+
+	// Frame commit: only present whole frames, committed on a frame boundary
+	// (DRAW_SCREEN, or the next CLEAR), to avoid the top-to-bottom tearing you get
+	// when rendering the working buffer mid-update.
+	std::atomic<bool> frame_ready{false};
 	std::chrono::steady_clock::time_point last_refresh;
 
 	// Threading
