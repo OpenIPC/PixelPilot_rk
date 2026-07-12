@@ -204,8 +204,31 @@
             "type": "SignalWarningWidget",
             "x": 0,
             "y": 0,
-            "threshold": -80,
-            "critical": -95,
+            "threshold": -75,
+            "critical": -85,
+            "facts": [
+                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "0", "id": "video rx" }},
+                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "1", "id": "video rx" }},
+                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "256", "id": "video rx" }},
+                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "257", "id": "video rx" }},
+                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "512", "id": "video rx" }},
+                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "513", "id": "video rx" }}
+            ]
+        },
+        {
+            "name": "MspDisplayPort",
+            "type": "---MspDisplayPortWidget",
+            "x": 0,
+            "y": 0,
+            "font_path": "/usr/share/fonts/font_btfl_hd.png",
+            "udp_port": 14551,
+            "facts": []
+        },
+        {
+            "name": "DebugWidget",
+            "type": "---DebugWidget",
+            "x": 0,
+            "y": 0,
             "facts": [
                 { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "0", "id": "video rx" }},
                 { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "1", "id": "video rx" }},
@@ -215,6 +238,5 @@
                 { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "513", "id": "video rx" }}
             ]
         }
-
     ]
 }
