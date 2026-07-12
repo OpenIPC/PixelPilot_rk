@@ -1762,7 +1762,10 @@ class MspDisplayPortWidget: public Widget {
 public:
 	MspDisplayPortWidget(int pos_x, int pos_y, const std::string& font_path, uint udp_port = 14551)
 		: Widget(pos_x, pos_y), font_path(font_path), udp_port(udp_port),
-		  display_info({60, 32, 20, 20, 256}) {}  // Will be scaled to screen in createLvObjects
+		  // Betaflight/INAV HD DisplayPort grid (matches msposd's current_display_info).
+		  // font_width/height are recomputed from the frame in createLvObjects; the 36x54
+		  // seed keeps the native 2:3 glyph aspect ratio.
+		  display_info({53, 20, 36, 54, 256}) {}  // Will be scaled to screen in createLvObjects
 
 	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
 		spdlog::info("creating MSP DisplayPort widget on UDP port {}", udp_port);
@@ -1788,14 +1791,12 @@ public:
 
 		// Socket stays in blocking mode for reader thread
 
-		// Scale display to fill screen: keep char grid, adjust font size
-		// Calculate font sizes to fit screen dimensions (with small margins)
-		int margin = 20;
-		int avail_width = screen_w - 2 * margin;
-		int avail_height = screen_h - 2 * margin;
-
-		display_info.font_width = avail_width / display_info.char_width;
-		display_info.font_height = avail_height / display_info.char_height;
+		// Overlay fills the whole frame, exactly like msposd's OVERLAY:
+		// each cell is font_width x font_height and the glyph is drawn 1:1.
+		// Deriving both from the frame (no margin) keeps the native glyph aspect
+		// ratio: 1920/53 x 1080/20 = 36x54 (the 2:3 FHD glyph), so nothing is squeezed.
+		display_info.font_width = screen_w / display_info.char_width;
+		display_info.font_height = screen_h / display_info.char_height;
 
 		spdlog::info("Screen scaling: {}x{} grid scaled to font size {}x{} for screen {}x{}",
 			display_info.char_width, display_info.char_height,
@@ -1823,11 +1824,22 @@ public:
 		memset(character_map, 0, sizeof(character_map));
 		last_refresh = std::chrono::steady_clock::now();
 
-		// TEST: Fill with test pattern to verify rendering
-		// Disabled - test pattern gets cleared by first MSP CLEAR command
-		// for (int i = 0; i < display_info.char_width && i < 10; i++) {
-		//	character_map[0][i] = 0x30 + i;  // '0'..'9'
-		// }
+		// Font preview: lay out every glyph of every page, the way msposd previews
+		// the whole font for a few seconds on startup. Each page (256 glyphs) fills
+		// its own block of rows; on the 53x20 grid that is ceil(256/53)=5 rows per
+		// page, so all 4 pages tile the screen exactly. Wiped by the first MSP CLEAR
+		// once real OSD data starts arriving.
+		const int cols = display_info.char_width;
+		const int rows = display_info.char_height;
+		const int rows_per_page = (256 + cols - 1) / cols;
+		for (int page = 0; page < 4; page++) {
+			for (int idx = 0; idx < 256; idx++) {
+				int row = page * rows_per_page + idx / cols;
+				int col = idx % cols;
+				if (row >= rows) break;  // ran out of screen
+				character_map[row][col] = (uint16_t)((page << 8) | idx);
+			}
+		}
 
 		// Load font image
 		font_image = lv_image_create(parent);
@@ -2176,10 +2188,17 @@ private:
 				uint8_t page = (char_code >> 8) & 0x3;
 				uint8_t char_idx = char_code & 0xFF;
 
-				// Calculate character size in font atlas
-				// Atlas is organized as 4 pages (columns) × 256 chars (rows)
-				uint32_t atlas_char_width = font_width_atlas / 4;
+				// Atlas is organized as N pages (columns) × 256 chars (rows).
+				// Derive the page count from the atlas geometry instead of
+				// hardcoding it, the way msposd does (font_pages = width / glyph_w):
+				// each glyph keeps the on-screen 2:3 aspect, so the atlas glyph
+				// width is atlas_char_height * font_width / font_height. This avoids
+				// horizontal squeeze on 1- or 2-page fonts.
 				uint32_t atlas_char_height = font_height_atlas / 256;
+				uint32_t glyph_w = atlas_char_height * display_info.font_width / display_info.font_height;
+				uint32_t font_pages = (glyph_w > 0) ? (font_width_atlas / glyph_w) : 4;
+				if (font_pages == 0) font_pages = 1;
+				uint32_t atlas_char_width = font_width_atlas / font_pages;
 
 				// Calculate source position in font atlas
 				int src_x = page * atlas_char_width;
