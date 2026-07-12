@@ -1826,6 +1826,24 @@ public:
 		lv_image_set_src(font_image, font_path.c_str());
 		lv_obj_add_flag(font_image, LV_OBJ_FLAG_HIDDEN);  // Don't display it directly
 
+		// "No data" overlay, centered, shown by tick() when the port goes quiet.
+		// Created after the canvas so it draws on top; hidden until needed.
+		no_data_label = lv_label_create(parent);
+		lv_label_set_text_fmt(no_data_label, "NO MSP DATA\nUDP PORT %u", udp_port);
+		lv_obj_set_style_text_font(no_data_label, &lv_font_montserrat_26, 0);
+		lv_obj_set_style_text_color(no_data_label, lv_color_white(), 0);
+		lv_obj_set_style_text_align(no_data_label, LV_TEXT_ALIGN_CENTER, 0);
+		lv_obj_set_style_bg_opa(no_data_label, LV_OPA_60, 0);
+		lv_obj_set_style_bg_color(no_data_label, lv_color_black(), 0);
+		lv_obj_set_style_pad_all(no_data_label, 16, 0);
+		lv_obj_set_style_radius(no_data_label, 8, 0);
+		lv_obj_align(no_data_label, LV_ALIGN_CENTER, 0, 0);
+		lv_obj_add_flag(no_data_label, LV_OBJ_FLAG_HIDDEN);
+
+		// Seed the data clock so the font preview shows for NO_DATA_TIMEOUT_MS before
+		// the "no data" message appears if nothing ever arrives.
+		last_data_ms.store(nowMs(), std::memory_order_relaxed);
+
 		// Start UDP reader and MSP parser threads
 		running = true;
 		reader_thread = std::thread(&MspDisplayPortWidget::udpReaderLoop, this);
@@ -1850,15 +1868,36 @@ public:
 		// Render at ~60Hz independently of main OSD tick
 		auto now = std::chrono::steady_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refresh);
+		if (elapsed.count() < 16) return;  // ~60Hz
+		last_refresh = now;
 
-		if (elapsed.count() >= 16) {  // ~60Hz
-			{
+		// Show a "no data" message when nothing has been received on the UDP port
+		// for a while (never connected, or link lost). Toggled only on transitions.
+		bool no_data = (nowMs() - last_data_ms.load(std::memory_order_relaxed)) > NO_DATA_TIMEOUT_MS;
+		if (no_data) {
+			if (!showing_no_data) {
+				showing_no_data = true;
+				if (no_data_label) lv_obj_clear_flag(no_data_label, LV_OBJ_FLAG_HIDDEN);
+				// Blank the OSD once so the font preview / last frame isn't left behind.
 				std::lock_guard<std::mutex> lock(char_map_mutex);
-				renderDisplay();
+				uint32_t bytes = (uint32_t)display_info.char_width * display_info.font_width
+				               * display_info.char_height * display_info.font_height * 4;
+				memset(display_buffer, 0, bytes);
+				lv_obj_invalidate(canvas);
 			}
-			lv_obj_invalidate(canvas);
-			last_refresh = now;
+			return;  // nothing to render until data resumes
 		}
+
+		if (showing_no_data) {
+			showing_no_data = false;
+			if (no_data_label) lv_obj_add_flag(no_data_label, LV_OBJ_FLAG_HIDDEN);
+		}
+
+		{
+			std::lock_guard<std::mutex> lock(char_map_mutex);
+			renderDisplay();
+		}
+		lv_obj_invalidate(canvas);
 	}
 
 	~MspDisplayPortWidget() {
@@ -1869,9 +1908,14 @@ public:
 		if (display_buffer) free(display_buffer);
 		if (canvas) lv_obj_del(canvas);
 		if (font_image) lv_obj_del(font_image);
+		if (no_data_label) lv_obj_del(no_data_label);
 	}
 
 private:
+	static int64_t nowMs() {
+		return std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+	}
 	// (Re)size the canvas for the current grid. The overlay fills the whole frame
 	// like msposd's OVERLAY: each cell is font_width x font_height and the glyph is
 	// drawn 1:1. Deriving both cell dims from the frame keeps the native ~2:3 glyph
@@ -1924,6 +1968,7 @@ private:
 			int recv_len = recvfrom(udp_socket, buffer, sizeof(buffer), 0,
 									 (struct sockaddr*)&src_addr, &src_len);
 			if (recv_len > 0) {
+				last_data_ms.store(nowMs(), std::memory_order_relaxed);  // link is alive
 				static uint32_t packet_count = 0;
 				packet_count++;
 				if (packet_count <= 5) {
@@ -2308,6 +2353,12 @@ private:
 	DisplayInfo display_info;
 	int screen_w_ = 0;
 	int screen_h_ = 0;
+
+	// "No data" overlay shown when the UDP port goes quiet.
+	static constexpr int64_t NO_DATA_TIMEOUT_MS = 2000;
+	lv_obj_t* no_data_label = nullptr;
+	std::atomic<int64_t> last_data_ms{0};
+	bool showing_no_data = false;
 
 	// Grid change requested by the parser thread (SET_OPTIONS), applied in tick().
 	std::atomic<bool> pending_grid_change{false};
