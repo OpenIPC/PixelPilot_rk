@@ -1791,34 +1791,14 @@ public:
 
 		// Socket stays in blocking mode for reader thread
 
-		// Overlay fills the whole frame, exactly like msposd's OVERLAY:
-		// each cell is font_width x font_height and the glyph is drawn 1:1.
-		// Deriving both from the frame (no margin) keeps the native glyph aspect
-		// ratio: 1920/53 x 1080/20 = 36x54 (the 2:3 FHD glyph), so nothing is squeezed.
-		display_info.font_width = screen_w / display_info.char_width;
-		display_info.font_height = screen_h / display_info.char_height;
+		// Remember the frame size so the grid can be re-sized later when an MSP
+		// SET_OPTIONS message selects a different canvas (INAV/Ardupilot/HDZero).
+		screen_w_ = screen_w;
+		screen_h_ = screen_h;
 
-		spdlog::info("Screen scaling: {}x{} grid scaled to font size {}x{} for screen {}x{}",
-			display_info.char_width, display_info.char_height,
-			display_info.font_width, display_info.font_height,
-			screen_w, screen_h);
-
-		// Create canvas for display
+		// Create the canvas and size it for the current grid.
 		canvas = lv_canvas_create(parent);
-		uint32_t display_width = display_info.char_width * display_info.font_width;
-		uint32_t display_height = display_info.char_height * display_info.font_height;
-
-		display_buffer = (uint32_t*)malloc(display_width * display_height * 4);
-		memset(display_buffer, 0, display_width * display_height * 4);
-
-		lv_canvas_set_buffer(canvas, display_buffer, display_width, display_height, LV_COLOR_FORMAT_ARGB8888);
-		int canvas_x = absX(screen_w);
-		int canvas_y = absY(screen_h);
-		lv_obj_set_pos(canvas, canvas_x, canvas_y);
-		lv_obj_set_size(canvas, display_width, display_height);
-
-		spdlog::info("Canvas: {}x{} @ ({},{}), screen={}x{}",
-			display_width, display_height, canvas_x, canvas_y, screen_w, screen_h);
+		configureCanvas();
 
 		// Initialize character map
 		memset(character_map, 0, sizeof(character_map));
@@ -1855,6 +1835,18 @@ public:
 	void tick() override {
 		if (!canvas || !display_buffer) return;
 
+		// Apply a grid change requested by the parser thread (SET_OPTIONS).
+		// Canvas resize/realloc touches LVGL objects, so it must run here on the
+		// LVGL thread, not in the MSP parser.
+		if (pending_grid_change.load(std::memory_order_acquire)) {
+			std::lock_guard<std::mutex> lock(char_map_mutex);
+			display_info.char_width  = pending_cols.load();
+			display_info.char_height = pending_rows.load();
+			memset(character_map, 0, sizeof(character_map));  // dims changed; drop stale glyphs
+			configureCanvas();
+			pending_grid_change.store(false, std::memory_order_release);
+		}
+
 		// Render at ~60Hz independently of main OSD tick
 		auto now = std::chrono::steady_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refresh);
@@ -1880,6 +1872,47 @@ public:
 	}
 
 private:
+	// (Re)size the canvas for the current grid. The overlay fills the whole frame
+	// like msposd's OVERLAY: each cell is font_width x font_height and the glyph is
+	// drawn 1:1. Deriving both cell dims from the frame keeps the native ~2:3 glyph
+	// aspect (e.g. 1920/53 x 1080/20 = 36x54), so nothing is squeezed.
+	// Must run on the LVGL thread.
+	void configureCanvas() {
+		display_info.font_width  = screen_w_ / display_info.char_width;
+		display_info.font_height = screen_h_ / display_info.char_height;
+
+		uint32_t display_width  = display_info.char_width  * display_info.font_width;
+		uint32_t display_height = display_info.char_height * display_info.font_height;
+
+		if (display_buffer) free(display_buffer);
+		display_buffer = (uint32_t*)malloc(display_width * display_height * 4);
+		memset(display_buffer, 0, display_width * display_height * 4);
+
+		lv_canvas_set_buffer(canvas, display_buffer, display_width, display_height, LV_COLOR_FORMAT_ARGB8888);
+		int canvas_x = absX(screen_w_);
+		int canvas_y = absY(screen_h_);
+		lv_obj_set_pos(canvas, canvas_x, canvas_y);
+		lv_obj_set_size(canvas, display_width, display_height);
+
+		spdlog::info("MSP canvas: grid {}x{} cell {}x{} -> {}x{} @ ({},{}) screen {}x{}",
+			display_info.char_width, display_info.char_height,
+			display_info.font_width, display_info.font_height,
+			display_width, display_height, canvas_x, canvas_y, screen_w_, screen_h_);
+	}
+
+	// Map an MSP DisplayPort SET_OPTIONS resolution (msp_hd_options_e) to a char
+	// grid. Betaflight never sends SET_OPTIONS and stays on the 53x20 default;
+	// INAV/Ardupilot/HDZero use this to pick their canvas.
+	static bool gridForOption(uint8_t opt, uint8_t& cols, uint8_t& rows) {
+		switch (opt) {
+			case 0: cols = 30; rows = 16; return true;  // MSP_SD_OPTION_30_16 (analog)
+			case 1: cols = 50; rows = 18; return true;  // MSP_HD_OPTION_50_18 (HDZero)
+			case 2: cols = 30; rows = 16; return true;  // MSP_HD_OPTION_30_16
+			case 3: cols = 60; rows = 22; return true;  // MSP_HD_OPTION_60_22
+			default: return false;
+		}
+	}
+
 	void udpReaderLoop() {
 		pthread_setname_np(pthread_self(), "MSP-UDP-Reader");
 		spdlog::info("MSP UDP reader thread started");
@@ -2018,13 +2051,22 @@ private:
 					}
 				}
 				break;
-			case 5:  // SET_OPTIONS
+			case 5:  // SET_OPTIONS (INAV/Ardupilot/HDZero; Betaflight never sends this)
 				if (len >= 3) {
 					uint8_t font = payload[1];
 					uint8_t is_hd = payload[2];
-					spdlog::debug("MSP: SET_OPTIONS font={} is_hd={}", font, is_hd);
-					// Update display_info based on font/hd settings
-					// For now, keep default 50x18 with 24x36 font
+					uint8_t cols = 0, rows = 0;
+					if (gridForOption(is_hd, cols, rows)) {
+						// Stage the resize; tick() applies it on the LVGL thread.
+						if (cols != display_info.char_width || rows != display_info.char_height) {
+							spdlog::info("MSP: SET_OPTIONS font={} opt={} -> grid {}x{}", font, is_hd, cols, rows);
+							pending_cols.store(cols);
+							pending_rows.store(rows);
+							pending_grid_change.store(true, std::memory_order_release);
+						}
+					} else {
+						spdlog::debug("MSP: SET_OPTIONS font={} opt={} (unknown resolution, ignored)", font, is_hd);
+					}
 				}
 				break;
 			default:
@@ -2190,12 +2232,13 @@ private:
 
 				// Atlas is organized as N pages (columns) × 256 chars (rows).
 				// Derive the page count from the atlas geometry instead of
-				// hardcoding it, the way msposd does (font_pages = width / glyph_w):
-				// each glyph keeps the on-screen 2:3 aspect, so the atlas glyph
-				// width is atlas_char_height * font_width / font_height. This avoids
-				// horizontal squeeze on 1- or 2-page fonts.
+				// hardcoding it, the way msposd does (font_pages = width / glyph_w).
+				// BF/INAV/HDZero/Ardu glyphs are all ~2:3 (w:h), so the native glyph
+				// width is atlas_char_height * 2/3 regardless of the on-screen cell
+				// size. This gives 4 pages for btfl, 2 for inav, 1 for ardu, avoiding
+				// horizontal squeeze on 1- and 2-page fonts.
 				uint32_t atlas_char_height = font_height_atlas / 256;
-				uint32_t glyph_w = atlas_char_height * display_info.font_width / display_info.font_height;
+				uint32_t glyph_w = atlas_char_height * 2 / 3;
 				uint32_t font_pages = (glyph_w > 0) ? (font_width_atlas / glyph_w) : 4;
 				if (font_pages == 0) font_pages = 1;
 				uint32_t atlas_char_width = font_width_atlas / font_pages;
@@ -2263,6 +2306,13 @@ private:
 	uint udp_port;
 
 	DisplayInfo display_info;
+	int screen_w_ = 0;
+	int screen_h_ = 0;
+
+	// Grid change requested by the parser thread (SET_OPTIONS), applied in tick().
+	std::atomic<bool> pending_grid_change{false};
+	std::atomic<uint8_t> pending_cols{0};
+	std::atomic<uint8_t> pending_rows{0};
 
 	uint16_t character_map[32][64];  // Max grid: 60x22 chars
 	std::chrono::steady_clock::time_point last_refresh;
