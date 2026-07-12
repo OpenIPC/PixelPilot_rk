@@ -17,6 +17,7 @@
 #include "helper.h"       /* show_restart_notice(), find_first_focusable_obj() */
 #include "../menu.h"      /* MenuAction, screens */
 #include "../main.h"      /* sig_handler() — graceful shutdown / restart */
+#include "../osd.h"       /* osd_flush_facts() — clear stale facts on RX mode switch */
 #ifndef USE_SIMULATOR
 #include "../drm.h"       /* gamma_lut_controller, gamma_lut_enable/disable */
 #endif
@@ -178,9 +179,13 @@ static void notify_restart(const char * v) { (void)v; show_restart_notice(); }
  * set these from menu creation onward). */
 static void apply_rx_mode(bool apfpv)
 {
+    bool changed = ((RXMODE == APFPV) != apfpv);
     RXMODE = apfpv ? APFPV : WFB;
     setenv("REMOTE_IP",         apfpv ? "192.168.0.1" : "10.5.0.10", 1);
     setenv("AIR_FIRMWARE_TYPE", apfpv ? "apfpv"       : "wfb",       1);
+    /* Drop the previous mode's stale facts (e.g. os_mon.wifi.rssi lingering after
+     * apfpv, or wfb ant_stats after wfb). The active sources re-publish theirs. */
+    if (changed) osd_flush_facts();
 }
 
 /* Receiver mode drives which link pages are shown. Read from the backend, kept

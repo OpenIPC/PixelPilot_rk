@@ -791,6 +791,16 @@ public:
         args[idx] = fact;
 	}
 
+	// Reset all bound facts to undefined (their initial state). Used to flush stale
+	// facts, e.g. on an RX mode switch. Resets args directly rather than routing
+	// through setFact(), because some overrides read the value unconditionally and
+	// would choke on an undefined fact. Marks the widget dirty so it re-renders the
+	// cleared state on the next tick.
+	virtual void clearFacts() {
+		for (auto& a : args) a = Fact();
+		dirty = true;
+	}
+
 #ifdef TEST
 	virtual void draw(cairo_t *cr) {}
 	int x(cairo_t *cr) {
@@ -817,6 +827,7 @@ protected:
 
 	int pos_x, pos_y;
 	std::vector<Fact> args;
+	bool dirty = false;  // widget needs a redraw; set on setFact/clearFacts, cleared in tick()
 };
 
 
@@ -1026,7 +1037,6 @@ protected:
     std::vector<Token> _tokens;
     uint num_args;
     lv_obj_t* lv_label = nullptr;
-    bool dirty = false;
 };
 
 
@@ -1183,7 +1193,6 @@ private:
 	lv_grad_dsc_t grad[4]{};   // one persistent descriptor per edge bar
 	lv_obj_t* vig = nullptr;
 	int last_q = -1;
-	bool dirty = false;
 };
 
 class BarChartWidget: public Widget {
@@ -1323,7 +1332,6 @@ private:
 	StatsField stats_field = STATS_SUM;
 	RunningAverage stats;
 	lv_obj_t* lv_chart = nullptr;
-	bool dirty = false;
 };
 
 /**
@@ -1432,8 +1440,6 @@ private:
 			lv_obj_add_flag(lv_label, LV_OBJ_FLAG_HIDDEN);
 		}
 	}
-
-	bool dirty = false;
 };
 
 class VideoWidget: public IconTplTextWidget {
@@ -1559,7 +1565,6 @@ private:
 	}
 
 	lv_obj_t* lv_label = nullptr;
-	bool dirty = false;
 };
 
 /**
@@ -1675,7 +1680,6 @@ private:
 	}
 
 	std::vector<lv_obj_t*> lv_labels;
-	bool dirty = false;
 };
 
 class IconSelectorWidget : public Widget {
@@ -1747,7 +1751,6 @@ private:
     std::map<std::pair<int, int>, std::string> lv_icon_paths;
     lv_obj_t* lv_img = nullptr;
     std::string current_path;
-    bool dirty = false;
 };
 
 struct DisplayInfo {
@@ -2722,6 +2725,16 @@ public:
 		return this;
 	};
 
+	// Reset every widget's bound facts to undefined. The active data sources
+	// re-publish what matters right after, so this is a clean-slate for stale facts
+	// (e.g. the previous RX mode's stats). Must run on the fact-processor thread
+	// (under lvgl_mutex), like setFact.
+	void flushFacts() {
+		for (auto* widget : widgets) {
+			widget->clearFacts();
+		}
+	}
+
 	void setFact(Fact fact) {
 		for (auto& [matcher, widget, arg_idx] : matchers) {
 			if (matcher.matches(fact)) {
@@ -2749,6 +2762,7 @@ private:
 
 
 std::queue<Fact> fact_queue;
+std::atomic<bool> flush_facts_requested{false};  // set by osd_flush_facts()
 std::mutex mtx;
 std::mutex lvgl_mutex;  // Protects all LVGL operations
 std::condition_variable cv;
@@ -2883,6 +2897,10 @@ void factProcessorLoop() {
 		// Process facts with LVGL lock protection
 		if (g_osd) {
 			std::lock_guard<std::mutex> lock(lvgl_mutex);
+			// Flush first, so facts published after the flush request survive.
+			if (flush_facts_requested.exchange(false)) {
+				g_osd->flushFacts();
+			}
 			for (const Fact& fact : fact_buf) {
 				g_osd->setFact(fact);
 			}
@@ -3083,6 +3101,14 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 	FactTags fact_tags;
 	mk_tags(tags, n_tags, &fact_tags);
 	publish(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
+};
+
+// Reset all facts to a clean (undefined) state. The active data sources re-publish
+// what matters, so this is the clean way to drop stale facts on an RX mode switch
+// instead of retracting each one by hand. Applied on the fact-processor thread.
+void osd_flush_facts(void) {
+	flush_facts_requested.store(true, std::memory_order_release);
+	cv.notify_one();  // wake the fact processor so the flush is applied promptly
 };
 
 uint32_t osd_gl_process(struct modeset_buf* buf, bool premultiplied){

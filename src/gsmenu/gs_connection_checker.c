@@ -47,7 +47,7 @@ unsigned long long get_rx_bytes(const char *interface_name) {
             if (strncmp(iface, interface_name, strlen(interface_name)) == 0) {
                 rx_bytes += rb;
                 found = 1;
-                // printf("Found interface %s: %llu bytes\n", iface, rb);
+                printf("Found interface %s: %llu bytes\n", iface, rb);
             }
         }
     }
@@ -63,23 +63,11 @@ unsigned long long get_rx_bytes(const char *interface_name) {
 
 // Update network status
 void update_network_status() {
-
+    // Refresh the tunnel-byte counter used for apfpv drone detection (menu.c
+    // drone_detect_timer). In WFB mode the wfbcli thread fills gtotal_tunnel_data;
+    // in apfpv nothing else does, so we read it from the wlx interface here.
+    //
+    // Stale facts from the previous RX mode are cleared by osd_flush_facts() on the
+    // mode switch (apply_rx_mode), so no per-fact bar-hiding is needed here anymore.
     gtotal_tunnel_data = get_rx_bytes("wlx");
-
-#ifndef USE_SIMULATOR
-    // ugly hack to hide osd bars
-    // ToDo: come back and use VRX side WLAN stats to populate rssi or lq
-    osd_tag tags[2];
-    strcpy(tags[0].key, "id");
-    strcpy(tags[0].val, "video rx");
-    osd_publish_int_fact("wfbcli.rx.packets.all.total", tags, 1,2);  // out of bound for osd config values
-
-    strcpy(tags[1].key, "ant_id");
-    for(int i=0;i< 10;i++) {
-        sprintf(tags[1].val, "%d", i * 256);
-        osd_publish_int_fact("wfbcli.rx.ant_stats.rssi_avg", tags, 2,2);  // out of bound for osd config values
-        sprintf(tags[1].val, "%d", i * 256 + 1);
-        osd_publish_int_fact("wfbcli.rx.ant_stats.rssi_avg", tags, 2,2);  // out of bound for osd config values
-    }
-#endif
 }
