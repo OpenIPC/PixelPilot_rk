@@ -1171,6 +1171,7 @@ public:
 		if (opa == 0) {
 			lv_obj_add_flag(vig, LV_OBJ_FLAG_HIDDEN);
 		} else {
+			setHalo(s);  // yellow -> red with severity, alongside the opacity ramp
 			lv_obj_set_style_opa(vig, opa, LV_PART_MAIN);
 			lv_obj_clear_flag(vig, LV_OBJ_FLAG_HIDDEN);
 		}
@@ -1184,15 +1185,29 @@ private:
 		lv_obj_remove_style_all(bar);
 		lv_obj_set_pos(bar, x, y);
 		lv_obj_set_size(bar, w, h);
-		lv_color_t red = lv_color_hex(0xff0000);
-		lv_color_t colors[2] = { red, red };
+		lv_color_t start = lv_color_hex(0xffff00);  // seed yellow; recoloured per severity
+		lv_color_t colors[2] = { start, start };
 		lv_opa_t   opas[2]   = { edge_at_start ? LV_OPA_COVER : LV_OPA_TRANSP,
 		                         edge_at_start ? LV_OPA_TRANSP : LV_OPA_COVER };
 		uint8_t    fracs[2]  = { 0, 255 };
 		lv_gradient_init_stops(g, colors, opas, fracs, 2);
 		g->dir = dir;
+		bars[g - grad] = bar;
 		lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
 		lv_obj_set_style_bg_grad(bar, g, LV_PART_MAIN);
+	}
+
+	// Fade the halo hue with severity to mirror the opacity ramp: yellow at the
+	// threshold (s~0) through to red at critical (s~1). The SW gradient is recomputed
+	// from the descriptor on every draw, so mutating the stops in place is enough.
+	void setHalo(double s) {
+		uint8_t green = (uint8_t)(255.0 * (1.0 - s) + 0.5);
+		lv_color_t c = lv_color_make(255, green, 0);
+		for (int i = 0; i < 4; i++) {
+			grad[i].stops[0].color = c;
+			grad[i].stops[1].color = c;
+			if (bars[i]) lv_obj_invalidate(bars[i]);
+		}
 	}
 
 	static constexpr double   kBorderPct = 12.0;  // gradient band, % of screen height
@@ -1201,6 +1216,7 @@ private:
 	double threshold, critical;
 
 	lv_grad_dsc_t grad[4]{};   // one persistent descriptor per edge bar
+	lv_obj_t* bars[4] = {};    // the four edge bars, indexed like grad[]
 	lv_obj_t* vig = nullptr;
 	int last_q = -1;
 };
