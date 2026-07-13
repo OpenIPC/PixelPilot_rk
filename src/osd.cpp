@@ -1210,7 +1210,7 @@ private:
 		}
 	}
 
-	static constexpr double   kBorderPct = 12.0;  // gradient band, % of screen height
+	static constexpr double   kBorderPct = 5.0;  // gradient band, % of screen height
 	static constexpr lv_opa_t kMaxOpa    = 216;   // ~0.85 opacity at full severity
 
 	double threshold, critical;
