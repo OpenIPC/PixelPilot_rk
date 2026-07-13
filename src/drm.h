@@ -72,6 +72,14 @@ struct modeset_output {
 	int video_fb_id;
 	float video_scale_factor;
 
+	// Full-screen black NV12 frame shown on the video plane while no video is
+	// present, so the OSD's straight-alpha pixels blend over black instead of an
+	// empty CRTC (which makes coloured semi-transparent OSD, e.g. the signal
+	// warning halo, composite as solid).
+	uint32_t black_video_fb;
+	uint32_t black_video_handle;
+	uint32_t black_video_size;
+
     // Used to calculate latency
     uint64_t decoding_pts;
 	int video_poc;
@@ -129,6 +137,15 @@ int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq
 int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos);
 
 void modeset_apply_video_scale(int fd, struct modeset_output *out);
+
+/* Create the full-screen black NV12 frame used as a backdrop while no video is
+ * present (see struct modeset_output). Returns 0 on success. */
+int modeset_create_black_video(int fd, struct modeset_output *out);
+
+/* Set the video plane's SRC/CRTC geometry (and zpos) into `req`. fullscreen!=0
+ * covers the whole screen (for the black backdrop); otherwise the aspect-scaled
+ * video geometry from video_frm_width/height is used. */
+void modeset_set_video_geometry(struct modeset_output *out, drmModeAtomicReq *req, int fullscreen, int zpos);
 void restore_planes_zpos(int fd, struct modeset_output *output_list);
 
 void modeset_cleanup(int fd, struct modeset_output *output_list);

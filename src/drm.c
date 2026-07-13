@@ -414,6 +414,93 @@ err_destroy:
 }
 
 
+int modeset_create_black_video(int fd, struct modeset_output *out)
+{
+	uint32_t w = out->mode.hdisplay;
+	uint32_t h = out->mode.vdisplay;
+
+	struct drm_mode_create_dumb creq;
+	memset(&creq, 0, sizeof(creq));
+	creq.width  = w;
+	creq.height = h * 3 / 2;   // NV12: Y plane (h rows) + interleaved UV (h/2 rows)
+	creq.bpp    = 8;
+	if (drmIoctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &creq) < 0) {
+		fprintf(stderr, "black video: create dumb failed: %m\n");
+		return -errno;
+	}
+	out->black_video_handle = creq.handle;
+	out->black_video_size   = creq.size;
+	uint32_t pitch = creq.pitch;
+
+	struct drm_mode_map_dumb mreq;
+	memset(&mreq, 0, sizeof(mreq));
+	mreq.handle = creq.handle;
+	if (drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &mreq) < 0) {
+		fprintf(stderr, "black video: map dumb failed: %m\n");
+		goto err_destroy;
+	}
+	uint8_t *map = mmap(0, creq.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, mreq.offset);
+	if (map == MAP_FAILED) {
+		fprintf(stderr, "black video: mmap failed: %m\n");
+		goto err_destroy;
+	}
+	memset(map, 0, pitch * h);                     // Y = 0 (black)
+	memset(map + pitch * h, 128, pitch * h / 2);   // UV = 128 (neutral chroma)
+	munmap(map, creq.size);
+
+	uint32_t handles[4] = { creq.handle, creq.handle, 0, 0 };
+	uint32_t pitches[4] = { pitch, pitch, 0, 0 };
+	uint32_t offsets[4] = { 0, pitch * h, 0, 0 };
+	if (drmModeAddFB2(fd, w, h, DRM_FORMAT_NV12, handles, pitches, offsets, &out->black_video_fb, 0)) {
+		fprintf(stderr, "black video: addfb2 failed: %m\n");
+		goto err_destroy;
+	}
+	return 0;
+
+err_destroy:
+	{
+		struct drm_mode_destroy_dumb dreq;
+		memset(&dreq, 0, sizeof(dreq));
+		dreq.handle = out->black_video_handle;
+		drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &dreq);
+		out->black_video_handle = 0;
+		out->black_video_fb = 0;
+	}
+	return -errno;
+}
+
+void modeset_set_video_geometry(struct modeset_output *out, drmModeAtomicReq *req, int fullscreen, int zpos)
+{
+	uint32_t sw, sh, cw, ch;
+	int cx, cy;
+	if (fullscreen) {
+		sw = out->mode.hdisplay; sh = out->mode.vdisplay;
+		cw = out->mode.hdisplay; ch = out->mode.vdisplay;
+		cx = 0; cy = 0;
+	} else {
+		// Aspect-scaled placement, matching modeset_atomic_prepare_commit.
+		sw = out->video_frm_width; sh = out->video_frm_height;
+		uint32_t ocw = out->video_crtc_width, och = out->video_crtc_height;
+		float ratio = sh ? (float)sw / sh : 1.0f;
+		if (ocw / ratio > och) ocw = (uint32_t)(och * ratio);
+		else                   och = (uint32_t)(ocw / ratio);
+		cw = (uint32_t)(ocw * out->video_scale_factor);
+		ch = (uint32_t)(och * out->video_scale_factor);
+		cx = (out->video_crtc_width  - (int)cw) / 2;
+		cy = (out->video_crtc_height - (int)ch) / 2;
+	}
+	set_drm_object_property(req, &out->video_plane, "CRTC_ID", out->crtc.id);
+	set_drm_object_property(req, &out->video_plane, "zpos",   zpos);
+	set_drm_object_property(req, &out->video_plane, "SRC_X",  0);
+	set_drm_object_property(req, &out->video_plane, "SRC_Y",  0);
+	set_drm_object_property(req, &out->video_plane, "SRC_W",  sw << 16);
+	set_drm_object_property(req, &out->video_plane, "SRC_H",  sh << 16);
+	set_drm_object_property(req, &out->video_plane, "CRTC_X", cx);
+	set_drm_object_property(req, &out->video_plane, "CRTC_Y", cy);
+	set_drm_object_property(req, &out->video_plane, "CRTC_W", cw);
+	set_drm_object_property(req, &out->video_plane, "CRTC_H", ch);
+}
+
 void modeset_destroy_fb(int fd, struct modeset_buf *buf)
 {
 	struct drm_mode_destroy_dumb dreq;

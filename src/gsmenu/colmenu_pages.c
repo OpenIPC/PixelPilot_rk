@@ -185,7 +185,11 @@ static void apply_rx_mode(bool apfpv)
     setenv("AIR_FIRMWARE_TYPE", apfpv ? "apfpv"       : "wfb",       1);
     /* Drop the previous mode's stale facts (e.g. os_mon.wifi.rssi lingering after
      * apfpv, or wfb ant_stats after wfb). The active sources re-publish theirs. */
-    if (changed) osd_flush_facts();
+#ifndef USE_SIMULATOR
+    if (changed) osd_flush_facts();   // osd.cpp isn't in the sim build
+#else
+    (void)changed;
+#endif
 }
 
 /* Receiver mode drives which link pages are shown. Read from the backend, kept

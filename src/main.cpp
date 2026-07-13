@@ -425,6 +425,14 @@ void *__DISPLAY_THREAD__(void *param)
 	SchedulingHelper::set_thread_params_max_realtime("DISPLAY_THREAD",SchedulingHelper::PRIORITY_REALTIME_MID);
 	pthread_setname_np(pthread_self(), "__DISPLAY");
 
+	// Show a full-screen black frame on the video plane once no video has arrived
+	// for a while (also true at startup), so straight-alpha OSD blends over black
+	// instead of an empty CRTC. Both planes stay in each commit, so the modeset
+	// that (re)attaches the black frame doesn't reset the OSD plane.
+	static const uint64_t NO_VIDEO_BLACK_MS = 5000;
+	uint64_t last_video_frame_ms = 0;
+	bool video_showing_black = false;
+
 	while (!frm_eos) {
 		int fb_id;
 		bool osd_update;
@@ -462,6 +470,25 @@ void *__DISPLAY_THREAD__(void *param)
 			flags = disable_vsync ? DRM_MODE_ATOMIC_NONBLOCK : 0;
 			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", fb_id);
 			assert(ret>0);
+			last_video_frame_ms = get_time_ms();
+			if (video_showing_black) {
+				// Video resumed: restore the real (aspect-scaled) geometry.
+				modeset_set_video_geometry(output_list, output_list->video_request, 0, video_zpos);
+				video_showing_black = false;
+				flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
+			}
+		} else if (output_list->black_video_fb &&
+		           (get_time_ms() - last_video_frame_ms) > NO_VIDEO_BLACK_MS) {
+			// No video for a while (or startup): show the full-screen black
+			// backdrop under the OSD. Re-asserted each idle commit so a stray
+			// modeset elsewhere can't leave the video plane empty.
+			ret = set_drm_object_property(output_list->video_request, &output_list->video_plane, "FB_ID", output_list->black_video_fb);
+			assert(ret>0);
+			modeset_set_video_geometry(output_list, output_list->video_request, 1, video_zpos);
+			if (!video_showing_black) {
+				video_showing_black = true;
+				flags = DRM_MODE_ATOMIC_ALLOW_MODESET;   // (re)attach the video plane
+			}
 		}
 
 		if(enable_osd) {
@@ -1737,6 +1764,11 @@ int main(int argc, char **argv)
 	             reenc_params.codec == VideoCodec::H265 ? "h265" : "h264",
 	             reenc_params.resolution == EncResolution::Res1080p ? "1080p" : "720p",
 	             enable_live_colortrans, log_file_path.empty() ? "none" : log_file_path);
+
+	// Backdrop shown on the video plane while no video is present, so the OSD's
+	// straight-alpha pixels blend over black instead of an empty CRTC.
+	if (modeset_create_black_video(drm_fd, output_list) < 0)
+		spdlog::warn("no-video black backdrop unavailable; OSD may look solid until video starts");
 
 	gamma_lut_controller_init(&lut_ctrl, drm_fd, output_list);
 
