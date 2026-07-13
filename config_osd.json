@@ -204,18 +204,12 @@
             "type": "SignalWarningWidget",
             "x": 0,
             "y": 0,
-            "threshold": -75,
-            "critical": -85,
-            "facts": [
-                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "0", "id": "video rx" }},
-                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "1", "id": "video rx" }},
-                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "256", "id": "video rx" }},
-                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "257", "id": "video rx" }},
-                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "512", "id": "video rx" }},
-                { "name": "wfbcli.rx.ant_stats.rssi_avg", "tags": { "ant_id": "513", "id": "video rx" }},
-                { "name": "os_mon.wifi.rssi", "tags": {"type": "rssi_a"}, "convert": "x - 100"},
-                { "name": "os_mon.wifi.rssi", "tags": {"type": "rssi_b"},"convert": "x - 100"}
-            ]
+            "rate": true,
+            "rate_divisor": 125000,
+            "average_ms": 1000,
+            "threshold": 8,
+            "critical": 2,
+            "facts": [ { "name": "gstreamer.received_bytes" } ]
         },
         {
             "name": "MspDisplayPort",

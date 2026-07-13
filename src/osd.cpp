@@ -1098,8 +1098,22 @@ private:
 // PRE_MUL fallback.
 class SignalWarningWidget: public Widget {
 public:
-	SignalWarningWidget(int pos_x, int pos_y, double threshold, double critical, uint num_facts):
-		Widget(pos_x, pos_y, num_facts), threshold(threshold), critical(critical) {};
+	SignalWarningWidget(int pos_x, int pos_y, double threshold, double critical, uint num_facts,
+	                    int average_ms = 0, bool rate_mode = false, double divisor = 1.0):
+		Widget(pos_x, pos_y, num_facts), threshold(threshold), critical(critical),
+		rate_divisor(divisor > 0.0 ? divisor : 1.0) {
+		int window_ms = average_ms > 0 ? average_ms : 1000;
+		int bucket_ms = std::max(1, window_ms / 20);
+		if (rate_mode) {
+			// Facts are byte/packet deltas; derive a per-second rate per fact
+			// (like VideoBitrateWidget) and warn on that.
+			rate_window_ms = window_ms;
+			for (uint i = 0; i < num_facts; i++)
+				rate_ras.emplace_back(window_ms, bucket_ms);
+		} else if (average_ms > 0) {
+			avg = std::make_unique<RunningAverage>(average_ms, bucket_ms);
+		}
+	};
 
 	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
 		// Transparent full-screen container; the four edge bars are its children
@@ -1125,7 +1139,16 @@ public:
 	}
 
 	void setFact(uint idx, Fact fact) override {
-		Widget::setFact(idx, fact);
+		if (!rate_ras.empty() && idx < rate_ras.size()) {
+			// Treat the fact as a byte/packet delta and store its per-second rate
+			// (divided by `rate_divisor`, e.g. 125000 for Mbit/s), mirroring
+			// VideoBitrateWidget. The aggregation/threshold logic runs on rates.
+			rate_ras[idx].add(std::lround((double)fact));
+			double rate = rate_ras[idx].rate_per_second_over_last_ms(rate_window_ms) / rate_divisor;
+			args[idx] = Fact(FactMeta("signal_rate"), rate);
+		} else {
+			Widget::setFact(idx, fact);
+		}
 		dirty = true;
 	}
 
@@ -1148,6 +1171,13 @@ public:
 			double v = (double)a;
 			if (!have) { best = v; have = true; }
 			else if (higher_is_worse ? (v < best) : (v > best)) { best = v; }
+		}
+
+		// Optional smoothing: feed the aggregated value through a time-windowed
+		// running average so brief spikes don't flash the border. RunningAverage
+		// works in integers, which is fine for RSSI / fec-style metrics.
+		if (have && avg) {
+			best = (double)avg->add(std::lround(best));
 		}
 
 		double s = 0.0;  // severity 0..1
@@ -1214,6 +1244,10 @@ private:
 	static constexpr lv_opa_t kMaxOpa    = 216;   // ~0.85 opacity at full severity
 
 	double threshold, critical;
+	std::unique_ptr<RunningAverage> avg;   // optional smoothing of the aggregated value (value mode)
+	std::vector<RunningAverage> rate_ras;  // per-fact byte-delta -> rate (rate mode); empty otherwise
+	uint rate_window_ms = 0;
+	double rate_divisor = 1.0;
 
 	lv_grad_dsc_t grad[4]{};   // one persistent descriptor per edge bar
 	lv_obj_t* bars[4] = {};    // the four edge bars, indexed like grad[]
@@ -2678,7 +2712,25 @@ public:
 				if (widget_j.contains("critical")) {
 					critical = widget_j.at("critical").template get<double>();
 				}
-				addWidget(new SignalWarningWidget(x, y, threshold, critical, (uint)matchers.size()), matchers);
+				// Optional: smooth the aggregated value over this many ms (0 = off).
+				// In rate mode this is the rate window instead (default 1000).
+				int average_ms = 0;
+				if (widget_j.contains("average_ms")) {
+					average_ms = widget_j.at("average_ms").template get<int>();
+				}
+				// Optional: treat facts as byte/packet deltas and warn on their
+				// per-second rate (like VideoBitrateWidget). 'rate_divisor' scales
+				// the rate, e.g. 125000 for bytes/s -> Mbit/s.
+				bool rate_mode = false;
+				if (widget_j.contains("rate")) {
+					rate_mode = widget_j.at("rate").template get<bool>();
+				}
+				double rate_divisor = 1.0;
+				if (widget_j.contains("rate_divisor")) {
+					rate_divisor = widget_j.at("rate_divisor").template get<double>();
+				}
+				addWidget(new SignalWarningWidget(x, y, threshold, critical, (uint)matchers.size(),
+				                                  average_ms, rate_mode, rate_divisor), matchers);
 			} else if(type == "BarChartWidget") {
 				auto width = widget_j.at("width").template get<uint>();
 				auto height = widget_j.at("height").template get<uint>();
