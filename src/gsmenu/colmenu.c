@@ -14,6 +14,9 @@
 extern gsmenu_control_mode_t control_mode;
 extern lv_indev_t * indev_drv;
 
+extern int  audio_get_enabled(void);
+extern void audio_set_enabled(int enabled);
+
 static colstack_t * g_cs;
 
 /* True while the command-error dialog is up, so async teardowns (e.g. the text
@@ -92,6 +95,12 @@ char * colmenu_get(const char * type, const char * page, const char * param, cha
      * which atoi()s to 0 and would leave the switch stuck off while recording. */
     if(strcmp(param, "rec_enabled") == 0) {
         return strdup(menu_is_recording() ? "1" : "0");
+    }
+
+    /* Audio on/off is live runtime state on the receiver, not a config value —
+     * read it straight from the app (switch builder atoi()s this: 0/1, not on/off). */
+    if(strcmp(param, "audio") == 0) {
+        return strdup(audio_get_enabled() ? "1" : "0");
     }
 
     char errf[] = "/tmp/gsmenu_gerr_XXXXXX";

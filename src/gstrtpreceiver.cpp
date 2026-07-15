@@ -48,11 +48,48 @@ namespace pipeline {
         }
         return ss.str();
     }
-    static std::string create_rtp_depacketize_for_codec(const VideoCodec& codec){
-        if(codec==VideoCodec::H264)return "rtph264depay ! ";
-        if(codec==VideoCodec::H265)return "rtph265depay ! ";
+    static std::string create_rtp_depacketize_for_codec(const VideoCodec& codec, const std::string& name = ""){
+        const std::string n = name.empty() ? "" : (" name=" + name);
+        if(codec==VideoCodec::H264)return "rtph264depay" + n + " ! ";
+        if(codec==VideoCodec::H265)return "rtph265depay" + n + " ! ";
         assert(false);
         return "";
+    }
+    // Bare RTP caps fields for use as an in-pipeline capsfilter on the video
+    // branch when the source caps are left generic (audio muxed in). Unlike
+    // gst_create_rtp_caps() this omits the udpsrc-style caps="..." wrapper and
+    // does not pin a payload type, so the actual video PT is accepted as-is.
+    static std::string gst_rtp_video_caps_fields(const VideoCodec& videoCodec){
+        std::stringstream ss;
+        ss<<"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)";
+        ss<<((videoCodec==VideoCodec::H264) ? "H264" : "H265");
+        return ss.str();
+    }
+    // Opus audio playback branch, fed from the shared rtp_tee.
+    //
+    // The leading leaky queue decouples the branch from the tee so a stalled or
+    // slow ALSA sink can never back-pressure upstream and stall the video branch.
+    //
+    // Caps are asserted with capssetter, NOT a capsfilter: the tee broadcasts one
+    // caps to all its branches, so a capsfilter demanding audio caps here would
+    // force the tee to negotiate video-caps ∩ audio-caps = empty and the whole
+    // pipeline (video included) would fail with not-negotiated. capssetter has an
+    // ANY sink template, so it imposes nothing on the tee while still handing the
+    // Opus RTP caps to rtpopusdepay downstream. A pad probe (attached after
+    // parsing) drops the non-audio-PT packets that still arrive here.
+    static std::string create_audio_branch(int audio_pt, const std::string& device){
+        std::stringstream ss;
+        ss<<" rtp_tee. ! queue name=audio_in_queue leaky=downstream max-size-buffers=128"
+            " max-size-bytes=0 max-size-time=0 silent=true"
+            " ! capssetter replace=true caps=\"application/x-rtp, media=(string)audio,"
+            " clock-rate=(int)48000, encoding-name=(string)OPUS, payload=(int)"<<audio_pt<<"\""
+            " ! rtpopusdepay name=audio_depay ! opusdec ! audioconvert ! audioresample"
+            " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 silent=true"
+            " ! alsasink name=audio_sink sync=false async=false";
+        if(!device.empty()){
+            ss<<" device=\""<<device<<"\"";
+        }
+        return ss.str();
     }
     static std::string create_parse_for_codec(const VideoCodec& codec){
         // config-interval=-1 = makes 100% sure each keyframe has SPS and PPS
@@ -149,6 +186,16 @@ namespace {
     static std::atomic<bool> g_codec_switch_pending{false};
     static std::mutex g_codec_switch_mutex;
     static std::function<void(VideoCodec)> g_codec_switch_cb;
+
+    // RTP payload type carrying muxed Opus audio, or -1 when audio is disabled.
+    // Used to keep audio packets out of the video-only stream trackers (IDR
+    // sequence-gap detection and mid-stream codec-switch detection).
+    static std::atomic<int> g_audio_pt{-1};
+
+    static bool is_audio_pt(uint8_t pt) {
+        const int a = g_audio_pt.load(std::memory_order_relaxed);
+        return a >= 0 && pt == static_cast<uint8_t>(a);
+    }
 
     static std::mutex g_idr_sock_mutex;
     static int g_idr_sock = -1;
@@ -486,6 +533,19 @@ namespace {
             return;
         }
 
+        // Muxed audio has its own SSRC/sequence space; feeding it into the video
+        // gap detector would trip spurious IDR requests, so skip audio packets.
+        if (g_audio_pt.load(std::memory_order_relaxed) >= 0) {
+            GstMapInfo map;
+            if (gst_buffer_map(buf, &map, GST_MAP_READ)) {
+                const bool audio = map.size >= 2 && is_audio_pt(map.data[1] & 0x7f);
+                gst_buffer_unmap(buf, &map);
+                if (audio) {
+                    return;
+                }
+            }
+        }
+
         uint16_t seq = 0;
         if (!extract_rtp_sequence(buf, &seq)) {
             return;
@@ -546,6 +606,9 @@ namespace {
         }
         if (g_codec_switch_pending.load(std::memory_order_relaxed)) {
             return; // a switch is already being applied
+        }
+        if (len >= 2 && is_audio_pt(rtp[1] & 0x7f)) {
+            return; // muxed audio packet: not a video codec signal
         }
 
         const VideoCodec c = classify_rtp_packet(rtp, len);
@@ -919,6 +982,59 @@ namespace {
         gst_iterator_free(it);
     }
 
+    // Payload-type demux for the shared RTP flow. When audio is muxed in, the
+    // tee hands every packet to both the video and audio branches; these probes
+    // drop the packets that do not belong on a given branch before they reach a
+    // depayloader that would choke on them. drop_when_match=true keeps the audio
+    // PT off the video branch; false keeps everything but the audio PT off the
+    // audio branch.
+    struct RtpPtFilter {
+        uint8_t pt;
+        bool drop_when_match;
+    };
+
+    static GstPadProbeReturn rtp_pt_filter_probe(GstPad*, GstPadProbeInfo* info, gpointer user_data) {
+        const RtpPtFilter* f = static_cast<const RtpPtFilter*>(user_data);
+        if (!f || !(GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)) {
+            return GST_PAD_PROBE_OK;
+        }
+        GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
+        if (!buf) {
+            return GST_PAD_PROBE_OK;
+        }
+        bool drop = false;
+        GstMapInfo map;
+        if (gst_buffer_map(buf, &map, GST_MAP_READ)) {
+            if (map.size >= 2) {
+                const bool match = ((map.data[1] & 0x7f) == f->pt);
+                drop = f->drop_when_match ? match : !match;
+            }
+            gst_buffer_unmap(buf, &map);
+        }
+        return drop ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+    }
+
+    static void attach_pt_filter(GstElement* pipeline, const char* elem_name,
+                                 uint8_t pt, bool drop_when_match) {
+        if (!pipeline || !GST_IS_BIN(pipeline)) {
+            return;
+        }
+        GstElement* e = gst_bin_get_by_name(GST_BIN(pipeline), elem_name);
+        if (!e) {
+            return;
+        }
+        GstPad* pad = gst_element_get_static_pad(e, "sink");
+        if (pad) {
+            RtpPtFilter* f = g_new(RtpPtFilter, 1);
+            f->pt = pt;
+            f->drop_when_match = drop_when_match;
+            gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, rtp_pt_filter_probe, f,
+                              (GDestroyNotify)g_free);
+            gst_object_unref(pad);
+        }
+        gst_object_unref(e);
+    }
+
     static void maybe_request_idr_rate_limited(const char* reason, const char* context) {
         if (!g_idr_enabled.load(std::memory_order_relaxed)) {
             return;
@@ -1082,15 +1198,31 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
 std::string GstRtpReceiver::construct_gstreamer_pipeline()
 {
     std::stringstream ss;
+    // With audio muxed into the same RTP flow the source caps must stay generic
+    // (application/x-rtp) so both the video and audio branches can negotiate
+    // their own media type off the tee; the video branch then re-asserts its
+    // caps with an explicit capsfilter. When audio is off, the source keeps the
+    // codec-specific caps exactly as before.
+    const std::string src_caps = m_audio_enabled
+        ? std::string("caps=\"application/x-rtp\"")
+        : pipeline::gst_create_rtp_caps(m_video_codec);
     if (! unix_socket)
-        ss<<"udpsrc port="<<m_port<<" "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! tee name=rtp_tee ";
+        ss<<"udpsrc port="<<m_port<<" "<<src_caps<<" ! tee name=rtp_tee ";
     else
-        ss<<"appsrc name=appsrc "<<pipeline::gst_create_rtp_caps(m_video_codec)<<" ! tee name=rtp_tee ";
+        ss<<"appsrc name=appsrc "<<src_caps<<" ! tee name=rtp_tee ";
     ss<<"rtp_tee. ! ";
-    ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec);
+    if (m_audio_enabled) {
+        ss<<pipeline::gst_rtp_video_caps_fields(m_video_codec)<<" ! ";
+        ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec, "video_depay");
+    } else {
+        ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec);
+    }
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
     ss<<"appsink drop=true name=out_appsink";
+    if (m_audio_enabled) {
+        ss<<pipeline::create_audio_branch(m_audio_pt, m_audio_device);
+    }
     ss<<create_restream_branch();
     return ss.str();
 }
@@ -1245,7 +1377,13 @@ std::string GstRtpReceiver::construct_file_playback_pipeline(const char * file_p
 }
 
 VideoCodec GstRtpReceiver::switch_to_file_playback(const char * file_path) {
+    std::lock_guard<std::mutex> lock(m_stream_mutex);
     stop_receiving();
+    m_file_playback = true;
+
+    // File playback has no live RTP ingress; make sure the audio-PT tracker
+    // guard is inert so it can't affect anything during DVR review.
+    g_audio_pt.store(-1, std::memory_order_relaxed);
 
     const auto pipeline = construct_file_playback_pipeline(file_path);
     GError* error = nullptr;
@@ -1276,7 +1414,9 @@ VideoCodec GstRtpReceiver::switch_to_file_playback(const char * file_path) {
 }
 
 void GstRtpReceiver::switch_to_stream() {
+    std::lock_guard<std::mutex> lock(m_stream_mutex);
     stop_receiving();
+    m_file_playback = false;
 
     // Auto mode: build for H.265 up front and let mid-stream detection flip to
     // H.264 from the RTP ingress if the stream turns out to be H.264. The
@@ -1286,6 +1426,15 @@ void GstRtpReceiver::switch_to_stream() {
     if (m_video_codec == VideoCodec::UNKNOWN) {
         m_video_codec = VideoCodec::H265;
         spdlog::info("[CODEC] Auto mode: defaulting to H.265; mid-stream detection will correct if needed");
+    }
+
+    // Audio is opt-in and assumes its prerequisites (Opus/ALSA GStreamer
+    // elements + a working output device) are present in the build/hardware; if
+    // they are not, the pipeline (video included) will fail to build/start.
+    g_audio_pt.store(m_audio_enabled ? m_audio_pt : -1, std::memory_order_relaxed);
+    if (m_audio_enabled) {
+        spdlog::info("[AUDIO] Opus audio enabled (pt={}, device={})",
+                     m_audio_pt, m_audio_device.empty() ? "default" : m_audio_device);
     }
 
     const auto pipeline = construct_gstreamer_pipeline();
@@ -1307,6 +1456,15 @@ void GstRtpReceiver::switch_to_stream() {
 
     attach_last_hop_probes(m_gst_pipeline);
     bind_restream_valve(m_gst_pipeline);
+
+    // Payload-type demux: keep audio packets off the video depayloader and
+    // non-audio packets off the Opus depayloader (the tee feeds both branches
+    // every packet).
+    if (m_audio_enabled) {
+        const uint8_t audio_pt = static_cast<uint8_t>(m_audio_pt);
+        attach_pt_filter(m_gst_pipeline, "video_depay", audio_pt, /*drop_when_match=*/true);
+        attach_pt_filter(m_gst_pipeline, "audio_depay", audio_pt, /*drop_when_match=*/false);
+    }
 
     // If using Unix socket, setup appsrc with buffer pool
     if (unix_socket) {
@@ -1332,12 +1490,17 @@ void GstRtpReceiver::switch_to_stream() {
         pool = gst_buffer_pool_new();
         config = gst_buffer_pool_get_config(pool);
         
-        GstCaps* caps = gst_caps_new_simple("application/x-rtp",
-            "media", G_TYPE_STRING, "video",
-            "encoding-name", G_TYPE_STRING, 
-                (m_video_codec == VideoCodec::H264) ? "H264" : "H265",
-            NULL);
-        
+        // With audio muxed in, the appsrc carries mixed media so its caps stay
+        // generic (matching the pipeline string); the per-branch capsfilters
+        // pick the media type. Otherwise pin the video codec as before.
+        GstCaps* caps = m_audio_enabled
+            ? gst_caps_new_empty_simple("application/x-rtp")
+            : gst_caps_new_simple("application/x-rtp",
+                "media", G_TYPE_STRING, "video",
+                "encoding-name", G_TYPE_STRING,
+                    (m_video_codec == VideoCodec::H264) ? "H264" : "H265",
+                NULL);
+
         gst_buffer_pool_config_set_params(config, caps, MAX_PACKET_SIZE, 10, 20);
         gst_buffer_pool_set_config(pool, config);
         gst_caps_unref(caps);
@@ -1391,6 +1554,30 @@ void GstRtpReceiver::request_codec_switch(VideoCodec new_codec) {
             cb(new_codec);                  // let the host realign its decoder
         }
     }).detach();
+}
+
+void GstRtpReceiver::configure_audio(bool enabled, const std::string& device, int pt) {
+    m_audio_enabled = enabled;
+    m_audio_device = device;
+    m_audio_pt = (pt > 0 && pt < 128) ? pt : 98;
+}
+
+void GstRtpReceiver::set_audio_enabled(bool enabled) {
+    if (enabled == m_audio_enabled) {
+        return;
+    }
+    m_audio_enabled = enabled;
+    spdlog::info("[AUDIO] Runtime toggle -> {}", enabled ? "on" : "off");
+
+    // Only the live streaming pipeline carries the audio branch; during DVR file
+    // playback (or before start), just remember the choice for the next stream.
+    if (m_file_playback || m_gst_pipeline == nullptr) {
+        return;
+    }
+
+    // Rebuild off-thread: switch_to_stream() tears down the pipeline and joins
+    // the pull/socket threads, which must not run on a GStreamer or UI thread.
+    std::thread([this]() { switch_to_stream(); }).detach();
 }
 
 void GstRtpReceiver::set_codec_changed_callback(std::function<void(VideoCodec)> cb) {

@@ -113,6 +113,10 @@ uint32_t refresh_frequency_ms = 1000;
 VideoCodec codec = VideoCodec::H265;
 uint16_t listen_port = 5600;
 const char* unix_socket = NULL;
+// Opt-in Opus audio (muxed into the RTP stream, split by payload type).
+bool audio_enabled = false;
+std::string audio_device;   // empty = ALSA system default
+int audio_pt = 98;          // OpenIPC/majestic default RTP payload type for audio
 char* dvr_template = NULL;
 Dvr *dvr_raw = NULL;
 Dvr *dvr_reenc_inst = NULL;
@@ -881,6 +885,17 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
 }
 
 std::unique_ptr<GstRtpReceiver> receiver;
+
+// Runtime audio on/off for the OSD menu (System -> Receiver -> Audio).
+extern "C" {
+	int audio_get_enabled(void) {
+		return (receiver && receiver->get_audio_enabled()) ? 1 : 0;
+	}
+	void audio_set_enabled(int enabled) {
+		if (receiver) receiver->set_audio_enabled(enabled != 0);
+	}
+}
+
 static MppCodingType current_mpp_type = MPP_VIDEO_CodingHEVC;
 static MppCodingType stream_mpp_type  = MPP_VIDEO_CodingHEVC;
 
@@ -1096,6 +1111,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
 	} else {
 		receiver = std::make_unique<GstRtpReceiver>(gst_udp_port, codec);
 	}
+	receiver->configure_audio(audio_enabled, audio_device, audio_pt);
 	// Realign the MPP decoder whenever the receiver detects a mid-stream codec
 	// switch and rebuilds its pipeline.
 	receiver->set_codec_changed_callback([](VideoCodec c) {
@@ -1223,6 +1239,12 @@ void printHelp() {
     "\n"
     "    --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265|auto>)\n"
     "\n"
+    "    --audio                - Play Opus audio muxed into the RTP stream (same port, by payload type)\n"
+    "\n"
+    "    --audio-device <dev>   - ALSA output device for --audio            (Default: system default)\n"
+    "\n"
+    "    --audio-pt <pt>        - RTP payload type carrying the Opus audio  (Default: 98)\n"
+    "\n"
     "    --log-level <level>    - Log verbosity level, debug|info|warn|error (Default: info)\n"
     "\n"
     "    --log-file <path>      - Also log to <path> (rotated at 1MB, 3 files kept).\n"
@@ -1348,6 +1370,21 @@ int main(int argc, char **argv)
 			fprintf(stderr, "unsupported video codec");
 			return -1;
 		}
+		continue;
+	}
+
+	__OnArgument("--audio") {
+		audio_enabled = true;
+		continue;
+	}
+
+	__OnArgument("--audio-device") {
+		audio_device = __ArgValue;
+		continue;
+	}
+
+	__OnArgument("--audio-pt") {
+		audio_pt = atoi(__ArgValue);
 		continue;
 	}
 

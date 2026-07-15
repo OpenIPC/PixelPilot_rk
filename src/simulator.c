@@ -41,6 +41,8 @@ void my_log_cb(lv_log_level_t level, const char * buf)
 // which is not part of the simulator build)
 bool restream_get_enabled() { return false; }
 void restream_set_enabled(bool enabled) { (void)enabled; }
+int  audio_get_enabled(void) { return 0; }
+void audio_set_enabled(int enabled) { (void)enabled; }
 void restream_scan_clients(char* buf, size_t buf_len) { if (buf && buf_len) buf[0] = '\0'; }
 const char* restream_get_manual_ip() { return ""; }
 void restream_set_manual_ip(const char* ip) { (void)ip; }

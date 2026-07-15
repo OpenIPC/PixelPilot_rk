@@ -14,6 +14,7 @@
 #include "lvgl/lvgl.h"
 #include "input.h"
 #include "menu.h"
+#include "osd.h"   /* osd_publish_int_fact() for the +/- test-fact keys */
 
 extern YAML::Node config;
 extern lv_group_t *main_group;
@@ -433,6 +434,20 @@ void toggle_screen(void) {
     }
 }
 
+// TEMP debug: the +/- keys nudge a test fact (test.value, clamped -100..100) so
+// OSD widgets can be exercised without a live link. Bind a widget to
+// { "name": "test.value" } to drive it.
+static void test_fact_bump(int delta) {
+    static int v = 0;
+    v += delta;
+    if (v > 100) v = 100;
+    else if (v < -100) v = -100;
+#ifndef USE_SIMULATOR
+    osd_publish_int_fact("test.value", NULL, 0, v);   // osd.cpp isn't in the sim build
+#endif
+    printf("test.value = %d\n", v);
+}
+
 // Handle WASD input and convert to LVGL key codes
 void handle_keyboard_input(void) {
     char c;
@@ -547,6 +562,13 @@ void handle_keyboard_input(void) {
                 toggle_rec_enabled();   /* simulate the hardware record button (sim only) */
                 break;
 #endif
+            case '+':
+            case '=':   // unshifted '+'
+                test_fact_bump(+5);
+                break;
+            case '-':
+                test_fact_bump(-5);
+                break;
             case 'q':
             case 'Q':
                 raise(SIGINT);

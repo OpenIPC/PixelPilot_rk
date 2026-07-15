@@ -23,4 +23,8 @@ void toggle_rec_enabled(void);
 /* Query current recording state (for menu sync). */
 int menu_is_recording(void);
 
+/* Opus audio on/off (System -> Receiver -> Audio). Defined in main.cpp. */
+// int  audio_get_enabled(void);
+// void audio_set_enabled(int enabled);
+
 void pp_menu_main(void);

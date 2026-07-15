@@ -17,6 +17,7 @@
 #include <vector>
 #include <functional>
 #include <mutex>
+#include <string>
 
 #define MAX_PACKET_SIZE 4096
 #define RTP_HEADER_LEN 12
@@ -49,6 +50,16 @@ public:
     explicit GstRtpReceiver(int udp_port, const VideoCodec& codec);
     explicit GstRtpReceiver(const char *s, const VideoCodec& codec);
     virtual ~GstRtpReceiver();
+    // Enable receiving Opus audio muxed into the same RTP flow as the video
+    // (distinguished by payload type). Must be called before start_receiving().
+    // device is an ALSA device string ("" = system default); pt is the audio
+    // RTP payload type (OpenIPC/majestic default 98).
+    void configure_audio(bool enabled, const std::string& device, int pt);
+    // Toggle the Opus audio branch at runtime (e.g. from the OSD menu). Rebuilds
+    // the live streaming pipeline; a no-op if the state is unchanged or while a
+    // DVR file is playing (the choice then applies on the next switch_to_stream).
+    void set_audio_enabled(bool enabled);
+    bool get_audio_enabled() const { return m_audio_enabled; }
     // Depending on the codec, these are h264,h265 or mjpeg "frames" / frame buffers
     // The big advantage of gstreamer is that it seems to handle all those parsing quirks the best,
     // e.g. the frames on this cb should be easily passable to whatever decode api is available.
@@ -86,6 +97,17 @@ private:
     // builds for H.265 and mid-stream codec-switch detection is enabled. False
     // when the user pinned a codec, in which case we never override their choice.
     bool m_auto_codec = false;
+    // Audio (Opus) config. When m_audio_enabled the pipeline builds an Opus
+    // playback branch off the RTP tee; its prerequisites (GStreamer elements +
+    // output device) are assumed present.
+    bool m_audio_enabled = false;
+    std::string m_audio_device;
+    int m_audio_pt = 98;
+    // True while a switch_to_file_playback() pipeline is up (no live audio branch).
+    bool m_file_playback = false;
+    // Serializes switch_to_stream() so a menu audio-toggle and an automatic
+    // codec-switch rebuild can never tear down/rebuild the pipeline at once.
+    std::mutex m_stream_mutex;
     VideoCodec m_playback_codec = VideoCodec::UNKNOWN;
     // Notified after a detected mid-stream codec switch + pipeline rebuild.
     std::function<void(VideoCodec)> m_on_codec_changed;

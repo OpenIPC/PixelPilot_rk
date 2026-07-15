@@ -27,6 +27,9 @@ extern MenuAction airactions[]; extern size_t airactions_count;
 extern MenuAction gsactions[];  extern size_t gsactions_count;
 extern enum RXMode RXMODE;
 
+extern int  audio_get_enabled(void);
+extern void audio_set_enabled(int enabled);
+
 /* Live Colortrans / Video scale apply their effect to the DRM/GL pipeline live,
  * as the old gs_system.c widget callbacks did — a gsmenu.sh set alone won't. */
 extern bool  enable_live_colortrans;
@@ -172,6 +175,12 @@ static void open_txprofiles(void)
 }
 
 static void notify_restart(const char * v) { (void)v; show_restart_notice(); }
+
+static void on_audio_enabled(const char * value)  /* toggle Opus audio playback now */
+{
+    int on = (value && strcmp(value, "on") == 0) ? 1 : 0;
+    DVR_LIVE(audio_set_enabled(on), "audio_set_enabled(%d)", on);
+}
 
 /* Apply the receiver mode: set RXMODE and the env vars the rest of the app reads
  * (REMOTE_IP / AIR_FIRMWARE_TYPE). Called both at startup and on a mode change, so
@@ -390,8 +399,9 @@ static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_
 static const colmenu_item_t sys_receiver_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Codec",   .param="rx_codec" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="RX Mode", .param="rx_mode", .on_change=on_rx_mode_change },
+    { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,    .label="Audio",   .param="audio",   .on_change=on_audio_enabled },
 };
-static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 2 };
+static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 3 };
 static const colmenu_item_t sys_display_items[] = {
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="GS Rendering",   .param="gs_rendering" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Connector",      .param="connector" },
