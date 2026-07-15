@@ -59,7 +59,10 @@ public:
     // the live streaming pipeline; a no-op if the state is unchanged or while a
     // DVR file is playing (the choice then applies on the next switch_to_stream).
     void set_audio_enabled(bool enabled);
-    bool get_audio_enabled() const { return m_audio_enabled; }
+    // Reports the *effective* state (is the Opus branch actually up), not just the
+    // intent — so the OSD switch reads off when the selected sink is unavailable
+    // and audio has fallen back to video-only.
+    bool get_audio_enabled() const { return m_audio_active; }
     // Select the ALSA output for audio: an /proc/asound/cards id (e.g.
     // "rockchiphdmi"), a full ALSA device string, or "" / "default" for the
     // system default. Rebuilds the live pipeline if audio is currently playing.
@@ -101,10 +104,13 @@ private:
     // builds for H.265 and mid-stream codec-switch detection is enabled. False
     // when the user pinned a codec, in which case we never override their choice.
     bool m_auto_codec = false;
-    // Audio (Opus) config. When m_audio_enabled the pipeline builds an Opus
-    // playback branch off the RTP tee; its prerequisites (GStreamer elements +
-    // output device) are assumed present.
+    // Audio (Opus) config. m_audio_enabled / m_audio_device are the user's intent
+    // (what the CLI/menu asked for, and what get_audio_enabled() reports).
+    // m_audio_active is the effective state after switch_to_stream() checks the
+    // Opus/ALSA stack and the selected output device are usable; when the sink is
+    // missing it drops to false (video-only) while the intent/selection is kept.
     bool m_audio_enabled = false;
+    bool m_audio_active = false;
     std::string m_audio_device;
     int m_audio_pt = 98;
     // True while a switch_to_file_playback() pipeline is up (no live audio branch).

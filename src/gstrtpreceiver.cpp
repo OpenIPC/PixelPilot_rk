@@ -1048,6 +1048,52 @@ namespace {
         gst_object_unref(e);
     }
 
+    static bool audio_factory_exists(const char* name) {
+        GstElementFactory* f = gst_element_factory_find(name);
+        if (f) {
+            gst_object_unref(f);
+            return true;
+        }
+        spdlog::warn("[AUDIO] Missing GStreamer element '{}'; disabling audio", name);
+        return false;
+    }
+
+    // Verify the Opus/ALSA elements exist and the resolved output device can
+    // actually be opened, so audio can gracefully fall back to video-only instead
+    // of failing the whole pipeline (which would also kill video). Important for
+    // hot-pluggable sinks (e.g. a USB headset): if the selected card is gone the
+    // audio branch is simply left out until the next rebuild finds it available.
+    // `device` is the resolved alsasink device string ("" = system default).
+    static bool audio_stack_available(const std::string& device) {
+        static const char* kNeeded[] = {
+            "capssetter", "rtpopusdepay", "opusdec", "audioconvert", "audioresample", "alsasink"
+        };
+        for (const char* name : kNeeded) {
+            if (!audio_factory_exists(name)) {
+                return false;
+            }
+        }
+
+        GstElement* sink = gst_element_factory_make("alsasink", nullptr);
+        if (!sink) {
+            return false;
+        }
+        if (!device.empty()) {
+            g_object_set(G_OBJECT(sink), "device", device.c_str(), NULL);
+        }
+        // NULL -> READY opens the PCM device; a failure here means the device is
+        // absent or busy, so keep audio off rather than break the pipeline.
+        const GstStateChangeReturn r = gst_element_set_state(sink, GST_STATE_READY);
+        const bool ok = (r != GST_STATE_CHANGE_FAILURE);
+        gst_element_set_state(sink, GST_STATE_NULL);
+        gst_object_unref(sink);
+        if (!ok) {
+            spdlog::warn("[AUDIO] ALSA device '{}' unavailable; disabling audio",
+                         device.empty() ? "default" : device);
+        }
+        return ok;
+    }
+
     static void maybe_request_idr_rate_limited(const char* reason, const char* context) {
         if (!g_idr_enabled.load(std::memory_order_relaxed)) {
             return;
@@ -1216,7 +1262,7 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
     // their own media type off the tee; the video branch then re-asserts its
     // caps with an explicit capsfilter. When audio is off, the source keeps the
     // codec-specific caps exactly as before.
-    const std::string src_caps = m_audio_enabled
+    const std::string src_caps = m_audio_active
         ? std::string("caps=\"application/x-rtp\"")
         : pipeline::gst_create_rtp_caps(m_video_codec);
     if (! unix_socket)
@@ -1224,7 +1270,7 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
     else
         ss<<"appsrc name=appsrc "<<src_caps<<" ! tee name=rtp_tee ";
     ss<<"rtp_tee. ! ";
-    if (m_audio_enabled) {
+    if (m_audio_active) {
         ss<<pipeline::gst_rtp_video_caps_fields(m_video_codec)<<" ! ";
         ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec, "video_depay");
     } else {
@@ -1233,7 +1279,7 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
     ss<<"appsink drop=true name=out_appsink";
-    if (m_audio_enabled) {
+    if (m_audio_active) {
         ss<<pipeline::create_audio_branch(m_audio_pt, m_audio_device);
     }
     ss<<create_restream_branch();
@@ -1441,12 +1487,18 @@ void GstRtpReceiver::switch_to_stream() {
         spdlog::info("[CODEC] Auto mode: defaulting to H.265; mid-stream detection will correct if needed");
     }
 
-    // Audio is opt-in and assumes its prerequisites (Opus/ALSA GStreamer
-    // elements + a working output device) are present in the build/hardware; if
-    // they are not, the pipeline (video included) will fail to build/start.
-    g_audio_pt.store(m_audio_enabled ? m_audio_pt : -1, std::memory_order_relaxed);
+    // Resolve the effective audio state: only build the Opus branch if the user
+    // wants audio AND the Opus/ALSA stack + selected output device are actually
+    // usable right now. Otherwise fall back to video-only so a missing plugin or
+    // an unplugged/absent sink can't take the whole pipeline (and thus video)
+    // down. The user's intent (m_audio_enabled) and selection (m_audio_device)
+    // are kept, so the next rebuild picks the device back up once it returns.
+    m_audio_active = m_audio_enabled &&
+                     audio_stack_available(pipeline::resolve_alsa_device(m_audio_device));
+    g_audio_pt.store(m_audio_active ? m_audio_pt : -1, std::memory_order_relaxed);
     if (m_audio_enabled) {
-        spdlog::info("[AUDIO] Opus audio enabled (pt={}, device={})",
+        spdlog::info("[AUDIO] Opus audio {} (pt={}, device={})",
+                     m_audio_active ? "enabled" : "requested but unavailable -> video-only",
                      m_audio_pt, m_audio_device.empty() ? "default" : m_audio_device);
     }
 
@@ -1473,7 +1525,7 @@ void GstRtpReceiver::switch_to_stream() {
     // Payload-type demux: keep audio packets off the video depayloader and
     // non-audio packets off the Opus depayloader (the tee feeds both branches
     // every packet).
-    if (m_audio_enabled) {
+    if (m_audio_active) {
         const uint8_t audio_pt = static_cast<uint8_t>(m_audio_pt);
         attach_pt_filter(m_gst_pipeline, "video_depay", audio_pt, /*drop_when_match=*/true);
         attach_pt_filter(m_gst_pipeline, "audio_depay", audio_pt, /*drop_when_match=*/false);
@@ -1506,7 +1558,7 @@ void GstRtpReceiver::switch_to_stream() {
         // With audio muxed in, the appsrc carries mixed media so its caps stay
         // generic (matching the pipeline string); the per-branch capsfilters
         // pick the media type. Otherwise pin the video codec as before.
-        GstCaps* caps = m_audio_enabled
+        GstCaps* caps = m_audio_active
             ? gst_caps_new_empty_simple("application/x-rtp")
             : gst_caps_new_simple("application/x-rtp",
                 "media", G_TYPE_STRING, "video",
@@ -1576,9 +1628,10 @@ void GstRtpReceiver::configure_audio(bool enabled, const std::string& device, in
 }
 
 void GstRtpReceiver::set_audio_enabled(bool enabled) {
-    if (enabled == m_audio_enabled) {
-        return;
-    }
+    // Always record intent and rebuild — no early-out on "unchanged", so tapping
+    // the switch re-evaluates device availability and acts as a retry once a
+    // hot-plugged sink is back (the switch reports m_audio_active, so it may read
+    // off while intent is on).
     m_audio_enabled = enabled;
     spdlog::info("[AUDIO] Runtime toggle -> {}", enabled ? "on" : "off");
 
