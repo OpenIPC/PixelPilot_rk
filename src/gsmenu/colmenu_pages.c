@@ -30,6 +30,7 @@ extern enum RXMode RXMODE;
 extern int  audio_get_enabled(void);
 extern void audio_set_enabled(int enabled);
 extern void audio_set_device(const char * device);
+extern void audio_set_volume(int percent);
 
 /* Live Colortrans / Video scale apply their effect to the DRM/GL pipeline live,
  * as the old gs_system.c widget callbacks did — a gsmenu.sh set alone won't. */
@@ -187,6 +188,11 @@ static void on_audio_device(const char * value)   /* switch the ALSA output card
 {
     const char * dev = value ? value : "";
     MENU_LIVE(audio_set_device(dev), "audio_set_device(%s)", dev);
+}
+static void on_audio_volume(const char * value)   /* software output volume 0-100% */
+{
+    int pct = value ? atoi(value) : 100;
+    MENU_LIVE(audio_set_volume(pct), "audio_set_volume(%d)", pct);
 }
 
 /* Apply the receiver mode: set RXMODE and the env vars the rest of the app reads
@@ -408,8 +414,9 @@ static const colmenu_item_t sys_receiver_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="RX Mode", .param="rx_mode", .on_change=on_rx_mode_change },
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,    .label="Audio",   .param="audio",   .on_change=on_audio_enabled },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_AUDIO,    .label="Output",  .param="audio_device", .on_change=on_audio_device },
+    { .kind=COLMENU_SLIDER,   .icon=LV_SYMBOL_VOLUME_MAX, .label="Volume", .param="audio_volume", .on_change=on_audio_volume, .on_live=on_audio_volume },
 };
-static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 4 };
+static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 5 };
 static const colmenu_item_t sys_display_items[] = {
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="GS Rendering",   .param="gs_rendering" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Connector",      .param="connector" },

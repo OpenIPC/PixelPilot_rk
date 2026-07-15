@@ -44,6 +44,7 @@ void restream_set_enabled(bool enabled) { (void)enabled; }
 int  audio_get_enabled(void) { return 0; }
 void audio_set_enabled(int enabled) { (void)enabled; }
 void audio_set_device(const char* device) { (void)device; }
+void audio_set_volume(int percent) { (void)percent; }
 void restream_scan_clients(char* buf, size_t buf_len) { if (buf && buf_len) buf[0] = '\0'; }
 const char* restream_get_manual_ip() { return ""; }
 void restream_set_manual_ip(const char* ip) { (void)ip; }

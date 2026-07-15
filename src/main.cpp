@@ -117,6 +117,7 @@ const char* unix_socket = NULL;
 bool audio_enabled = false;
 std::string audio_device;   // empty = ALSA system default
 int audio_pt = 98;          // OpenIPC/majestic default RTP payload type for audio
+int audio_volume = 100;     // software output volume, percent (0..100)
 char* dvr_template = NULL;
 Dvr *dvr_raw = NULL;
 Dvr *dvr_reenc_inst = NULL;
@@ -897,6 +898,9 @@ extern "C" {
 	void audio_set_device(const char* device) {
 		if (receiver) receiver->set_audio_device(device ? device : "");
 	}
+	void audio_set_volume(int percent) {
+		if (receiver) receiver->set_audio_volume(percent / 100.0);
+	}
 }
 
 static MppCodingType current_mpp_type = MPP_VIDEO_CodingHEVC;
@@ -1114,7 +1118,7 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
 	} else {
 		receiver = std::make_unique<GstRtpReceiver>(gst_udp_port, codec);
 	}
-	receiver->configure_audio(audio_enabled, audio_device, audio_pt);
+	receiver->configure_audio(audio_enabled, audio_device, audio_pt, audio_volume / 100.0);
 	// Realign the MPP decoder whenever the receiver detects a mid-stream codec
 	// switch and rebuilds its pipeline.
 	receiver->set_codec_changed_callback([](VideoCodec c) {
@@ -1247,6 +1251,8 @@ void printHelp() {
     "    --audio-device <dev>   - Audio output: ALSA card id (e.g. rockchiphdmi) or device string (Default: system default)\n"
     "\n"
     "    --audio-pt <pt>        - RTP payload type carrying the Opus audio  (Default: 98)\n"
+    "\n"
+    "    --audio-volume <pct>   - Audio output volume in percent 0-100       (Default: 100)\n"
     "\n"
     "    --log-level <level>    - Log verbosity level, debug|info|warn|error (Default: info)\n"
     "\n"
@@ -1388,6 +1394,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("--audio-pt") {
 		audio_pt = atoi(__ArgValue);
+		continue;
+	}
+
+	__OnArgument("--audio-volume") {
+		audio_volume = atoi(__ArgValue);
 		continue;
 	}
 

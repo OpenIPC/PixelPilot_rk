@@ -54,7 +54,7 @@ public:
     // (distinguished by payload type). Must be called before start_receiving().
     // device is an ALSA device string ("" = system default); pt is the audio
     // RTP payload type (OpenIPC/majestic default 98).
-    void configure_audio(bool enabled, const std::string& device, int pt);
+    void configure_audio(bool enabled, const std::string& device, int pt, double volume = 1.0);
     // Toggle the Opus audio branch at runtime (e.g. from the OSD menu). Rebuilds
     // the live streaming pipeline; a no-op if the state is unchanged or while a
     // DVR file is playing (the choice then applies on the next switch_to_stream).
@@ -67,6 +67,10 @@ public:
     // "rockchiphdmi"), a full ALSA device string, or "" / "default" for the
     // system default. Rebuilds the live pipeline if audio is currently playing.
     void set_audio_device(const std::string& device);
+    // Software output volume, 0.0..1.0 (1.0 = unity/100%). Applied live to the
+    // pipeline's volume element (no rebuild); persists for the next build.
+    void set_audio_volume(double volume);
+    double get_audio_volume() const { return m_audio_volume; }
     // Depending on the codec, these are h264,h265 or mjpeg "frames" / frame buffers
     // The big advantage of gstreamer is that it seems to handle all those parsing quirks the best,
     // e.g. the frames on this cb should be easily passable to whatever decode api is available.
@@ -112,6 +116,7 @@ private:
     bool m_audio_enabled = false;
     bool m_audio_active = false;
     std::string m_audio_device;
+    double m_audio_volume = 1.0;
     int m_audio_pt = 98;
     // True while a switch_to_file_playback() pipeline is up (no live audio branch).
     bool m_file_playback = false;

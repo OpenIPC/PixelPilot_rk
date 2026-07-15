@@ -96,6 +96,9 @@ namespace pipeline {
             " ! capssetter replace=true caps=\"application/x-rtp, media=(string)audio,"
             " clock-rate=(int)48000, encoding-name=(string)OPUS, payload=(int)"<<audio_pt<<"\""
             " ! rtpopusdepay name=audio_depay ! opusdec ! audioconvert ! audioresample"
+            // Software volume (named so it can be set live) — works regardless of
+            // whether the sink card exposes a hardware mixer, e.g. HDMI has none.
+            " ! volume name=audio_volume"
             " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 silent=true"
             " ! alsasink name=audio_sink sync=false async=false";
         const std::string dev = resolve_alsa_device(device);
@@ -1066,7 +1069,7 @@ namespace {
     // `device` is the resolved alsasink device string ("" = system default).
     static bool audio_stack_available(const std::string& device) {
         static const char* kNeeded[] = {
-            "capssetter", "rtpopusdepay", "opusdec", "audioconvert", "audioresample", "alsasink"
+            "capssetter", "rtpopusdepay", "opusdec", "audioconvert", "audioresample", "volume", "alsasink"
         };
         for (const char* name : kNeeded) {
             if (!audio_factory_exists(name)) {
@@ -1529,6 +1532,12 @@ void GstRtpReceiver::switch_to_stream() {
         const uint8_t audio_pt = static_cast<uint8_t>(m_audio_pt);
         attach_pt_filter(m_gst_pipeline, "video_depay", audio_pt, /*drop_when_match=*/true);
         attach_pt_filter(m_gst_pipeline, "audio_depay", audio_pt, /*drop_when_match=*/false);
+        // Apply the configured software volume to the freshly-built branch.
+        GstElement* vol = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "audio_volume");
+        if (vol) {
+            g_object_set(vol, "volume", static_cast<gdouble>(m_audio_volume), NULL);
+            gst_object_unref(vol);
+        }
     }
 
     // If using Unix socket, setup appsrc with buffer pool
@@ -1621,10 +1630,29 @@ void GstRtpReceiver::request_codec_switch(VideoCodec new_codec) {
     }).detach();
 }
 
-void GstRtpReceiver::configure_audio(bool enabled, const std::string& device, int pt) {
+void GstRtpReceiver::configure_audio(bool enabled, const std::string& device, int pt, double volume) {
     m_audio_enabled = enabled;
     m_audio_device = device;
     m_audio_pt = (pt > 0 && pt < 128) ? pt : 98;
+    m_audio_volume = (volume < 0.0) ? 0.0 : (volume > 1.0 ? 1.0 : volume);
+}
+
+void GstRtpReceiver::set_audio_volume(double volume) {
+    volume = (volume < 0.0) ? 0.0 : (volume > 1.0 ? 1.0 : volume);
+    m_audio_volume = volume;
+
+    // Apply live to the running volume element (no rebuild needed). Serialize
+    // the pipeline read with switch_to_stream() so we never touch a half-swapped
+    // pipeline; the value is stored above regardless, for the next build.
+    std::lock_guard<std::mutex> lock(m_stream_mutex);
+    if (!m_gst_pipeline) {
+        return;
+    }
+    GstElement* vol = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "audio_volume");
+    if (vol) {
+        g_object_set(vol, "volume", static_cast<gdouble>(volume), NULL);
+        gst_object_unref(vol);
+    }
 }
 
 void GstRtpReceiver::set_audio_enabled(bool enabled) {
