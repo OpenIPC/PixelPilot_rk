@@ -894,6 +894,9 @@ extern "C" {
 	void audio_set_enabled(int enabled) {
 		if (receiver) receiver->set_audio_enabled(enabled != 0);
 	}
+	void audio_set_device(const char* device) {
+		if (receiver) receiver->set_audio_device(device ? device : "");
+	}
 }
 
 static MppCodingType current_mpp_type = MPP_VIDEO_CodingHEVC;

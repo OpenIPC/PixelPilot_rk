@@ -29,6 +29,7 @@ extern enum RXMode RXMODE;
 
 extern int  audio_get_enabled(void);
 extern void audio_set_enabled(int enabled);
+extern void audio_set_device(const char * device);
 
 /* Live Colortrans / Video scale apply their effect to the DRM/GL pipeline live,
  * as the old gs_system.c widget callbacks did — a gsmenu.sh set alone won't. */
@@ -87,63 +88,64 @@ static void on_video_scale(const char * value)
 #endif
 }
 
-/* ── GS DVR live hooks ───────────────────────────────────────────────────────
+/* ── GS live-apply hooks ─────────────────────────────────────────────────────
  * These restore the "apply immediately" behaviour the old gs_system.c widget
- * callbacks had. Without them a change to a DVR setting only persists to config
- * (gsmenu.sh) and takes effect on the next restart. The dropdown value strings
- * come straight from gsmenu.sh's option lists. */
+ * callbacks had. Without them a menu change would only persist to config
+ * (gsmenu.sh) and take effect on the next restart. Used by the DVR, audio and
+ * other receiver settings. The value strings come straight from gsmenu.sh's
+ * option lists. In the simulator there's no backend, so we just print the call. */
 #ifdef USE_SIMULATOR
-#define DVR_LIVE(call, fmt, ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while(0)
+#define MENU_LIVE(call, fmt, ...) do { printf(fmt "\n", __VA_ARGS__); fflush(stdout); } while(0)
 #else
-#define DVR_LIVE(call, fmt, ...) do { call; } while(0)
+#define MENU_LIVE(call, fmt, ...) do { call; } while(0)
 #endif
 
 static void on_rec_enabled(const char * value)   /* start/stop recording now */
 {
     int on = value && strcmp(value, "on") == 0;
-    if(on) DVR_LIVE(dvr_start_all(), "dvr_start_all()%s", "");
-    else   DVR_LIVE(dvr_stop_all(),  "dvr_stop_all()%s",  "");
+    if(on) MENU_LIVE(dvr_start_all(), "dvr_start_all()%s", "");
+    else   MENU_LIVE(dvr_stop_all(),  "dvr_stop_all()%s",  "");
 }
 static void on_dvr_osd(const char * value)       /* burn OSD into the re-encode */
 {
     int on = (value && strcmp(value, "on") == 0) ? 1 : 0;
-    DVR_LIVE(dvr_reenc_set_osd(on), "dvr_reenc_set_osd(%d)", on);
+    MENU_LIVE(dvr_reenc_set_osd(on), "dvr_reenc_set_osd(%d)", on);
 }
 static void on_dvr_mode(const char * value)      /* raw=0, reencode=1, both=2 */
 {
     int mode = 0;
     if(value) { if(!strcmp(value, "reencode")) mode = 1; else if(!strcmp(value, "both")) mode = 2; }
-    DVR_LIVE(dvr_set_mode(mode), "dvr_set_mode(%d)", mode);
+    MENU_LIVE(dvr_set_mode(mode), "dvr_set_mode(%d)", mode);
 }
 static void on_dvr_max_size(const char * value)  /* param is in units of 100 MB */
 {
     int mb = (value ? atoi(value) : 0) * 100;
-    DVR_LIVE(dvr_set_max_size(mb), "dvr_set_max_size(%d)", mb);
+    MENU_LIVE(dvr_set_max_size(mb), "dvr_set_max_size(%d)", mb);
 }
 static void on_rec_fps(const char * value)       /* raw recorder framerate */
 {
     int fps = value ? atoi(value) : 0;
-    if(fps > 0) DVR_LIVE(dvr_set_raw_fps(fps), "dvr_set_raw_fps(%d)", fps);
+    if(fps > 0) MENU_LIVE(dvr_set_raw_fps(fps), "dvr_set_raw_fps(%d)", fps);
 }
 static void on_dvr_reenc_codec(const char * value)      /* h264=0, h265=1 */
 {
     int idx = (value && strcmp(value, "h265") == 0) ? 1 : 0;
-    DVR_LIVE(dvr_reenc_set_codec(idx), "dvr_reenc_set_codec(%d)", idx);
+    MENU_LIVE(dvr_reenc_set_codec(idx), "dvr_reenc_set_codec(%d)", idx);
 }
 static void on_dvr_reenc_resolution(const char * value) /* 720p=0, 1080p=1 */
 {
     int idx = (value && strcmp(value, "1080p") == 0) ? 1 : 0;
-    DVR_LIVE(dvr_reenc_set_resolution(idx), "dvr_reenc_set_resolution(%d)", idx);
+    MENU_LIVE(dvr_reenc_set_resolution(idx), "dvr_reenc_set_resolution(%d)", idx);
 }
 static void on_dvr_reenc_fps(const char * value)
 {
     int fps = value ? atoi(value) : 0;
-    if(fps > 0) DVR_LIVE(dvr_reenc_set_fps(fps), "dvr_reenc_set_fps(%d)", fps);
+    if(fps > 0) MENU_LIVE(dvr_reenc_set_fps(fps), "dvr_reenc_set_fps(%d)", fps);
 }
 static void on_dvr_reenc_bitrate(const char * value)
 {
     int kbps = value ? atoi(value) : 0;
-    if(kbps > 0) DVR_LIVE(dvr_reenc_set_bitrate(kbps), "dvr_reenc_set_bitrate(%d)", kbps);
+    if(kbps > 0) MENU_LIVE(dvr_reenc_set_bitrate(kbps), "dvr_reenc_set_bitrate(%d)", kbps);
 }
 
 /* Full-screen editors reached from the menu (built by the app elsewhere). Each
@@ -179,7 +181,12 @@ static void notify_restart(const char * v) { (void)v; show_restart_notice(); }
 static void on_audio_enabled(const char * value)  /* toggle Opus audio playback now */
 {
     int on = (value && strcmp(value, "on") == 0) ? 1 : 0;
-    DVR_LIVE(audio_set_enabled(on), "audio_set_enabled(%d)", on);
+    MENU_LIVE(audio_set_enabled(on), "audio_set_enabled(%d)", on);
+}
+static void on_audio_device(const char * value)   /* switch the ALSA output card now */
+{
+    const char * dev = value ? value : "";
+    MENU_LIVE(audio_set_device(dev), "audio_set_device(%s)", dev);
 }
 
 /* Apply the receiver mode: set RXMODE and the env vars the rest of the app reads
@@ -400,8 +407,9 @@ static const colmenu_item_t sys_receiver_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Codec",   .param="rx_codec" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="RX Mode", .param="rx_mode", .on_change=on_rx_mode_change },
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,    .label="Audio",   .param="audio",   .on_change=on_audio_enabled },
+    { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_AUDIO,    .label="Output",  .param="audio_device", .on_change=on_audio_device },
 };
-static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 3 };
+static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 4 };
 static const colmenu_item_t sys_display_items[] = {
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="GS Rendering",   .param="gs_rendering" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Connector",      .param="connector" },
