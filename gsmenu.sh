@@ -431,6 +431,10 @@ case "$@" in
     "get gs system dvr_osd"*)
         echo 0
         ;;
+    "get gs system audio_device"*)
+        echo default
+        emit_values "default\nrockchiphdmi\nHEADSET"
+        ;;
     "get gs system audio"*)
         echo 0
         ;;
@@ -451,6 +455,7 @@ case "$@" in
     "set gs system dvr_reenc_fps"*)         : ;;
     "set gs system dvr_reenc_bitrate"*)     : ;;
     "set gs system dvr_osd"*)               : ;;
+    "set gs system audio_device"*)          : ;;
     "set gs system audio"*)                 : ;;
 
 # ── GS: APFPV ───────────────────────────────────────────────────────────────

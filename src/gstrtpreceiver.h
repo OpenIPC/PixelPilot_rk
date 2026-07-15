@@ -60,6 +60,10 @@ public:
     // DVR file is playing (the choice then applies on the next switch_to_stream).
     void set_audio_enabled(bool enabled);
     bool get_audio_enabled() const { return m_audio_enabled; }
+    // Select the ALSA output for audio: an /proc/asound/cards id (e.g.
+    // "rockchiphdmi"), a full ALSA device string, or "" / "default" for the
+    // system default. Rebuilds the live pipeline if audio is currently playing.
+    void set_audio_device(const std::string& device);
     // Depending on the codec, these are h264,h265 or mjpeg "frames" / frame buffers
     // The big advantage of gstreamer is that it seems to handle all those parsing quirks the best,
     // e.g. the frames on this cb should be easily passable to whatever decode api is available.

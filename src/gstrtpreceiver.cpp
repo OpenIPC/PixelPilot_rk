@@ -77,6 +77,18 @@ namespace pipeline {
     // ANY sink template, so it imposes nothing on the tee while still handing the
     // Opus RTP caps to rtpopusdepay downstream. A pad probe (attached after
     // parsing) drops the non-audio-PT packets that still arrive here.
+    // Map the user's output selection to an alsasink "device". Empty or "default"
+    // -> system default (no device property). A bare ALSA card id (e.g. the
+    // "rockchiphdmi"/"HEADSET" ids from /proc/asound/cards, as the OSD menu
+    // provides) -> plughw:CARD=<id> so format/rate conversion is handled. A value
+    // that already looks like a full ALSA device string (contains ':') is used
+    // verbatim, so power users can still pass e.g. plughw:CARD=x,DEV=1 via CLI.
+    static std::string resolve_alsa_device(const std::string& sel){
+        if(sel.empty() || sel == "default") return "";
+        if(sel.find(':') != std::string::npos) return sel;
+        return "plughw:CARD=" + sel + ",DEV=0";
+    }
+
     static std::string create_audio_branch(int audio_pt, const std::string& device){
         std::stringstream ss;
         ss<<" rtp_tee. ! queue name=audio_in_queue leaky=downstream max-size-buffers=128"
@@ -86,8 +98,9 @@ namespace pipeline {
             " ! rtpopusdepay name=audio_depay ! opusdec ! audioconvert ! audioresample"
             " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 silent=true"
             " ! alsasink name=audio_sink sync=false async=false";
-        if(!device.empty()){
-            ss<<" device=\""<<device<<"\"";
+        const std::string dev = resolve_alsa_device(device);
+        if(!dev.empty()){
+            ss<<" device=\""<<dev<<"\"";
         }
         return ss.str();
     }
@@ -1577,6 +1590,21 @@ void GstRtpReceiver::set_audio_enabled(bool enabled) {
 
     // Rebuild off-thread: switch_to_stream() tears down the pipeline and joins
     // the pull/socket threads, which must not run on a GStreamer or UI thread.
+    std::thread([this]() { switch_to_stream(); }).detach();
+}
+
+void GstRtpReceiver::set_audio_device(const std::string& device) {
+    if (device == m_audio_device) {
+        return;
+    }
+    m_audio_device = device;
+    spdlog::info("[AUDIO] Output device -> {}", device.empty() ? "default" : device);
+
+    // Only relevant while the live audio branch exists; otherwise the new device
+    // is picked up the next time audio is (re)built.
+    if (m_file_playback || m_gst_pipeline == nullptr || !m_audio_enabled) {
+        return;
+    }
     std::thread([this]() { switch_to_stream(); }).detach();
 }
 

@@ -1241,7 +1241,7 @@ void printHelp() {
     "\n"
     "    --audio                - Play Opus audio muxed into the RTP stream (same port, by payload type)\n"
     "\n"
-    "    --audio-device <dev>   - ALSA output device for --audio            (Default: system default)\n"
+    "    --audio-device <dev>   - Audio output: ALSA card id (e.g. rockchiphdmi) or device string (Default: system default)\n"
     "\n"
     "    --audio-pt <pt>        - RTP payload type carrying the Opus audio  (Default: 98)\n"
     "\n"
