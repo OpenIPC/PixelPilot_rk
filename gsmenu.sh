@@ -195,6 +195,17 @@ case "$@" in
         echo 0
         emit_values "0 1"
         ;;
+    "get air camera audio_enabled")
+        echo 0
+        ;;
+    "get air camera audio_volume")
+        echo 50
+        emit_values "0 100"
+        ;;
+    "get air camera audio_srate")
+        echo 8000
+        emit_values "8000\n16000\n32000\n48000"
+        ;;
 
     "set air camera mirror"*)       : ;;
     "set air camera flip"*)         : ;;
@@ -217,6 +228,9 @@ case "$@" in
     "set air camera sensor_file"*)  : ;;
     "set air camera fpv_enable"*)   : ;;
     "set air camera noiselevel"*)   : ;;
+    "set air camera audio_enabled"*) : ;;
+    "set air camera audio_volume"*)  : ;;
+    "set air camera audio_srate"*)   : ;;
 
 # ── Air: Telemetry ───────────────────────────────────────────────────────────
 

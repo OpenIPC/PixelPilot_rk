@@ -333,14 +333,23 @@ static const colmenu_item_t cam_fpv_items[] = {
     { .kind=COLMENU_SLIDER, .label="Noiselevel", .param="noiselevel" },
 };
 static const colmenu_page_t cam_fpv_page = { "FPV", "air", "camera", cam_fpv_items, 2 };
+/* Air-unit audio (majestic.yaml audio.*). Applied on the air side via gsmenu.sh
+ * (cli -s + majestic restart); no local hooks needed. */
+static const colmenu_item_t cam_audio_items[] = {
+    { .kind=COLMENU_SWITCH,   .label="Enabled",     .param="audio_enabled" },
+    { .kind=COLMENU_SLIDER,   .label="Volume",      .param="audio_volume" },
+    { .kind=COLMENU_DROPDOWN, .label="Sample Rate", .param="audio_srate" },
+};
+static const colmenu_page_t cam_audio_page = { "Audio", "air", "camera", cam_audio_items, 3 };
 static const colmenu_item_t camera_items[] = {
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_VIDEO,    .label="Video",     .sub=&cam_video_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_IMAGE,    .label="Image",     .sub=&cam_image_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_VIDEO,    .label="Recording", .sub=&cam_rec_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_EYE_OPEN, .label="ISP",       .sub=&cam_isp_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_GPS,      .label="FPV",       .sub=&cam_fpv_page },
+    { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_AUDIO,    .label="Audio",     .sub=&cam_audio_page },
 };
-static const colmenu_page_t camera_page = { "Camera", "air", "camera", camera_items, 5 };
+static const colmenu_page_t camera_page = { "Camera", "air", "camera", camera_items, 6 };
 
 static const colmenu_item_t air_tel_items[] = {
     { .kind=COLMENU_DROPDOWN, .label="Serial Port", .param="serial" },
