@@ -99,8 +99,13 @@ namespace pipeline {
             // Software volume (named so it can be set live) — works regardless of
             // whether the sink card exposes a hardware mixer, e.g. HDMI has none.
             " ! volume name=audio_volume"
-            " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 silent=true"
-            " ! alsasink name=audio_sink sync=false async=false";
+            // Keep live latency low. The dominant delay is alsasink's ring buffer,
+            // which defaults to 200 ms; pin it (and the pre-sink queue) to ~50 ms.
+            // buffer-time/latency-time are in microseconds. Lower = less delay but
+            // more prone to dropouts on a loaded system — raise buffer-time (e.g.
+            // 100000) if you hear crackle/underruns.
+            " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=50000000 silent=true"
+            " ! alsasink name=audio_sink sync=false async=false buffer-time=50000 latency-time=10000";
         const std::string dev = resolve_alsa_device(device);
         if(!dev.empty()){
             ss<<" device=\""<<dev<<"\"";
