@@ -17,6 +17,7 @@
 #include <vector>
 #include <functional>
 #include <mutex>
+#include <atomic>
 #include <string>
 
 #define MAX_PACKET_SIZE 4096
@@ -93,6 +94,44 @@ public:
     // Invoked (on an internal thread) after a mid-stream codec switch has been
     // detected and the pipeline rebuilt, so the host can realign its decoder.
     void set_codec_changed_callback(std::function<void(VideoCodec)> cb);
+
+    // --- DVR recording (in-pipeline; replaces the raw minimp4 recorder) -------
+    // Records the live stream to mp4 via a splitmuxsink branch teed off the RTP
+    // flow: native video (no re-encode) plus the muxed Opus audio when active,
+    // so both tracks share one timebase and stay in sync (fixing the drift of
+    // the old fixed-framerate raw muxer). Splitting by size and file naming are
+    // handled here; the caller supplies the naming policy and size limit.
+    //
+    // base_path_fn returns the next recording's path WITHOUT extension (the
+    // first file is <base>.mp4, size-splits are <base>_partN.mp4). It runs on
+    // the pull thread when recording starts, so it may scan the output dir.
+    void set_dvr_config(int64_t max_size_bytes, std::function<std::string()> base_path_fn);
+    void dvr_set_max_size(int64_t max_size_bytes);
+    // Request recording on/off. Safe from any thread including a signal handler:
+    // it only stores intent (an atomic); the pull thread performs the pipeline
+    // surgery on its next tick. Idempotent.
+    void dvr_request_recording(bool on);
+    bool dvr_is_recording() const { return m_dvr_active.load(std::memory_order_relaxed); }
+
+    // --- Re-encode DVR (second recorder) --------------------------------------
+    // Muxes the MPP-re-encoded video (pushed via dvr_reenc_push, e.g. from the
+    // encoder's output callback) with the SAME Opus audio into a second mp4 via
+    // its own appsrc->splitmuxsink branch. Unlike the raw recorder the video is
+    // on a wall-clock/re-paced timeline (not the RTP clock), so this is a live
+    // mux (appsrc do-timestamp) — sync is close but a small constant offset may
+    // remain. codec is the re-encoder's output codec (sets the appsrc caps).
+    void dvr_reenc_set_config(VideoCodec codec, int64_t max_size_bytes, std::function<std::string()> base_path_fn);
+    void dvr_reenc_request_recording(bool on);
+    void dvr_reenc_push(std::shared_ptr<std::vector<uint8_t>> nal);
+    bool dvr_reenc_is_recording() const { return m_dvr_reenc_active.load(std::memory_order_relaxed); }
+    // Roll the re-encode file if one is open: call after an encoder codec/
+    // resolution/fps change, whose new SPS/dimensions cannot be applied to an
+    // already-open mp4 track. A no-op when not recording.
+    void dvr_reenc_roll();
+    // Invoked (on the pull thread) right after the re-encode branch goes live, so
+    // the host can force the encoder to emit a keyframe (splitmuxsink opens the
+    // first fragment only on a keyframe).
+    void set_dvr_reenc_on_start(std::function<void()> cb);
 private:
     // Rebuild the pipeline for new_codec after a mid-stream switch is detected.
     void request_codec_switch(VideoCodec new_codec);
@@ -143,6 +182,42 @@ private:
     double m_playback_rate = 1.0;
     bool m_is_paused = false;
     double m_pre_pause_rate = 1.0;
+
+    // DVR record branch. All pipeline surgery runs on the pull thread (dvr_tick,
+    // called each pull iteration), whose lifetime is bounded by the pipeline's
+    // (started after PLAYING, joined before teardown), so it needs no extra lock
+    // against switch_to_stream()/stop_receiving().
+    void dvr_tick();
+    void dvr_add_record_bin();
+    void dvr_remove_record_bin();
+    static gchar* dvr_format_location(GstElement* splitmux, guint fragment_id, gpointer user_data);
+    std::atomic<bool> m_dvr_want{false};    // caller's intent (recording on/off)
+    std::atomic<bool> m_dvr_active{false};  // record bin currently present
+    int64_t m_dvr_max_size = 0;             // splitmuxsink max-size-bytes (0 = no split)
+    std::function<std::string()> m_dvr_base_path_fn;
+    std::mutex m_dvr_cfg_mutex;             // guards m_dvr_base_path_fn / m_dvr_max_size
+    GstElement* m_dvr_rec_bin = nullptr;
+    GstPad* m_dvr_tee_video_pad = nullptr;
+    GstPad* m_dvr_tee_audio_pad = nullptr;
+
+    // Re-encode recorder (appsrc video + Opus). Same pull-thread-driven lifecycle
+    // as the raw recorder; the appsrc is pushed to from the encoder thread, hence
+    // its own guarding mutex.
+    void dvr_reenc_tick();
+    void dvr_add_reenc_bin();
+    void dvr_remove_reenc_bin();
+    std::atomic<bool> m_dvr_reenc_want{false};
+    std::atomic<bool> m_dvr_reenc_active{false};
+    std::atomic<bool> m_dvr_reenc_roll_pending{false};
+    int64_t m_dvr_reenc_max_size = 0;
+    VideoCodec m_dvr_reenc_codec = VideoCodec::H264;
+    std::function<std::string()> m_dvr_reenc_base_path_fn;
+    std::function<void()> m_dvr_reenc_on_start;
+    std::mutex m_dvr_reenc_cfg_mutex;       // guards config + on_start
+    GstElement* m_dvr_reenc_bin = nullptr;
+    GstElement* m_dvr_reenc_appsrc = nullptr;
+    std::mutex m_dvr_reenc_src_mutex;       // guards m_dvr_reenc_appsrc (pushed from encoder thread)
+    GstPad* m_dvr_reenc_tee_audio_pad = nullptr;
 };
 #endif
 

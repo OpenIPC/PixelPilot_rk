@@ -54,6 +54,13 @@ struct dvr_rpc {
 
 extern int dvr_enabled;
 
+// Resolve the next DVR recording's base path from a filename template WITHOUT
+// the extension: <dir>/[NNNN_]<strftime(template)> minus a trailing ".mp4".
+// Shared by the minimp4 recorder and the in-pipeline splitmuxsink recorder so
+// both honour --dvr-sequenced-files identically. Returns "" if the directory
+// does not exist.
+std::string dvr_next_base_path(const char* filename_template, bool with_sequence);
+
 class Dvr {
 public:
     explicit Dvr(dvr_thread_params params);

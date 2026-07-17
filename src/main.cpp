@@ -119,8 +119,9 @@ std::string audio_device;   // empty = ALSA system default
 int audio_pt = 98;          // OpenIPC/majestic default RTP payload type for audio
 int audio_volume = 100;     // software output volume, percent (0..100)
 char* dvr_template = NULL;
-Dvr *dvr_raw = NULL;
-Dvr *dvr_reenc_inst = NULL;
+// Both DVR paths are now recorded in-pipeline by the receiver (raw off the RTP
+// tee; re-encode via an appsrc fed by the MPP encoder below), each muxed with
+// Opus via splitmuxsink. The minimp4 Dvr is retired.
 MppEncoder *reencoder = NULL;
 MppEncoderParams reenc_params;
 DvrMode dvr_mode = DVR_MODE_RAW;
@@ -130,11 +131,13 @@ static bool dvr_filenames_with_sequence = false;
 static int mp4_fragmentation_mode = 0;
 static int64_t dvr_max_file_size = 4000000000LL;  // 4 GB (decimal), safe margin for VFAT 4 GiB limit
 FrameProcessor *frame_proc = nullptr;
+// Receiver owns the live pipeline AND the in-pipeline raw DVR recorder; declared
+// here (not just before the extern "C" block) so the SIGUSR1 record-button
+// handler can flip recording on it.
+std::unique_ptr<GstRtpReceiver> receiver;
 // Thread handles for the encoder and pacer — file-scope so live mode toggle can join them.
 static pthread_t g_tid_enc   = 0;
 static pthread_t g_tid_fproc = 0;
-static pthread_t g_tid_dvr_raw   = 0;
-static pthread_t g_tid_dvr_reenc = 0;
 
 // Decoded frame geometry – updated in init_buffer(), used in __FRAME_THREAD__
 uint32_t decoded_hor_stride = 0;
@@ -156,12 +159,6 @@ bool enable_live_colortrans = false;
 float live_colortrans_offset = -0.15f;
 float live_colortrans_gain = 2.5f;
 gamma_lut_controller lut_ctrl;
-
-// Helper: get target width/height for the current re-encode resolution setting.
-static void reenc_target_dims(uint32_t &w, uint32_t &h) {
-    if (reenc_params.resolution == EncResolution::Res720p) { w = 1280; h = 720; }
-    else { w = 1920; h = 1080; }
-}
 
 void init_buffer(MppFrame frame) {
 	output_list->video_frm_width = mpp_frame_get_width(frame);
@@ -281,14 +278,8 @@ void init_buffer(MppFrame frame) {
 	ret = modeset_perform_modeset(drm_fd, output_list, output_list->video_request, &output_list->video_plane, mpi.frame_to_drm[0].fb_id, output_list->video_frm_width, output_list->video_frm_height, video_zpos);
 	assert(ret >= 0);
 
-	// dvr setup
-	if (dvr_raw != NULL) {
-		dvr_raw->set_video_params(output_list->video_frm_width, output_list->video_frm_height, codec);
-	}
-	if (dvr_reenc_inst != NULL) {
-		uint32_t rw, rh; reenc_target_dims(rw, rh);
-		dvr_reenc_inst->set_video_params(rw, rh, reenc_params.codec);
-	}
+	// Both recorders take their dimensions/codec straight from the parsed
+	// elementary stream (h26xparse -> mp4mux), so no explicit video params here.
 }
 
 // __FRAME_THREAD__
@@ -542,12 +533,8 @@ void sig_handler(int signum)
 	mavlink_thread_signal++;
 	wfb_thread_signal++;
 	osd_thread_signal++;
-	if (dvr_raw != NULL) {
-		dvr_raw->shutdown();
-	}
-	if (dvr_reenc_inst != NULL) {
-		dvr_reenc_inst->shutdown();
-	}
+	// Both recordings are finalized when the receiver tears the pipeline down
+	// (stop_receiving stops each recorder, writing its mp4 moov).
 	if (frame_proc != NULL) {
 		frame_proc->shutdown();
 	}
@@ -557,14 +544,75 @@ void sig_handler(int signum)
 	return_value = signum;
 }
 
+// Base path (no extension) for the in-pipeline raw DVR recording. In BOTH mode
+// the raw file carries a _raw suffix (the re-encode file gets _reenc); in RAW
+// mode it uses the plain template. Evaluated at record-start time so a runtime
+// mode change is reflected.
+static std::string dvr_raw_next_base_path() {
+	if (!dvr_template) return "";
+	std::string tpl = dvr_template;
+	if (dvr_mode == DVR_MODE_BOTH) {
+		auto dot = tpl.rfind('.');
+		if (dot != std::string::npos) tpl.insert(dot, "_raw");
+		else tpl += "_raw";
+	}
+	return dvr_next_base_path(tpl.c_str(), dvr_filenames_with_sequence);
+}
+
+// Hand the receiver its DVR naming policy + split size (called once the receiver
+// exists). Recording itself is toggled via receiver->dvr_request_recording().
+static void dvr_configure_receiver() {
+	if (receiver) receiver->set_dvr_config(dvr_max_file_size, dvr_raw_next_base_path);
+}
+
+// The receiver's in-pipeline recorder is the RAW path only; it must stay off in
+// reencode-only mode (otherwise it would record a raw file too — and in non-BOTH
+// mode collide on the un-suffixed template with the re-encode recorder).
+static inline bool dvr_mode_has_raw() {
+	return dvr_mode == DVR_MODE_RAW || dvr_mode == DVR_MODE_BOTH;
+}
+static inline bool dvr_mode_has_reenc() {
+	return dvr_mode == DVR_MODE_REENCODE || dvr_mode == DVR_MODE_BOTH;
+}
+
+// Base path (no extension) for the re-encode recording; _reenc suffix in BOTH.
+static std::string dvr_reenc_next_base_path() {
+	if (!dvr_template) return "";
+	std::string tpl = dvr_template;
+	if (dvr_mode == DVR_MODE_BOTH) {
+		auto dot = tpl.rfind('.');
+		if (dot != std::string::npos) tpl.insert(dot, "_reenc");
+		else tpl += "_reenc";
+	}
+	return dvr_next_base_path(tpl.c_str(), dvr_filenames_with_sequence);
+}
+
+// Run by the receiver whenever the reenc recorder starts a file: force an IDR so
+// the new mp4 opens on a keyframe, and re-arm the fail-fast latch so a fatal
+// conversion error from an earlier recording doesn't kill the fresh one.
+static void dvr_reenc_on_start() {
+	if (reencoder) reencoder->request_idr();
+	if (frame_proc) frame_proc->clear_fatal_error();
+}
+
+// Hand the receiver its re-encode naming policy, split size and output codec.
+// Called whenever any of those change (codec/resolution/mode/max-size).
+static void dvr_configure_reenc_receiver() {
+	if (receiver)
+		receiver->dvr_reenc_set_config(reenc_params.codec, dvr_max_file_size, dvr_reenc_next_base_path);
+}
+
 void sigusr1_handler(int signum) {
 	spdlog::info("Received signal {}", signum);
 	bool was_enabled = dvr_enabled;
 	if (was_enabled) {
-		// Stopping
+		// Stopping. Only flip atomics here — both recorders' GStreamer surgery is
+		// done off the receiver's pull thread (request_recording stores intent).
 		spdlog::info("DVR: stopping recording (SIGUSR1)");
-		if (dvr_raw) dvr_raw->stop_recording();
-		if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
+		if (receiver) {
+			receiver->dvr_request_recording(false);
+			receiver->dvr_reenc_request_recording(false);
+		}
 		dvr_enabled = 0;
 		osd_publish_bool_fact("dvr.recording", NULL, 0, false);
 	} else {
@@ -573,8 +621,10 @@ void sigusr1_handler(int signum) {
 		             dvr_mode == DVR_MODE_RAW ? "raw" : dvr_mode == DVR_MODE_REENCODE ? "reencode" : "both");
 		dvr_enabled = 1;
 		osd_publish_bool_fact("dvr.recording", NULL, 0, true);
-		if (dvr_raw) dvr_raw->start_recording();
-		if (dvr_reenc_inst) dvr_reenc_inst->start_recording();
+		if (receiver) {
+			receiver->dvr_request_recording(dvr_mode_has_raw());
+			receiver->dvr_reenc_request_recording(dvr_mode_has_reenc());
+		}
 		if (reencoder) reencoder->request_idr();
 	}
 }
@@ -596,18 +646,6 @@ void sigusr2_handler(int signum) {
 
     // Log the new state of disable_vsync
     spdlog::info("disable_vsync: {}", disable_vsync);
-}
-
-// Helper: create a filename template with a suffix inserted before the extension.
-// Returns a strdup'd string — caller must free.
-static char* dvr_template_with_suffix(const char *tpl, const char *suffix) {
-    std::string s(tpl);
-    auto dot = s.rfind('.');
-    if (dot != std::string::npos)
-        s.insert(dot, suffix);
-    else
-        s.append(suffix);
-    return strdup(s.c_str());
 }
 
 // Shutdown helper for DVR + encoder teardown context.
@@ -633,11 +671,11 @@ static void *dvr_shutdown_worker(void *arg) {
 // C-compatible interface for gsmenu live control of the DVR.
 extern "C" {
     void dvr_reenc_set_fps(int fps) {
-        if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
         reenc_params.fps = fps;
-        if (dvr_reenc_inst) dvr_reenc_inst->set_video_framerate(fps);
         if (frame_proc) frame_proc->set_fps(fps);
         if (reencoder) reencoder->set_fps(fps);
+        // Encoder reinit -> roll the re-encode file (new stream discontinuity).
+        if (receiver) receiver->dvr_reenc_roll();
     }
     void dvr_reenc_set_osd(int enabled) {
         dvr_osd = (bool)enabled;
@@ -664,8 +702,10 @@ extern "C" {
 
     void dvr_set_max_size(int mb) {
         dvr_max_file_size = (int64_t)mb * 1000000LL;
-        if (dvr_raw) dvr_raw->set_max_file_size(dvr_max_file_size);
-        if (dvr_reenc_inst) dvr_reenc_inst->set_max_file_size(dvr_max_file_size);
+        if (receiver) {
+            receiver->dvr_set_max_size(dvr_max_file_size);
+            dvr_configure_reenc_receiver();  // pushes the new split size to the reenc branch
+        }
         spdlog::info("DVR max file size set to {} MB", mb);
     }
     int dvr_get_max_size(void) { return (int)(dvr_max_file_size / 1000000LL); }
@@ -678,13 +718,10 @@ extern "C" {
     }
 
     void dvr_reenc_set_resolution(int idx) {
-        if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
         reenc_params.resolution = (EncResolution)idx;
         if (frame_proc) frame_proc->set_resolution(reenc_params.resolution);
-        if (dvr_reenc_inst) {
-            uint32_t rw, rh; reenc_target_dims(rw, rh);
-            dvr_reenc_inst->set_video_params(rw, rh, reenc_params.codec);
-        }
+        // New frame dimensions can't be applied to an open mp4 track -> roll.
+        if (receiver) receiver->dvr_reenc_roll();
     }
 
     void dvr_reenc_set_bitrate(int kbps) {
@@ -693,14 +730,12 @@ extern "C" {
     }
 
     void dvr_reenc_set_codec(int idx) {
-        if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
         VideoCodec vc = (idx == 1) ? VideoCodec::H265 : VideoCodec::H264;
         reenc_params.codec = vc;
         if (reencoder) reencoder->set_codec(vc);
-        if (dvr_reenc_inst) {
-            uint32_t rw, rh; reenc_target_dims(rw, rh);
-            dvr_reenc_inst->set_video_params(rw, rh, vc);
-        }
+        // New codec changes the appsrc caps of the reenc branch -> reconfigure + roll.
+        dvr_configure_reenc_receiver();
+        if (receiver) receiver->dvr_reenc_roll();
     }
 
     void dvr_start_all(void) {
@@ -708,15 +743,19 @@ extern "C" {
                      dvr_mode == DVR_MODE_RAW ? "raw" : dvr_mode == DVR_MODE_REENCODE ? "reencode" : "both");
         dvr_enabled = 1;
         osd_publish_bool_fact("dvr.recording", NULL, 0, true);
-        if (dvr_raw) dvr_raw->start_recording();
-        if (dvr_reenc_inst) dvr_reenc_inst->start_recording();
+        if (receiver) {
+            receiver->dvr_request_recording(dvr_mode_has_raw());
+            receiver->dvr_reenc_request_recording(dvr_mode_has_reenc());
+        }
         if (reencoder) reencoder->request_idr();
     }
 
     void dvr_stop_all(void) {
         spdlog::info("DVR: stopping recording");
-        if (dvr_raw) dvr_raw->stop_recording();
-        if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
+        if (receiver) {
+            receiver->dvr_request_recording(false);
+            receiver->dvr_reenc_request_recording(false);
+        }
         dvr_enabled = 0;
         osd_publish_bool_fact("dvr.recording", NULL, 0, false);
     }
@@ -728,7 +767,7 @@ extern "C" {
     // via an OSD popup so they don't think they got a usable recording.
     void dvr_reenc_on_fatal_error(void) {
         spdlog::error("DVR reencode: unrecoverable frame conversion failure, stopping recording");
-        if (dvr_reenc_inst) dvr_reenc_inst->stop_recording();
+        if (receiver) receiver->dvr_reenc_request_recording(false);
         osd_publish_str_fact("osd.custom_message", NULL, 0,
                              "DVR reencode failed\nrecording stopped");
         // In DVR_MODE_BOTH, raw keeps recording independently and the
@@ -743,12 +782,10 @@ extern "C" {
         }
     }
 
-    /* C-callable wrapper so the menu (C) can set the raw DVR framerate without
-     * touching the C++ Dvr* directly. */
-    void dvr_set_video_framerate(Dvr* dvr, int f);   /* defined in dvr.cpp */
-    void dvr_set_raw_fps(int fps) {
-        if (dvr_raw) dvr_set_video_framerate(dvr_raw, fps);
-    }
+    /* Raw DVR framerate is obsolete: the splitmuxsink recorder muxes the native
+     * stream on its own timestamps (no fixed-framerate re-stamping), so there is
+     * no framerate to set. Kept as a no-op for menu/CLI compatibility. */
+    void dvr_set_raw_fps(int /*fps*/) {}
 
     // Switch DVR mode at runtime. Stops any active recording.
     // mode: 0=raw, 1=reencode, 2=both
@@ -766,77 +803,35 @@ extern "C" {
 
         // Tear down encoder pipeline if no longer needed
         if (old_has_reenc && !new_has_reenc) {
+            if (receiver) receiver->dvr_reenc_request_recording(false);
             FrameProcessor *p  = frame_proc;
             MppEncoder     *e  = reencoder;
-            Dvr            *d  = dvr_reenc_inst;
             pthread_t       tp = g_tid_fproc;
             pthread_t       te = g_tid_enc;
-            pthread_t       td = g_tid_dvr_reenc;
             frame_proc      = nullptr;
             reencoder       = nullptr;
-            dvr_reenc_inst  = nullptr;
             g_tid_fproc     = 0;
             g_tid_enc       = 0;
-            g_tid_dvr_reenc = 0;
             if (p) p->shutdown();
             if (e) e->shutdown();
-            if (d) d->shutdown();
-            auto *ctx = new DvrShutdownCtx{d, p, e, td, tp, te};
+            auto *ctx = new DvrShutdownCtx{nullptr, p, e, 0, tp, te};
             pthread_t cleanup_tid;
             pthread_create(&cleanup_tid, NULL, dvr_shutdown_worker, ctx);
             pthread_detach(cleanup_tid);
         }
 
-        // Tear down raw DVR if no longer needed
-        if (old_has_raw && !new_has_raw) {
-            Dvr *d = dvr_raw;
-            pthread_t td = g_tid_dvr_raw;
-            dvr_raw = nullptr;
-            g_tid_dvr_raw = 0;
-            if (d) d->shutdown();
-            auto *ctx = new DvrShutdownCtx{d, nullptr, nullptr, td, 0, 0};
-            pthread_t cleanup_tid;
-            pthread_create(&cleanup_tid, NULL, dvr_shutdown_worker, ctx);
-            pthread_detach(cleanup_tid);
-        }
+        // The raw recorder has no per-mode object to create/tear down: it lives
+        // in the receiver's pipeline and only records while dvr_enabled (already
+        // cleared by dvr_stop_all above). Its file naming picks up the new mode
+        // (RAW vs BOTH's _raw suffix) from dvr_raw_next_base_path() at next start.
+        (void)old_has_raw; (void)new_has_raw;
 
-        // Create raw DVR if newly needed
-        if (new_has_raw && !dvr_raw && dvr_template) {
-            dvr_thread_params args;
-            bool both = (new_mode == DVR_MODE_BOTH);
-            char *tpl = both ? dvr_template_with_suffix(dvr_template, "_raw") : dvr_template;
-            args.filename_template = tpl;
-            args.mp4_fragmentation_mode = mp4_fragmentation_mode;
-            args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
-            args.video_framerate = video_framerate;
-            args.max_file_size = dvr_max_file_size;
-            args.video_p.video_frm_width = output_list ? output_list->video_frm_width : 0;
-            args.video_p.video_frm_height = output_list ? output_list->video_frm_height : 0;
-            args.video_p.codec = codec;
-            dvr_raw = new Dvr(args);
-            pthread_create(&g_tid_dvr_raw, NULL, &Dvr::__THREAD__, dvr_raw);
-        }
-
-        // Create encoder pipeline + reenc DVR if newly needed
+        // Create encoder pipeline if newly needed. The re-encoded NALs are muxed
+        // (with Opus) by the receiver's reenc recorder, not a minimp4 Dvr.
         if (new_has_reenc && !reencoder && dvr_template) {
-            bool both = (new_mode == DVR_MODE_BOTH);
-            char *tpl = both ? dvr_template_with_suffix(dvr_template, "_reenc") : dvr_template;
-            dvr_thread_params args;
-            args.filename_template = tpl;
-            args.mp4_fragmentation_mode = mp4_fragmentation_mode;
-            args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
-            args.video_framerate = reenc_params.fps;
-            args.max_file_size = dvr_max_file_size;
-            uint32_t rw, rh; reenc_target_dims(rw, rh);
-            args.video_p.video_frm_width = rw;
-            args.video_p.video_frm_height = rh;
-            args.video_p.codec = reenc_params.codec;
-            dvr_reenc_inst = new Dvr(args);
-            pthread_create(&g_tid_dvr_reenc, NULL, &Dvr::__THREAD__, dvr_reenc_inst);
-
             reencoder = new MppEncoder(reenc_params,
                              [](std::shared_ptr<std::vector<uint8_t>> nal) {
-                                 if (dvr_enabled && dvr_reenc_inst) dvr_reenc_inst->frame(nal);
+                                 if (dvr_enabled && receiver) receiver->dvr_reenc_push(nal);
                              });
             pthread_create(&g_tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
             frame_proc = new FrameProcessor(reencoder, reenc_params.fps, reenc_params.resolution, drm_fd,
@@ -845,10 +840,8 @@ extern "C" {
                 frame_proc->set_color_correction(live_colortrans_gain,
                                                 live_colortrans_offset, drm_fd);
             pthread_create(&g_tid_fproc, NULL, &FrameProcessor::__THREAD__, frame_proc);
-            dvr_reenc_inst->on_start_cb = []() {
-                if (reencoder) reencoder->request_idr();
-                if (frame_proc) frame_proc->clear_fatal_error();
-            };
+            dvr_configure_reenc_receiver();
+            if (receiver) receiver->set_dvr_reenc_on_start(dvr_reenc_on_start);
         }
 
         dvr_mode = new_mode;
@@ -884,8 +877,6 @@ bool feed_packet_to_decoder(MppPacket *packet,void* data_p,int data_len){
     }
     return true;
 }
-
-std::unique_ptr<GstRtpReceiver> receiver;
 
 // Runtime audio on/off for the OSD menu (System -> Receiver -> Audio).
 extern "C" {
@@ -1155,10 +1146,19 @@ void read_gstreamerpipe_stream(MppPacket *packet, int gst_udp_port, const char *
         } else {
             stall_count = 0;
         }
-        if (dvr_enabled && dvr_raw != NULL) {
-			dvr_raw->frame(frame);
-        }
+        // Raw DVR is no longer fed frame-by-frame here: the receiver records the
+        // native stream (+ muxed Opus) in-pipeline via splitmuxsink.
     };
+    // Hand the receiver its raw-DVR naming policy + split size, then mirror the
+    // current record intent (e.g. --dvr-start autostart) before the pull thread
+    // begins driving the record branch.
+    dvr_configure_receiver();
+    dvr_configure_reenc_receiver();
+    if (receiver) {
+        receiver->set_dvr_reenc_on_start(dvr_reenc_on_start);
+        receiver->dvr_request_recording(dvr_enabled != 0 && dvr_mode_has_raw());
+        receiver->dvr_reenc_request_recording(dvr_enabled != 0 && dvr_mode_has_reenc());
+    }
     receiver->start_receiving(cb);
     // In auto mode the global codec stays UNKNOWN through receiver construction
     // (that sentinel is how the receiver knows to auto-detect). Now that the
@@ -1650,11 +1650,9 @@ int main(int argc, char **argv)
 	}
 	idr_set_enabled(!disable_gregidr);
 
-	if (dvr_template != NULL && (dvr_mode == DVR_MODE_RAW || dvr_mode == DVR_MODE_BOTH) && video_framerate < 0) {
-		printf("--dvr-framerate must be provided when raw DVR is enabled.\n"
-		       "Use --dvr-mode reencode with --dvr-reenc-fps for hardware re-encoding only.\n");
-		return 0;
-	}
+	// (--dvr-framerate is no longer required for raw DVR: the splitmuxsink
+	// recorder muxes the native stream on its own timestamps, so no fixed
+	// framerate is needed. The flag is still accepted but ignored for raw.)
 
 	printf("PixelPilot Rockchip %d.%d\n", APP_VERSION_MAJOR, APP_VERSION_MINOR);
 
@@ -1867,46 +1865,15 @@ int main(int argc, char **argv)
 
 	pthread_t tid_frame, tid_display, tid_osd, tid_mavlink, tid_wfbcli;
 	if (dvr_template != NULL) {
-		bool has_raw   = (dvr_mode == DVR_MODE_RAW || dvr_mode == DVR_MODE_BOTH);
 		bool has_reenc = (dvr_mode == DVR_MODE_REENCODE || dvr_mode == DVR_MODE_BOTH);
-		bool both      = (dvr_mode == DVR_MODE_BOTH);
 
-		if (has_raw) {
-			dvr_thread_params args;
-			char *tpl = both ? dvr_template_with_suffix(dvr_template, "_raw") : dvr_template;
-			args.filename_template = tpl;
-			args.mp4_fragmentation_mode = mp4_fragmentation_mode;
-			args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
-			args.video_framerate = video_framerate;
-			args.max_file_size = dvr_max_file_size;
-			args.video_p.video_frm_width = output_list->video_frm_width;
-			args.video_p.video_frm_height = output_list->video_frm_height;
-			args.video_p.codec = codec;
-			dvr_raw = new Dvr(args);
-			ret = pthread_create(&g_tid_dvr_raw, NULL, &Dvr::__THREAD__, dvr_raw);
-			assert(!ret);
-		}
-
+		// Neither recorder needs a muxer object here — both live inside the
+		// receiver's pipeline (configured in read_gstreamerpipe_stream()). We only
+		// spin up the MPP encoder + frame pacer that feed the reenc recorder; the
+		// encoder output is pushed to the receiver via dvr_reenc_push().
 		if (has_reenc) {
-			dvr_thread_params args;
-			char *tpl = both ? dvr_template_with_suffix(dvr_template, "_reenc") : dvr_template;
-			args.filename_template = tpl;
-			args.mp4_fragmentation_mode = mp4_fragmentation_mode;
-			args.dvr_filenames_with_sequence = dvr_filenames_with_sequence;
-			args.video_framerate = reenc_params.fps;
-			args.max_file_size = dvr_max_file_size;
-			uint32_t rw, rh; reenc_target_dims(rw, rh);
-			args.video_p.video_frm_width = rw;
-			args.video_p.video_frm_height = rh;
-			args.video_p.codec = reenc_params.codec;
-			dvr_reenc_inst = new Dvr(args);
-			ret = pthread_create(&g_tid_dvr_reenc, NULL, &Dvr::__THREAD__, dvr_reenc_inst);
-			assert(!ret);
-
 			reencoder = new MppEncoder(reenc_params, [](std::shared_ptr<std::vector<uint8_t>> nal) {
-				if (dvr_enabled && dvr_reenc_inst != NULL) {
-					dvr_reenc_inst->frame(nal);
-				}
+				if (dvr_enabled && receiver) receiver->dvr_reenc_push(nal);
 			});
 			ret = pthread_create(&g_tid_enc, NULL, &MppEncoder::__THREAD__, reencoder);
 			assert(!ret);
@@ -1920,22 +1887,20 @@ int main(int argc, char **argv)
 			}
 			ret = pthread_create(&g_tid_fproc, NULL, &FrameProcessor::__THREAD__, frame_proc);
 			assert(!ret);
-			dvr_reenc_inst->on_start_cb = []() {
-				if (reencoder) reencoder->request_idr();
-				if (frame_proc) frame_proc->clear_fatal_error();
-			};
+			// on_start hook is wired to the receiver in read_gstreamerpipe_stream(),
+			// which is where the reenc recorder itself gets configured.
 			spdlog::info("Re-encoding recorder: codec={} fps={} bitrate={}kbps",
 			             reenc_params.codec == VideoCodec::H265 ? "h265" : "h264",
 			             reenc_params.fps, reenc_params.bitrate_kbps);
 		}
 
 		if (dvr_autostart) {
+			// Just set intent here; the receiver doesn't exist yet. Both recorders
+			// are armed from dvr_enabled in read_gstreamerpipe_stream().
 			spdlog::info("DVR: autostart (--dvr-start) recording (mode={})",
 			             dvr_mode == DVR_MODE_RAW ? "raw" : dvr_mode == DVR_MODE_REENCODE ? "reencode" : "both");
 			dvr_enabled = 1;
 			osd_publish_bool_fact("dvr.recording", NULL, 0, true);
-			if (dvr_raw) dvr_raw->start_recording();
-			if (dvr_reenc_inst) dvr_reenc_inst->start_recording();
 			if (reencoder) reencoder->request_idr();
 		}
 	}
@@ -2013,14 +1978,6 @@ int main(int argc, char **argv)
 		}
 		if (g_tid_enc) {
 			ret = pthread_join(g_tid_enc, NULL);
-			assert(!ret);
-		}
-		if (g_tid_dvr_raw) {
-			ret = pthread_join(g_tid_dvr_raw, NULL);
-			assert(!ret);
-		}
-		if (g_tid_dvr_reenc) {
-			ret = pthread_join(g_tid_dvr_reenc, NULL);
 			assert(!ret);
 		}
 	}

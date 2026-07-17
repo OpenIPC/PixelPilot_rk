@@ -1234,7 +1234,8 @@ static std::shared_ptr<std::vector<uint8_t>> gst_copy_buffer(GstBuffer* buffer){
 }
 
 static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_element,
-                                      const GstRtpReceiver::NEW_FRAME_CALLBACK out_cb){
+                                      const GstRtpReceiver::NEW_FRAME_CALLBACK out_cb,
+                                      const std::function<void()>& on_tick){
     assert(app_sink_element);
     assert(out_cb);
     const uint64_t timeout_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(100)).count();
@@ -1253,6 +1254,10 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
         }
         maybe_update_restream_target(false);
         tick_stream_presence();
+        // Drive the DVR record branch here (not from the menu/signal threads):
+        // this thread's lifetime is bounded by the pipeline's, so add/remove of
+        // the splitmuxsink branch is always against the live pipeline.
+        if (on_tick) on_tick();
     }
 }
 
@@ -1295,7 +1300,8 @@ void GstRtpReceiver::loop_pull_samples()
     auto cb=[this](std::shared_ptr<std::vector<uint8_t>> sample){
         this->on_new_sample(sample);
     };
-    loop_pull_appsink_samples(m_pull_samples_run,m_app_sink_element,cb);
+    loop_pull_appsink_samples(m_pull_samples_run,m_app_sink_element,cb,
+                              [this]{ this->dvr_tick(); });
 }
 
 void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample)
@@ -1409,11 +1415,26 @@ void GstRtpReceiver::stop_receiving() {
     
     if (m_gst_pipeline != nullptr) {
         clear_restream_valve();
+        // Finalize any active recording cleanly BEFORE tearing the pipeline down
+        // (writes each mp4's moov via EOS + fragment-closed wait). The pull thread
+        // is already joined, so no dvr_tick can race this. m_dvr_want is left as-is
+        // so a recording that spans a rebuild is re-armed on the new pipeline.
+        if (m_dvr_rec_bin) dvr_remove_record_bin();
+        if (m_dvr_reenc_bin) dvr_remove_reenc_bin();
         gst_element_send_event((GstElement*)m_gst_pipeline, gst_event_new_eos());
         gst_element_set_state(m_gst_pipeline, GST_STATE_PAUSED);
         gst_element_set_state(m_gst_pipeline, GST_STATE_NULL);
         gst_object_unref(m_gst_pipeline);
         m_gst_pipeline = nullptr;
+        // Safety net: drop any handles the removes above didn't (shouldn't happen).
+        if (m_dvr_tee_video_pad) { gst_object_unref(m_dvr_tee_video_pad); m_dvr_tee_video_pad = nullptr; }
+        if (m_dvr_tee_audio_pad) { gst_object_unref(m_dvr_tee_audio_pad); m_dvr_tee_audio_pad = nullptr; }
+        m_dvr_rec_bin = nullptr;
+        m_dvr_active.store(false, std::memory_order_relaxed);
+        { std::lock_guard<std::mutex> lk(m_dvr_reenc_src_mutex); m_dvr_reenc_appsrc = nullptr; }
+        if (m_dvr_reenc_tee_audio_pad) { gst_object_unref(m_dvr_reenc_tee_audio_pad); m_dvr_reenc_tee_audio_pad = nullptr; }
+        m_dvr_reenc_bin = nullptr;
+        m_dvr_reenc_active.store(false, std::memory_order_relaxed);
     }
     reset_stream_tracking();
     spdlog::info("GstRtpReceiver::stop_receiving end");
@@ -1846,6 +1867,441 @@ void GstRtpReceiver::skip_duration(int64_t skip_ms) {
     if (!gst_element_send_event(m_gst_pipeline, seek_event)) {
         spdlog::warn("Failed to send seek event for skipping.");
     }
+}
+
+// --- DVR record branch (splitmuxsink) ---------------------------------------
+
+// Drop any ELEMENT messages queued on the pipeline bus. Called before EOS so a
+// fragment-closed from an earlier size-split can't be mistaken for this stop's.
+static void dvr_drain_element_messages(GstBus* bus) {
+    if (!bus) return;
+    GstMessage* m;
+    while ((m = gst_bus_pop_filtered(bus, GST_MESSAGE_ELEMENT)) != nullptr) gst_message_unref(m);
+}
+
+// Wait (bounded) for the splitmuxsink to post fragment-closed after an EOS, so
+// the mp4 moov is written before the bin is torn down.
+static void dvr_wait_fragment_closed(GstBus* bus) {
+    if (!bus) return;
+    const gint64 deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND * 2;
+    bool closed = false;
+    while (!closed && g_get_monotonic_time() < deadline) {
+        GstMessage* msg = gst_bus_timed_pop_filtered(bus, 100 * GST_MSECOND, GST_MESSAGE_ELEMENT);
+        if (!msg) continue;
+        if (gst_message_has_name(msg, "splitmuxsink-fragment-closed")) closed = true;
+        gst_message_unref(msg);
+    }
+    if (!closed) spdlog::warn("[DVR] timed out waiting for mp4 finalization");
+}
+
+// Expose an in-bin element's sink pad as a ghost pad so an external tee can link
+// into the bin. Returns a reffed pad (or nullptr).
+static GstPad* dvr_ghost_sink(GstElement* bin, const char* elem, const char* gname) {
+    GstElement* e = gst_bin_get_by_name(GST_BIN(bin), elem);
+    if (!e) return nullptr;
+    GstPad* p = gst_element_get_static_pad(e, "sink");
+    GstPad* g = gst_ghost_pad_new(gname, p);
+    gst_pad_set_active(g, TRUE);
+    gst_element_add_pad(bin, g);
+    gst_object_unref(p);
+    gst_object_unref(e);
+    return gst_element_get_static_pad(bin, gname); // reffed
+}
+
+void GstRtpReceiver::set_dvr_config(int64_t max_size_bytes, std::function<std::string()> base_path_fn) {
+    std::lock_guard<std::mutex> lk(m_dvr_cfg_mutex);
+    m_dvr_max_size = max_size_bytes > 0 ? max_size_bytes : 0;
+    m_dvr_base_path_fn = std::move(base_path_fn);
+}
+
+void GstRtpReceiver::dvr_set_max_size(int64_t max_size_bytes) {
+    std::lock_guard<std::mutex> lk(m_dvr_cfg_mutex);
+    m_dvr_max_size = max_size_bytes > 0 ? max_size_bytes : 0;
+    // Apply live to an in-progress recording (honoured at the next split). The
+    // element, if present, is only torn down by the pull thread; this setter is
+    // called from the menu thread, so read it once under no additional lock —
+    // a torn-down bin just means the value applies to the next start.
+    if (m_dvr_rec_bin) {
+        GstElement* sms = gst_bin_get_by_name(GST_BIN(m_dvr_rec_bin), "dvr_sms");
+        if (sms) {
+            g_object_set(sms, "max-size-bytes", static_cast<guint64>(m_dvr_max_size), NULL);
+            gst_object_unref(sms);
+        }
+    }
+}
+
+void GstRtpReceiver::dvr_request_recording(bool on) {
+    m_dvr_want.store(on, std::memory_order_relaxed);
+}
+
+gchar* GstRtpReceiver::dvr_format_location(GstElement* splitmux, guint fragment_id, gpointer) {
+    const char* base = static_cast<const char*>(g_object_get_data(G_OBJECT(splitmux), "dvr-base"));
+    if (!base || !base[0]) base = "/tmp/pixelpilot_record";
+    // First fragment keeps the plain name; size-splits get _partN (N from 2), to
+    // match the previous minimp4 recorder's split naming.
+    if (fragment_id == 0) return g_strdup_printf("%s.mp4", base);
+    return g_strdup_printf("%s_part%u.mp4", base, fragment_id + 1);
+}
+
+void GstRtpReceiver::dvr_tick() {
+    const bool want = m_dvr_want.load(std::memory_order_relaxed)
+                      && m_gst_pipeline != nullptr && !m_file_playback;
+    const bool active = (m_dvr_rec_bin != nullptr);
+    if (want && !active) {
+        dvr_add_record_bin();
+    } else if (!want && active) {
+        dvr_remove_record_bin();
+    }
+    dvr_reenc_tick();
+}
+
+void GstRtpReceiver::dvr_add_record_bin() {
+    if (!m_gst_pipeline) return;
+    GstElement* tee = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "rtp_tee");
+    if (!tee) { spdlog::warn("[DVR] no rtp_tee in pipeline; cannot record"); return; }
+
+    std::string base;
+    int64_t max_bytes;
+    {
+        std::lock_guard<std::mutex> lk(m_dvr_cfg_mutex);
+        if (m_dvr_base_path_fn) base = m_dvr_base_path_fn();
+        max_bytes = m_dvr_max_size;
+    }
+    if (base.empty()) {
+        spdlog::error("[DVR] no output path resolved; recording disabled");
+        m_dvr_want.store(false, std::memory_order_relaxed); // avoid per-tick retry spam
+        gst_object_unref(tee);
+        return;
+    }
+
+    const bool h265 = (m_video_codec == VideoCodec::H265);
+    // Native video (no re-encode) + muxed Opus (when active) into one mp4 via
+    // splitmuxsink. A leading queue on each input decouples the record branch
+    // from the tee so a slow disk cannot back-pressure and stall the live video.
+    std::stringstream ss;
+    ss << "queue name=dvr_vq max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! "
+       << pipeline::gst_rtp_video_caps_fields(m_video_codec) << " ! "
+       << (h265 ? "rtph265depay" : "rtph264depay") << " name=dvr_vdepay ! "
+       << (h265 ? "h265parse" : "h264parse") << " config-interval=-1 ! "
+       << "splitmuxsink name=dvr_sms muxer=mp4mux max-size-bytes=" << static_cast<guint64>(max_bytes);
+    if (m_audio_active) {
+        // capssetter (ANY sink template) hands Opus RTP caps to the depayloader
+        // without constraining the tee; a PT probe drops non-audio packets.
+        ss << " queue name=dvr_aq leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 ! "
+           << "capssetter replace=true caps=\"application/x-rtp, media=(string)audio, clock-rate=(int)48000,"
+           << " encoding-name=(string)OPUS, payload=(int)" << m_audio_pt << "\" ! "
+           << "rtpopusdepay name=dvr_adepay ! opusparse ! dvr_sms.audio_0";
+    }
+
+    GError* err = nullptr;
+    GstElement* bin = gst_parse_bin_from_description(ss.str().c_str(), FALSE, &err);
+    if (!bin) {
+        spdlog::error("[DVR] failed to build record bin: {}", err ? err->message : "unknown");
+        if (err) g_error_free(err);
+        gst_object_unref(tee);
+        m_dvr_want.store(false, std::memory_order_relaxed);
+        return;
+    }
+    gst_bin_add(GST_BIN(m_gst_pipeline), bin);
+    // Contain the record bin's async state change so adding it to the live
+    // pipeline can't back-pressure/stall it. Without this, starting a second
+    // recorder (BOTH mode) deadlocks both splitmuxsinks (they sleep forever on an
+    // undefined running time and the udpsrc stalls).
+    g_object_set(bin, "async-handling", TRUE, NULL);
+
+    // Custom split filenames from the resolved base path (freed with the sink).
+    GstElement* sms = gst_bin_get_by_name(GST_BIN(bin), "dvr_sms");
+    if (sms) {
+        g_object_set(sms, "async-handling", TRUE, NULL);
+        g_object_set_data_full(G_OBJECT(sms), "dvr-base", g_strdup(base.c_str()), g_free);
+        g_signal_connect(sms, "format-location", G_CALLBACK(&GstRtpReceiver::dvr_format_location), nullptr);
+        gst_object_unref(sms);
+    }
+
+    // Payload-type demux for the record branch when audio is muxed into the flow.
+    if (m_audio_active) {
+        const uint8_t pt = static_cast<uint8_t>(m_audio_pt);
+        attach_pt_filter(m_gst_pipeline, "dvr_vdepay", pt, /*drop_when_match=*/true);
+        attach_pt_filter(m_gst_pipeline, "dvr_adepay", pt, /*drop_when_match=*/false);
+    }
+
+    // Expose the input queue sinks as ghost pads so the tee can link into the bin.
+    GstPad* gv = dvr_ghost_sink(bin, "dvr_vq", "vsink");
+    GstPad* ga = m_audio_active ? dvr_ghost_sink(bin, "dvr_aq", "asink") : nullptr;
+
+    // Sync to PLAYING BEFORE linking to the live tee: linking a still-NULL branch
+    // makes the tee push into it and the udpsrc pauses with FLUSHING (kills video).
+    if (!gst_element_sync_state_with_parent(bin)) {
+        spdlog::error("[DVR] record bin failed to reach PLAYING; aborting record");
+        if (gv) gst_object_unref(gv);
+        if (ga) gst_object_unref(ga);
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_gst_pipeline), bin);
+        gst_object_unref(tee);
+        m_dvr_want.store(false, std::memory_order_relaxed);
+        return;
+    }
+
+    m_dvr_tee_video_pad = gst_element_request_pad_simple(tee, "src_%u");
+    if (gv) gst_pad_link(m_dvr_tee_video_pad, gv);
+    if (ga) {
+        m_dvr_tee_audio_pad = gst_element_request_pad_simple(tee, "src_%u");
+        gst_pad_link(m_dvr_tee_audio_pad, ga);
+    }
+    if (gv) gst_object_unref(gv);
+    if (ga) gst_object_unref(ga);
+    gst_object_unref(tee);
+
+    m_dvr_rec_bin = bin;
+    m_dvr_active.store(true, std::memory_order_relaxed);
+    spdlog::info("[DVR] recording -> {}.mp4 (video={}, audio={}, split={}MB)",
+                 base, h265 ? "H.265" : "H.264", m_audio_active ? "opus" : "none",
+                 max_bytes / 1000000);
+
+    // Ask the air side for a keyframe so the first fragment opens promptly
+    // (splitmuxsink starts a file only on a keyframe boundary).
+    idr_request_record_start();
+}
+
+void GstRtpReceiver::dvr_remove_record_bin() {
+    if (!m_dvr_rec_bin) return;
+    GstElement* bin = m_dvr_rec_bin;
+    GstElement* tee = m_gst_pipeline ? gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "rtp_tee") : nullptr;
+
+    GstPad* gv = gst_element_get_static_pad(bin, "vsink");
+    GstPad* ga = gst_element_get_static_pad(bin, "asink");
+
+    if (m_dvr_tee_video_pad && gv) gst_pad_unlink(m_dvr_tee_video_pad, gv);
+    if (m_dvr_tee_audio_pad && ga) gst_pad_unlink(m_dvr_tee_audio_pad, ga);
+    if (tee && m_dvr_tee_video_pad) gst_element_release_request_pad(tee, m_dvr_tee_video_pad);
+    if (tee && m_dvr_tee_audio_pad) gst_element_release_request_pad(tee, m_dvr_tee_audio_pad);
+
+    // Finalize: EOS the bin inputs so the splitmuxsink writes the mp4 moov, then
+    // wait (bounded) for THIS stop's fragment-closed. Stale fragment-closed
+    // messages from earlier size-splits are drained first so we don't stop early.
+    GstBus* bus = m_gst_pipeline ? gst_element_get_bus(m_gst_pipeline) : nullptr;
+    dvr_drain_element_messages(bus);
+    if (gv) gst_pad_send_event(gv, gst_event_new_eos());
+    if (ga) gst_pad_send_event(ga, gst_event_new_eos());
+    dvr_wait_fragment_closed(bus);
+    if (bus) gst_object_unref(bus);
+
+    if (gv) gst_object_unref(gv);
+    if (ga) gst_object_unref(ga);
+
+    gst_element_set_state(bin, GST_STATE_NULL);
+    if (m_gst_pipeline) gst_bin_remove(GST_BIN(m_gst_pipeline), bin);
+
+    if (m_dvr_tee_video_pad) { gst_object_unref(m_dvr_tee_video_pad); m_dvr_tee_video_pad = nullptr; }
+    if (m_dvr_tee_audio_pad) { gst_object_unref(m_dvr_tee_audio_pad); m_dvr_tee_audio_pad = nullptr; }
+    if (tee) gst_object_unref(tee);
+    m_dvr_rec_bin = nullptr;
+    m_dvr_active.store(false, std::memory_order_relaxed);
+    spdlog::info("[DVR] recording stopped");
+}
+
+// --- Re-encode record branch (appsrc video + Opus) --------------------------
+
+void GstRtpReceiver::dvr_reenc_set_config(VideoCodec codec, int64_t max_size_bytes,
+                                          std::function<std::string()> base_path_fn) {
+    std::lock_guard<std::mutex> lk(m_dvr_reenc_cfg_mutex);
+    m_dvr_reenc_codec = codec;
+    m_dvr_reenc_max_size = max_size_bytes > 0 ? max_size_bytes : 0;
+    m_dvr_reenc_base_path_fn = std::move(base_path_fn);
+    if (m_dvr_reenc_bin) {
+        GstElement* sms = gst_bin_get_by_name(GST_BIN(m_dvr_reenc_bin), "dvr_reenc_sms");
+        if (sms) {
+            g_object_set(sms, "max-size-bytes", static_cast<guint64>(m_dvr_reenc_max_size), NULL);
+            gst_object_unref(sms);
+        }
+    }
+}
+
+void GstRtpReceiver::set_dvr_reenc_on_start(std::function<void()> cb) {
+    std::lock_guard<std::mutex> lk(m_dvr_reenc_cfg_mutex);
+    m_dvr_reenc_on_start = std::move(cb);
+}
+
+void GstRtpReceiver::dvr_reenc_request_recording(bool on) {
+    m_dvr_reenc_want.store(on, std::memory_order_relaxed);
+}
+
+void GstRtpReceiver::dvr_reenc_roll() {
+    m_dvr_reenc_roll_pending.store(true, std::memory_order_relaxed);
+}
+
+void GstRtpReceiver::dvr_reenc_push(std::shared_ptr<std::vector<uint8_t>> nal) {
+    if (!nal || nal->empty()) return;
+    std::lock_guard<std::mutex> lk(m_dvr_reenc_src_mutex);
+    if (!m_dvr_reenc_appsrc) return;  // not recording (yet); drop
+    GstBuffer* buf = gst_buffer_new_allocate(nullptr, nal->size(), nullptr);
+    gst_buffer_fill(buf, 0, nal->data(), nal->size());
+    if (gst_app_src_push_buffer(GST_APP_SRC(m_dvr_reenc_appsrc), buf) != GST_FLOW_OK) {
+        // The branch is being torn down or blocked; drop quietly.
+    }
+}
+
+void GstRtpReceiver::dvr_reenc_tick() {
+    const bool want = m_dvr_reenc_want.load(std::memory_order_relaxed)
+                      && m_gst_pipeline != nullptr && !m_file_playback;
+    const bool active = (m_dvr_reenc_bin != nullptr);
+    // A pending roll (codec/resolution/fps change) tears the current file down;
+    // the next tick re-opens with the new config if recording is still wanted.
+    if (active && m_dvr_reenc_roll_pending.exchange(false, std::memory_order_relaxed)) {
+        dvr_remove_reenc_bin();
+        return;
+    }
+    if (want && !active) {
+        dvr_add_reenc_bin();
+    } else if (!want && active) {
+        dvr_remove_reenc_bin();
+    }
+}
+
+void GstRtpReceiver::dvr_add_reenc_bin() {
+    if (!m_gst_pipeline) return;
+    GstElement* tee = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "rtp_tee");
+    if (!tee) { spdlog::warn("[DVR/reenc] no rtp_tee; cannot record"); return; }
+
+    std::string base;
+    int64_t max_bytes;
+    VideoCodec codec;
+    std::function<void()> on_start;
+    {
+        std::lock_guard<std::mutex> lk(m_dvr_reenc_cfg_mutex);
+        if (m_dvr_reenc_base_path_fn) base = m_dvr_reenc_base_path_fn();
+        max_bytes = m_dvr_reenc_max_size;
+        codec = m_dvr_reenc_codec;
+        on_start = m_dvr_reenc_on_start;
+    }
+    if (base.empty()) {
+        spdlog::error("[DVR/reenc] no output path resolved; recording disabled");
+        m_dvr_reenc_want.store(false, std::memory_order_relaxed);
+        gst_object_unref(tee);
+        return;
+    }
+
+    const bool h265 = (codec == VideoCodec::H265);
+    const bool audio = m_audio_active;
+    // Video is pushed in from the encoder thread (do-timestamp => live mux). Audio
+    // taps the same tee/Opus as the raw recorder.
+    std::stringstream ss;
+    ss << "appsrc name=dvr_reenc_src is-live=true do-timestamp=true format=time ! "
+       << (h265 ? "h265parse" : "h264parse") << " config-interval=-1 ! "
+       << "splitmuxsink name=dvr_reenc_sms muxer=mp4mux max-size-bytes=" << static_cast<guint64>(max_bytes);
+    if (audio) {
+        ss << " queue name=dvr_reenc_aq leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 ! "
+           << "capssetter replace=true caps=\"application/x-rtp, media=(string)audio, clock-rate=(int)48000,"
+           << " encoding-name=(string)OPUS, payload=(int)" << m_audio_pt << "\" ! "
+           << "rtpopusdepay name=dvr_reenc_adepay ! opusparse ! dvr_reenc_sms.audio_0";
+    }
+
+    GError* err = nullptr;
+    GstElement* bin = gst_parse_bin_from_description(ss.str().c_str(), FALSE, &err);
+    if (!bin) {
+        spdlog::error("[DVR/reenc] failed to build record bin: {}", err ? err->message : "unknown");
+        if (err) g_error_free(err);
+        gst_object_unref(tee);
+        m_dvr_reenc_want.store(false, std::memory_order_relaxed);
+        return;
+    }
+    gst_bin_add(GST_BIN(m_gst_pipeline), bin);
+    // Contain the record bin's async state change (see dvr_add_record_bin) so
+    // coexisting with the raw recorder in BOTH mode doesn't deadlock.
+    g_object_set(bin, "async-handling", TRUE, NULL);
+
+    // appsrc caps + config (byte-stream elementary video from the MPP encoder).
+    GstElement* src = gst_bin_get_by_name(GST_BIN(bin), "dvr_reenc_src");
+    GstCaps* caps = gst_caps_new_simple(h265 ? "video/x-h265" : "video/x-h264",
+                                        "stream-format", G_TYPE_STRING, "byte-stream",
+                                        "alignment", G_TYPE_STRING, "au", NULL);
+    g_object_set(src, "caps", caps, "max-bytes", (guint64)(8 * 1024 * 1024), "block", FALSE, NULL);
+    gst_caps_unref(caps);
+
+    // Custom split filenames from the resolved base path (freed with the sink).
+    GstElement* sms = gst_bin_get_by_name(GST_BIN(bin), "dvr_reenc_sms");
+    if (sms) {
+        g_object_set(sms, "async-handling", TRUE, NULL);
+        g_object_set_data_full(G_OBJECT(sms), "dvr-base", g_strdup(base.c_str()), g_free);
+        g_signal_connect(sms, "format-location", G_CALLBACK(&GstRtpReceiver::dvr_format_location), nullptr);
+        gst_object_unref(sms);
+    }
+
+    // Audio branch: keep non-audio-PT packets off the Opus depayloader.
+    GstPad* ga = nullptr;
+    if (audio) {
+        attach_pt_filter(m_gst_pipeline, "dvr_reenc_adepay", static_cast<uint8_t>(m_audio_pt), /*drop_when_match=*/false);
+        ga = dvr_ghost_sink(bin, "dvr_reenc_aq", "asink");
+    }
+
+    // Sync to PLAYING before linking the audio tee pad (same FLUSHING guard as raw).
+    if (!gst_element_sync_state_with_parent(bin)) {
+        spdlog::error("[DVR/reenc] record bin failed to reach PLAYING; aborting record");
+        if (ga) gst_object_unref(ga);
+        if (src) gst_object_unref(src);
+        gst_element_set_state(bin, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(m_gst_pipeline), bin);
+        gst_object_unref(tee);
+        m_dvr_reenc_want.store(false, std::memory_order_relaxed);
+        return;
+    }
+    if (ga) {
+        m_dvr_reenc_tee_audio_pad = gst_element_request_pad_simple(tee, "src_%u");
+        gst_pad_link(m_dvr_reenc_tee_audio_pad, ga);
+        gst_object_unref(ga);
+    }
+    gst_object_unref(tee);
+
+    // Publish the appsrc for the encoder thread's dvr_reenc_push() (transfers ref).
+    {
+        std::lock_guard<std::mutex> lk(m_dvr_reenc_src_mutex);
+        m_dvr_reenc_appsrc = src;
+    }
+    m_dvr_reenc_bin = bin;
+    m_dvr_reenc_active.store(true, std::memory_order_relaxed);
+    spdlog::info("[DVR/reenc] recording -> {}.mp4 (video={}, audio={}, split={}MB)",
+                 base, h265 ? "H.265" : "H.264", audio ? "opus" : "none", max_bytes / 1000000);
+
+    idr_request_record_start();          // air-side keyframe
+    if (on_start) on_start();            // encoder-side keyframe (open first fragment)
+}
+
+void GstRtpReceiver::dvr_remove_reenc_bin() {
+    if (!m_dvr_reenc_bin) return;
+    GstElement* bin = m_dvr_reenc_bin;
+    GstElement* tee = m_gst_pipeline ? gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "rtp_tee") : nullptr;
+
+    // Stop the encoder feed first: null the appsrc so dvr_reenc_push() drops.
+    GstElement* src = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(m_dvr_reenc_src_mutex);
+        src = m_dvr_reenc_appsrc;
+        m_dvr_reenc_appsrc = nullptr;
+    }
+
+    GstPad* ga = gst_element_get_static_pad(bin, "asink");
+    if (m_dvr_reenc_tee_audio_pad && ga) gst_pad_unlink(m_dvr_reenc_tee_audio_pad, ga);
+    if (tee && m_dvr_reenc_tee_audio_pad) gst_element_release_request_pad(tee, m_dvr_reenc_tee_audio_pad);
+
+    // Finalize: EOS the appsrc (video) + audio ghost, wait for fragment-closed.
+    GstBus* bus = m_gst_pipeline ? gst_element_get_bus(m_gst_pipeline) : nullptr;
+    dvr_drain_element_messages(bus);
+    if (src) gst_app_src_end_of_stream(GST_APP_SRC(src));
+    if (ga) gst_pad_send_event(ga, gst_event_new_eos());
+    dvr_wait_fragment_closed(bus);
+    if (bus) gst_object_unref(bus);
+
+    if (ga) gst_object_unref(ga);
+    if (src) gst_object_unref(src);      // release the ref held in m_dvr_reenc_appsrc
+
+    gst_element_set_state(bin, GST_STATE_NULL);
+    if (m_gst_pipeline) gst_bin_remove(GST_BIN(m_gst_pipeline), bin);
+
+    if (m_dvr_reenc_tee_audio_pad) { gst_object_unref(m_dvr_reenc_tee_audio_pad); m_dvr_reenc_tee_audio_pad = nullptr; }
+    if (tee) gst_object_unref(tee);
+    m_dvr_reenc_bin = nullptr;
+    m_dvr_reenc_active.store(false, std::memory_order_relaxed);
+    spdlog::info("[DVR/reenc] recording stopped");
 }
 
 void idr_set_enabled(bool enabled) {
