@@ -1967,6 +1967,18 @@ static GstPad* dvr_ghost_sink(GstElement* bin, const char* elem, const char* gna
     return gst_element_get_static_pad(bin, gname); // reffed
 }
 
+// gst_element_request_pad_simple() only exists since GStreamer 1.19.1; older
+// distros (Debian Bullseye ships 1.18) provide the now-deprecated
+// gst_element_get_request_pad(). Pick the right one per build so both compile
+// cleanly (no missing symbol on 1.18, no deprecation warning on 1.20+).
+static GstPad* dvr_request_tee_pad(GstElement* tee) {
+#if GST_CHECK_VERSION(1, 19, 1)
+    return gst_element_request_pad_simple(tee, "src_%u");
+#else
+    return gst_element_get_request_pad(tee, "src_%u");
+#endif
+}
+
 void GstRtpReceiver::set_dvr_config(int64_t max_size_bytes, std::function<std::string()> base_path_fn) {
     std::lock_guard<std::mutex> lk(m_dvr_cfg_mutex);
     m_dvr_max_size = max_size_bytes > 0 ? max_size_bytes : 0;
@@ -2101,10 +2113,10 @@ void GstRtpReceiver::dvr_add_record_bin() {
         return;
     }
 
-    m_dvr_tee_video_pad = gst_element_request_pad_simple(tee, "src_%u");
+    m_dvr_tee_video_pad = dvr_request_tee_pad(tee);
     if (gv) gst_pad_link(m_dvr_tee_video_pad, gv);
     if (ga) {
-        m_dvr_tee_audio_pad = gst_element_request_pad_simple(tee, "src_%u");
+        m_dvr_tee_audio_pad = dvr_request_tee_pad(tee);
         gst_pad_link(m_dvr_tee_audio_pad, ga);
     }
     if (gv) gst_object_unref(gv);
@@ -2305,7 +2317,7 @@ void GstRtpReceiver::dvr_add_reenc_bin() {
         return;
     }
     if (ga) {
-        m_dvr_reenc_tee_audio_pad = gst_element_request_pad_simple(tee, "src_%u");
+        m_dvr_reenc_tee_audio_pad = dvr_request_tee_pad(tee);
         gst_pad_link(m_dvr_reenc_tee_audio_pad, ga);
         gst_object_unref(ga);
     }
