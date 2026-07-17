@@ -139,6 +139,11 @@ private:
     std::string construct_file_playback_pipeline(const char * file_path);
     void loop_pull_samples();
     void on_new_sample(std::shared_ptr<std::vector<uint8_t>> sample);
+    // Drain the pipeline bus (on the pull thread) so error/warning spam from a
+    // failing sink can't accumulate unbounded, and fall back to video-only if the
+    // audio sink dies — e.g. a USB headset unplugged mid-flight, which otherwise
+    // spins alsasink at 100% CPU and grows memory until it's exhausted.
+    void handle_bus_messages();
     // The gstreamer pipeline
     GstElement * m_gst_pipeline=nullptr;
     NEW_FRAME_CALLBACK m_cb;
@@ -157,6 +162,9 @@ private:
     std::string m_audio_device;
     double m_audio_volume = 1.0;
     int m_audio_pt = 98;
+    // Set while a video-only fallback rebuild (after an audio-sink failure) is in
+    // flight, so the pull thread spawns exactly one rebuild.
+    std::atomic<bool> m_audio_rebuilding{false};
     // True while a switch_to_file_playback() pipeline is up (no live audio branch).
     bool m_file_playback = false;
     // Serializes switch_to_stream() so a menu audio-toggle and an automatic

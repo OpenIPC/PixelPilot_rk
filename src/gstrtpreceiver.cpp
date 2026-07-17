@@ -1306,7 +1306,61 @@ void GstRtpReceiver::loop_pull_samples()
         this->on_new_sample(sample);
     };
     loop_pull_appsink_samples(m_pull_samples_run,m_app_sink_element,cb,
-                              [this]{ this->dvr_tick(); });
+                              [this]{ this->dvr_tick(); this->handle_bus_messages(); });
+}
+
+void GstRtpReceiver::handle_bus_messages()
+{
+    if (!m_gst_pipeline) return;
+    GstBus* bus = gst_element_get_bus(m_gst_pipeline);
+    if (!bus) return;
+
+    bool audio_failed = false;
+    GstMessage* msg;
+    // Pop ERROR/WARNING only — the DVR relies on ELEMENT (fragment-closed)
+    // messages, which stay in the bus for dvr_remove_*_bin() to consume. Draining
+    // here is also what stops a failing sink's message spam from exhausting memory.
+    while ((msg = gst_bus_pop_filtered(
+                bus, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_WARNING))) != nullptr) {
+        GstObject* src = GST_MESSAGE_SRC(msg);
+        gchar* name = src ? gst_object_get_name(src) : nullptr;
+        const bool from_audio_sink = name && strstr(name, "audio_sink") != nullptr;
+
+        GError* err = nullptr;
+        gchar* dbg = nullptr;
+        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR)
+            gst_message_parse_error(msg, &err, &dbg);
+        else
+            gst_message_parse_warning(msg, &err, &dbg);
+
+        if (from_audio_sink) {
+            spdlog::warn("[AUDIO] output sink {}: {}",
+                         GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR ? "error" : "warning",
+                         err ? err->message : "unknown");
+            audio_failed = true;
+        } else if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
+            spdlog::warn("[PIPE] error from {}: {}", name ? name : "?", err ? err->message : "unknown");
+        }
+        if (err) g_error_free(err);
+        g_free(dbg);
+        g_free(name);
+        gst_message_unref(msg);
+    }
+    gst_object_unref(bus);
+
+    // A dead audio sink (e.g. USB headset unplugged) would otherwise have alsasink
+    // spinning at 100% CPU. Rebuild video-only: switch_to_stream()'s pre-flight
+    // (audio_stack_available) finds the device gone and leaves audio out, which
+    // also tears the spinning sink down. Off-thread because switch_to_stream()
+    // joins this pull thread; guarded so we spawn exactly one rebuild.
+    if (audio_failed && m_audio_active &&
+        !m_audio_rebuilding.exchange(true, std::memory_order_acq_rel)) {
+        spdlog::warn("[AUDIO] Output sink failed (device unplugged?) — falling back to video-only");
+        std::thread([this]() {
+            switch_to_stream();
+            m_audio_rebuilding.store(false, std::memory_order_release);
+        }).detach();
+    }
 }
 
 void GstRtpReceiver::on_new_sample(std::shared_ptr<std::vector<uint8_t> > sample)
