@@ -411,10 +411,6 @@ case "$@" in
     "get gs system gs_live_colortrans")
         echo 0
         ;;
-    "get gs system rec_fps")
-        echo 60
-        emit_values "60\n90\n120"
-        ;;
     "get gs system dvr_mode"*)
         echo "raw"
         emit_values "raw\nreencode\nboth"
@@ -464,7 +460,6 @@ case "$@" in
     "set gs system resolution"*)            : ;;
     "set gs system video_scale"*)           : ;;
     "set gs system gs_live_colortrans"*)    : ;;
-    "set gs system rec_fps"*)               : ;;
     "set gs system rec_enabled"*)           : ;;
     "set gs system dvr_mode"*)              : ;;
     "set gs system dvr_max_size"*)          : ;; # needs division by 100

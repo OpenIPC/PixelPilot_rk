@@ -648,22 +648,19 @@ void sigusr2_handler(int signum) {
     spdlog::info("disable_vsync: {}", disable_vsync);
 }
 
-// Shutdown helper for DVR + encoder teardown context.
+// Shutdown helper for the re-encode pipeline (frame pacer + encoder) teardown.
 struct DvrShutdownCtx {
-    Dvr          *dvr_inst;
     FrameProcessor *p;
     MppEncoder   *e;
-    pthread_t     td, tp, te;
+    pthread_t     tp, te;
 };
 
 static void *dvr_shutdown_worker(void *arg) {
     auto *ctx = static_cast<DvrShutdownCtx *>(arg);
     if (ctx->tp) pthread_join(ctx->tp, nullptr);
     if (ctx->te) pthread_join(ctx->te, nullptr);
-    if (ctx->td) pthread_join(ctx->td, nullptr);
     delete ctx->p;
     delete ctx->e;
-    delete ctx->dvr_inst;
     delete ctx;
     return nullptr;
 }
@@ -782,11 +779,6 @@ extern "C" {
         }
     }
 
-    /* Raw DVR framerate is obsolete: the splitmuxsink recorder muxes the native
-     * stream on its own timestamps (no fixed-framerate re-stamping), so there is
-     * no framerate to set. Kept as a no-op for menu/CLI compatibility. */
-    void dvr_set_raw_fps(int /*fps*/) {}
-
     // Switch DVR mode at runtime. Stops any active recording.
     // mode: 0=raw, 1=reencode, 2=both
     void dvr_set_mode(int mode) {
@@ -814,7 +806,7 @@ extern "C" {
             g_tid_enc       = 0;
             if (p) p->shutdown();
             if (e) e->shutdown();
-            auto *ctx = new DvrShutdownCtx{nullptr, p, e, 0, tp, te};
+            auto *ctx = new DvrShutdownCtx{p, e, tp, te};
             pthread_t cleanup_tid;
             pthread_create(&cleanup_tid, NULL, dvr_shutdown_worker, ctx);
             pthread_detach(cleanup_tid);
@@ -1276,7 +1268,7 @@ void printHelp() {
     "\n"
     "    --dvr-start            - Start DVR immediately\n"
     "\n"
-    "    --dvr-framerate <rate> - Force the dvr framerate for smoother dvr, ex: 60\n"
+    "    --dvr-framerate <rate> - [DEPRECATED, ignored] DVR now uses the stream's own timestamps\n"
     "\n"
     "    --dvr-max-size <MB>    - Split DVR files at <MB> megabytes (Default: 4000, for VFAT)\n"
     "\n"
@@ -1418,7 +1410,12 @@ int main(int argc, char **argv)
 	}
 
 	__OnArgument("--dvr-framerate") {
-		video_framerate = atoi(__ArgValue);
+		// Deprecated: kept only so existing launch scripts don't error. The DVR
+		// now muxes the native stream on its own timestamps (no fixed-framerate
+		// re-stamping), so this value is ignored.
+		video_framerate = atoi(__ArgValue);  // consume the value token
+		spdlog::warn("--dvr-framerate is deprecated and ignored; the DVR uses the "
+		             "stream's own timestamps. It will be removed in a future release.");
 		continue;
 	}
 

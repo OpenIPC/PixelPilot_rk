@@ -50,7 +50,6 @@ void dvr_reenc_set_codec(int idx);
 void dvr_reenc_set_resolution(int idx);
 void dvr_set_mode(int mode);
 void dvr_set_max_size(int mb);
-void dvr_set_raw_fps(int fps);
 void dvr_start_all(void);
 void dvr_stop_all(void);
 #endif
@@ -122,11 +121,6 @@ static void on_dvr_max_size(const char * value)  /* param is in units of 100 MB 
 {
     int mb = (value ? atoi(value) : 0) * 100;
     MENU_LIVE(dvr_set_max_size(mb), "dvr_set_max_size(%d)", mb);
-}
-static void on_rec_fps(const char * value)       /* raw recorder framerate */
-{
-    int fps = value ? atoi(value) : 0;
-    if(fps > 0) MENU_LIVE(dvr_set_raw_fps(fps), "dvr_set_raw_fps(%d)", fps);
 }
 static void on_dvr_reenc_codec(const char * value)      /* h264=0, h265=1 */
 {
@@ -438,14 +432,13 @@ static const colmenu_item_t sys_dvr_items[] = {
     { .kind=COLMENU_SWITCH,   .label="Enabled",           .param="rec_enabled",          .on_change=on_rec_enabled },
     { .kind=COLMENU_DROPDOWN, .label="Mode",              .param="dvr_mode",             .on_change=on_dvr_mode },
     { .kind=COLMENU_SLIDER,   .label="Max file size (MB)", .param="dvr_max_size",         .on_change=on_dvr_max_size, .display_scale=100 },
-    { .kind=COLMENU_DROPDOWN, .label="Raw FPS",           .param="rec_fps",              .on_change=on_rec_fps },
     { .kind=COLMENU_DROPDOWN, .label="Codec",             .param="dvr_reenc_codec",      .on_change=on_dvr_reenc_codec },
     { .kind=COLMENU_DROPDOWN, .label="Resolution",        .param="dvr_reenc_resolution", .on_change=on_dvr_reenc_resolution },
     { .kind=COLMENU_DROPDOWN, .label="Re-encode FPS",     .param="dvr_reenc_fps",        .on_change=on_dvr_reenc_fps },
     { .kind=COLMENU_DROPDOWN, .label="Bitrate (kbps)",    .param="dvr_reenc_bitrate",    .on_change=on_dvr_reenc_bitrate },
     { .kind=COLMENU_SWITCH,   .label="Record OSD in DVR", .param="dvr_osd",              .on_change=on_dvr_osd },
 };
-static const colmenu_page_t sys_dvr_page = { "DVR", "gs", "system", sys_dvr_items, 9 };
+static const colmenu_page_t sys_dvr_page = { "DVR", "gs", "system", sys_dvr_items, 8 };
 static const colmenu_item_t system_items[] = {
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_WIFI,  .label="Receiver", .sub=&sys_receiver_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_IMAGE, .label="Display",  .sub=&sys_display_page },

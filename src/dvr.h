@@ -1,128 +1,22 @@
 #ifndef DVR_H
 #define DVR_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <queue>
-#include <mutex>
-#include <condition_variable>
-#include <functional>
+#include <string>
 
-#include "gstrtpreceiver.h"
+// DVR recording is done entirely in-pipeline by the receiver's splitmuxsink
+// recorders (raw + re-encode, see gstrtpreceiver.cpp) — the old minimp4 `Dvr`
+// muxer has been retired. This header retains only the small shared bits: the
+// recording-mode enum, the global record flag, and the filename helper.
 
 enum DvrMode { DVR_MODE_RAW = 0, DVR_MODE_REENCODE = 1, DVR_MODE_BOTH = 2 };
 
-struct MP4E_mux_tag;
-struct mp4_h26x_writer_tag;
-
-struct dvr_write_ctx {
-    FILE *f;
-    int64_t file_size;  // tracks max written offset
-};
-
-struct video_params {
-    uint32_t video_frm_width;
-    uint32_t video_frm_height;
-    VideoCodec codec;
-};
-
-struct dvr_thread_params {
-    char *filename_template;
-    int mp4_fragmentation_mode = 0;
-    bool dvr_filenames_with_sequence = false;
-    int video_framerate = -1;
-    int64_t max_file_size = 0;  // 0 = no limit; bytes
-    video_params video_p;
-};
-
-struct dvr_rpc {
-    enum {
-        RPC_FRAME,
-        RPC_STOP,
-        RPC_START,
-        RPC_TOGGLE,
-        RPC_SHUTDOWN,
-        RPC_SET_PARAMS
-    } command;
-    /* union { */
-        std::shared_ptr<std::vector<uint8_t>> frame;
-    /*     video_params params; */
-    /* }; */
-};
-
-
+// Master record flag (1 while recording). Read by the encoder/frame pacer and
+// mirrored to the receiver's recorders.
 extern int dvr_enabled;
 
 // Resolve the next DVR recording's base path from a filename template WITHOUT
 // the extension: <dir>/[NNNN_]<strftime(template)> minus a trailing ".mp4".
-// Shared by the minimp4 recorder and the in-pipeline splitmuxsink recorder so
-// both honour --dvr-sequenced-files identically. Returns "" if the directory
-// does not exist.
+// Honours --dvr-sequenced-files. Returns "" if the directory does not exist.
 std::string dvr_next_base_path(const char* filename_template, bool with_sequence);
-
-class Dvr {
-public:
-    explicit Dvr(dvr_thread_params params);
-    virtual ~Dvr();
-
-    void frame(std::shared_ptr<std::vector<uint8_t>> frame);
-    void set_video_params(uint32_t video_frm_width,
-                          uint32_t video_frm_height,
-                          VideoCodec codec);
-    void start_recording();
-    void stop_recording();
-    void set_video_framerate(int rate);
-    void set_max_file_size(int64_t size);
-    void toggle_recording();
-    void shutdown();
-
-    static void *__THREAD__(void *context);
-
-    std::function<void()> on_start_cb;
-private:
-    /* void *start(); */
-    /* void *stop(); */
-    void enqueue_dvr_command(dvr_rpc rpc);
-
-    void loop();
-    int start();
-    void stop();
-    void init();
-    void split();
-    bool is_idr(const uint8_t *data, size_t len);
-    void cache_parameter_sets(const uint8_t *data, size_t len);
-private:
-    std::queue<dvr_rpc> dvrQueue;
-    std::mutex mtx;
-    std::condition_variable cv;
-    char *filename_template;
-    int mp4_fragmentation_mode = 0;
-    bool dvr_filenames_with_sequence = false;
-    int video_framerate = -1;
-    int64_t max_file_size = 0;
-    uint32_t video_frm_width;
-    uint32_t video_frm_height;
-    VideoCodec codec;
-    // What the currently-open mp4 writer was initialized with. A mid-recording
-    // codec/resolution change cannot be applied to an open mp4 track, so we roll
-    // to a fresh file instead of re-initializing (which corrupts the mux).
-    VideoCodec init_codec = VideoCodec::UNKNOWN;
-    uint32_t init_w = 0;
-    uint32_t init_h = 0;
-    bool writer_inited = false;
-    int _ready_to_write = 0;
-    bool split_pending = false;
-    int split_part = 0;
-    std::string current_base_path;  // base path without .mp4 for split naming
-    std::vector<uint8_t> cached_vps;   // H.265 only
-    std::vector<uint8_t> cached_sps;
-    std::vector<uint8_t> cached_pps;
-    bool params_complete = false;
-
-    dvr_write_ctx write_ctx;
-    MP4E_mux_tag *mux;
-    mp4_h26x_writer_tag *mp4wr;
-};
 
 #endif
