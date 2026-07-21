@@ -12,6 +12,10 @@
 #include <rga/rga.h>
 #include <spdlog/spdlog.h>
 
+static inline uint32_t align_up(uint32_t v, uint32_t a) {
+    return (v + a - 1) & ~(a - 1);
+}
+
 // ---------------------------------------------------------------------------
 // Shaders
 // ---------------------------------------------------------------------------
@@ -348,6 +352,24 @@ bool FrameColorCorrect::process(int src_fd, uint32_t src_w, uint32_t src_h,
         (int)width_, (int)height_,
         (int)dst_hs, (int)dst_vs,
         RK_FORMAT_YCbCr_420_SP);
+
+    // Pre-flight parameter check: we can't verify RGA's output afterward --
+    // a hardware probe confirmed the CPU can't reliably read back memory
+    // RGA/GPU just wrote on this platform, even with proper dma-buf sync --
+    // so a wrong stride reaching imcvtcolor can't be caught downstream. It
+    // has to be caught here, before the call, by re-deriving the expected
+    // value independently rather than trusting whatever variable ended up
+    // in dst_rga (a real, if narrow, class of bug: a wrong destination
+    // pitch makes RGA address the whole chroma plane incorrectly -- not
+    // just the invisible alignment padding, but the visible picture's own
+    // bottom rows too -- and imcvtcolor still reports success).
+    uint32_t expected_vs = align_up(height_, 16);
+    if ((uint32_t)dst_rga.hstride != expected_vs) {
+        spdlog::error("FrameCC: dst buffer hstride {} != expected {} (height_={}) "
+                     "-- refusing to write, would corrupt chroma addressing",
+                     dst_rga.hstride, expected_vs, height_);
+        return false;
+    }
 
     if (imcvtcolor(src_rga, dst_rga, RK_FORMAT_BGRA_8888,
                    RK_FORMAT_YCbCr_420_SP) != IM_STATUS_SUCCESS) {
