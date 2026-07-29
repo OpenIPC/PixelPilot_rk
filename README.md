@@ -79,10 +79,10 @@ Build on the Rockchip linux system directly.
 
 #### Install dependencies
 
-- drm, mpp, logging, json, msgpack, gpiod, yaml-cpp
+- drm, png, mpp, logging, json, msgpack, gpiod, yaml-cpp
 
 ```
-sudo apt install libdrm-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
+sudo apt install libdrm-dev libpng-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
 ```
 
 - EGL/GLES2 and RGA (required for GPU color correction and DVR re-encoding)
