@@ -39,9 +39,6 @@ extern "C" {
 #include <regex>
 #include <utility>
 #include <filesystem>
-#ifdef TEST
-#include <cairo.h>
-#endif
 #include <time.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -801,26 +798,6 @@ public:
 		dirty = true;
 	}
 
-#ifdef TEST
-	virtual void draw(cairo_t *cr) {}
-	int x(cairo_t *cr) {
-		cairo_surface_t *target = cairo_get_target(cr);
-		int w = cairo_image_surface_get_width(target);
-		return (w + pos_x) % w;
-	}
-	int y(cairo_t *cr) {
-		cairo_surface_t *target = cairo_get_target(cr);
-		int h = cairo_image_surface_get_height(target);
-		return (h + pos_y) % h;
-	}
-	std::pair<int, int> xy(cairo_t *cr) {
-		cairo_surface_t *target = cairo_get_target(cr);
-		int w = cairo_image_surface_get_width(target);
-		int h = cairo_image_surface_get_height(target);
-		return std::pair((w + pos_x) % w, (h + pos_y) % h);
-	}
-#endif
-
 protected:
 	int absX(int screen_w) const { return (screen_w + pos_x) % screen_w; }
 	int absY(int screen_h) const { return (screen_h + pos_y) % screen_h; }
@@ -884,16 +861,6 @@ public:
         Widget(pos_x, pos_y, num_args), tpl(tpl), num_args(num_args) {
         _tokens = tokenize(tpl);
     };
-
-#ifdef TEST
-    virtual void draw(cairo_t *cr) {
-        auto [x, y] = xy(cr);
-        std::unique_ptr<std::string> msg = render_tpl();
-        cairo_set_source_rgba(cr, 255.0, 255.0, 255.0, 1);
-        cairo_move_to(cr, x, y);
-        cairo_show_text(cr, msg->c_str());
-    }
-#endif
 
     void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
         lv_label = lv_label_create(parent);
@@ -2876,8 +2843,8 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
 		return;
 	}
 
-	/* osd_buf_switch is only ever flipped on this thread (here and in the
-	 * Cairo OSD path), so the back buffer is stable: copy without the lock. */
+	/* osd_buf_switch is only ever flipped on this thread, so the back buffer
+	 * is stable: copy without the lock. */
 	int back = p->out->osd_buf_switch ^ 1;
 	struct modeset_buf *dst = &p->out->osd_bufs[back];
 	memcpy(dst->map, lvgl_shadow, dst->size);
@@ -2886,7 +2853,7 @@ void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_ma
 	assert(!ret);
 	p->out->osd_buf_switch = back;
 	if (enable_live_colortrans) {
-		dst->gl_fb_id = osd_gl_process(dst, false); // LVGL: straight alpha
+		dst->gl_fb_id = osd_gl_process(dst);
 	}
 	ret = pthread_mutex_unlock(&osd_mutex);
 	assert(!ret);
@@ -3190,8 +3157,8 @@ void osd_flush_facts(void) {
 	cv.notify_one();  // wake the fact processor so the flush is applied promptly
 };
 
-uint32_t osd_gl_process(struct modeset_buf* buf, bool premultiplied){
-	return osd_gl.process(buf, premultiplied);
+uint32_t osd_gl_process(struct modeset_buf* buf){
+	return osd_gl.process(buf);
 }
 
 #ifdef __cplusplus
@@ -3256,10 +3223,6 @@ void TestTplTextWidget::setStringFact(uint idx, std::string v) {
     Fact fact = Fact(FactMeta("string"), v);
     widget->setFact(idx, fact);
 };
-
-void TestTplTextWidget::draw(void *cr) {
-    widget->draw((cairo_t *) cr);
-}
 
 std::unique_ptr<std::string> TestTplTextWidget::render_tpl() {
     return widget->render_tpl();

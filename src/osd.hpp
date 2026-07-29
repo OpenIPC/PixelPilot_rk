@@ -46,8 +46,6 @@ public:
     TestTplTextWidget(int pos_x, int pos_y, std::string tpl, uint n_args);
     ~TestTplTextWidget();
 
-    void draw(void *cr);
-
     std::unique_ptr<std::string> render_tpl();
 
     void setBoolFact(uint idx, bool v);

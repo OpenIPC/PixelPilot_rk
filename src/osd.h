@@ -42,7 +42,7 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 void osd_flush_facts(void);
 
 #ifndef USE_SIMULATOR
-uint32_t osd_gl_process(struct modeset_buf* buf, bool premultiplied);
+uint32_t osd_gl_process(struct modeset_buf* buf);
 #endif
 #ifdef __cplusplus
 }

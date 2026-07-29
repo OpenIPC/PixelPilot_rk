@@ -7,7 +7,7 @@
 ## Introduction
 
 WFB-ng client (Video Decoder) for Rockchip platform powered by the [Rockchip MPP library](https://github.com/rockchip-linux/mpp).
-It also displays a simple cairo based OSD that shows the bandwidth, decoding latency, and framerate of the decoded video, and wfb-ng link statistics.
+It also displays a simple LVGL based OSD that shows the bandwidth, decoding latency, and framerate of the decoded video, and wfb-ng link statistics.
 
 Additional features:
 - **GPU color correction** — live linear color transform applied to video and OSD via EGL/GLES2 (configurable gain/offset, e.g. for FPV color grading)
@@ -79,10 +79,10 @@ Build on the Rockchip linux system directly.
 
 #### Install dependencies
 
-- drm, cairo, mpp, logging, json, msgpack, gpiod, yaml-cpp
+- drm, mpp, logging, json, msgpack, gpiod, yaml-cpp
 
 ```
-sudo apt install libdrm-dev libcairo-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
+sudo apt install libdrm-dev librockchip-mpp-dev libspdlog-dev nlohmann-json3-dev libmsgpack-dev libgpiod-dev libyaml-cpp-dev
 ```
 
 - EGL/GLES2 and RGA (required for GPU color correction and DVR re-encoding)
@@ -433,8 +433,7 @@ It uses `mpp` library to decode MPEG frames using Rockchip hardware decoder.
 It uses [Direct Rendering Manager (DRM)](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) to
 display video on the screen, see `drm.c`.
 It uses `mavlink` decoder to read Mavlink telemetry from telemetry UDP (if enabled), see `mavlink.c`
-It uses `cairo` library to draw OSD elements (if enabled), see `osd.c`.
-It uses `lvgl` to draw the gsmenu.
+It uses `lvgl` to draw OSD elements (if enabled), see `osd.cpp`, and to draw the gsmenu.
 It writes non-decoded MPEG stream to file as DVR (if enabled) using `minimp4.h` library.
 It uses EGL/GLES2 (via `frame_colorcorrect.cpp`) to apply a GPU color transform to decoded frames before display and recording.
 It uses Rockchip MPP hardware encoder (`mpp_encoder.cpp`) to optionally re-encode the color-corrected video with OSD blended in for DVR recording.
@@ -468,8 +467,7 @@ Pixelpilot starts several threads:
 * OSD_THREAD (if OSD is enabled):
   takes `drm_fd`, `output_list` and JSON config as thread parameters,
   receives Facts through mutex-with-timeout-protected `std::queue`, feeds Facts to widgets and
-  periodically draws widgets on a buffer inside `output_list` using Cairo library.
-  There exists legacy OSD, is based on `osd_vars`, draws using Cairo library, to be removed.
+  periodically draws widgets on a buffer inside `output_list` using LVGL.
   The loop yields on queue's mutex with timeout (timeout in order to re-draw OSD at fixed intervals).
 * ENCODER_PACER_THREAD (if DVR re-encoding is enabled):
   wakes at the target FPS interval and submits the most recent decoded frame to the MPP re-encoder.

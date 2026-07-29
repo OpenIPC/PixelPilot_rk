@@ -1,7 +1,7 @@
 /*
  * drm.h offers a list of methods to use linux DRM and perform modeset to display video frames and the OSD. 
  * It uses two different planes for the OSD and the video feed.
- * The OSD is drawn using lib cairo.
+ * The OSD is drawn using LVGL.
  */
 
 #ifndef DRM_H

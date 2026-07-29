@@ -99,7 +99,7 @@ pixelpilot-rk - OpenIPC video display client for wfb-ng
 # DESCRIPTION
 
 WFB-ng client (Video Decoder) for Rockchip platform powered by the Rockchip MPP library. It also
-displays a simple cairo based OSD that shows the bandwidth, decoding latency, and framerate of
+displays a simple LVGL based OSD that shows the bandwidth, decoding latency, and framerate of
 the decoded video, and wfb-ng link statistics.
 
 # OPTIONS

@@ -2,7 +2,7 @@
 /**
  * osd_gl.hpp
  *
- * Minimal GBM/EGL/GLES2 processor for the Cairo OSD buffer.
+ * Minimal GBM/EGL/GLES2 processor for the LVGL OSD buffer.
  * Applies the inverse colortrans LUT shader to an ARGB8888 dumb buffer
  * (identified by its prime_fd) and returns a DRM fb_id ready for scanout.
  *
@@ -52,9 +52,8 @@ public:
     // Process one frame.
     // Imports buf->prime_fd as EGLImage, runs shader, returns fb_id of result.
     // Returns 0 on failure — caller should fall back to buf->fb + CPU path.
-    // premultiplied: true  = Cairo (CAIRO_FORMAT_ARGB32, premultiplied alpha)
-    //               false = LVGL  (LV_COLOR_FORMAT_ARGB8888, straight alpha)
-    uint32_t process(struct modeset_buf* buf, bool premultiplied = true);
+    // Expects straight-alpha LV_COLOR_FORMAT_ARGB8888 content.
+    uint32_t process(struct modeset_buf* buf);
 
     bool ready() const { return ready_; }
     void deinit();
@@ -86,7 +85,6 @@ private:
     GLint  loc_tex_{-1};
     GLint  loc_gain_{-1};
     GLint  loc_offset_{-1};
-    GLint  loc_premul_{-1};
 
     // Double-buffered GBM render targets
     static constexpr int kTargets = 2;

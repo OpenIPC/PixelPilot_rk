@@ -204,7 +204,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_BINARY_DIR}")
 # Testing
 if(BUILD_TESTS)
     find_package(Catch2 REQUIRED)
-    pkg_check_modules(CAIRO cairo)
 
     # Test source files
     set(TEST_SOURCES
@@ -218,10 +217,10 @@ if(BUILD_TESTS)
 
     # Test executable
     add_executable(pixelpilot_tests ${LIB_SOURCE_FILES} ${TEST_SOURCES})
-    target_include_directories(pixelpilot_tests PUBLIC "${PROJECT_BINARY_DIR}" ${LIBDRM_INCLUDE_DIRS} ${CAIRO_INCLUDE_DIRS})
+    target_include_directories(pixelpilot_tests PUBLIC "${PROJECT_BINARY_DIR}" ${LIBDRM_INCLUDE_DIRS})
     # Define the TEST preprocessor directive
     target_compile_definitions(pixelpilot_tests PRIVATE TEST)
-    target_link_libraries(pixelpilot_tests rockchip_mpp pthread drm m cairo spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES} ${PNG_LIBRARIES} Catch2::Catch2WithMain)
+    target_link_libraries(pixelpilot_tests rockchip_mpp pthread drm m spdlog::spdlog nlohmann_json::nlohmann_json yaml-cpp rt lvgl ${LIBGPIOD_LIBRARIES} ${PNG_LIBRARIES} Catch2::Catch2WithMain)
 
     find_package(PkgConfig REQUIRED)
     pkg_search_module(GST REQUIRED

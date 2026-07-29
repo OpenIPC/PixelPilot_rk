@@ -3,25 +3,20 @@
  *
  * GBM/EGL/GLES2 inverse colortrans processor for OSD buffers.
  *
- * Two OSD paths with different alpha conventions feed this shader:
- *   - Cairo  (modeset_paint_buffer): CAIRO_FORMAT_ARGB32 — premultiplied alpha
- *   - LVGL   (my_flush_cb):          LV_COLOR_FORMAT_ARGB8888 — straight alpha
- *
- * Both share the same byte layout on little-endian (BGRA in memory =
- * DRM_FORMAT_ARGB8888), but the premultiplication state differs.
- * process() takes a `premultiplied` flag so the shader can skip the
- * un-premultiply / re-premultiply steps for straight-alpha LVGL data.
+ * The OSD is rendered by LVGL (my_flush_cb) as LV_COLOR_FORMAT_ARGB8888 —
+ * straight (non-premultiplied) alpha, byte layout BGRA in memory on
+ * little-endian, i.e. DRM_FORMAT_ARGB8888.
  *
  * Pipeline per frame:
  *   1. Import buf->prime_fd (ARGB8888 dumb buffer) as EGLImage via
  *      EGL_LINUX_DMA_BUF_EXT — zero copy, no upload.
  *   2. Bind as GL_TEXTURE_2D source.
  *   3. Render fullscreen quad with LUT shader into GBM BO render target.
- *      Shader does: un-premultiply → gain/offset inverse → re-premultiply.
+ *      Shader applies the gain/offset inverse to the straight-alpha colour.
  *   4. GBM BO is already registered as a DRM framebuffer (fb_id).
  *      Caller uses this fb_id for the OSD plane commit instead of buf->fb.
  *
- * The Cairo dumb buffer (buf->map) is never touched by the CPU after render.
+ * The dumb buffer (buf->map) is never touched by the CPU after render.
  * The shader runs entirely on Mali-G52.
  */
 
@@ -47,21 +42,14 @@ void main() {
 
 // Inverse colortrans for ARGB8888 OSD buffers.
 //
-// u_premultiplied = 1.0  →  Cairo path: premultiplied alpha
-//                            un-premultiply → transform → re-premultiply
-// u_premultiplied = 0.0  →  LVGL path: straight alpha
-//                            transform only (divisor = 1.0, no mul/div by α)
-//
-// The mix() trick avoids a branch: divisor = mix(1.0, c.a, u_premultiplied)
-//   premul=1.0  → divisor = c.a   (un-premultiply and re-premultiply)
-//   premul=0.0  → divisor = 1.0   (no-op, straight alpha preserved)
+// LVGL hands us straight (non-premultiplied) alpha, so the colour channels can
+// be transformed directly — no un-premultiply / re-premultiply round trip.
 static const char* kFrag = R"GLSL(
 precision mediump float;
 varying vec2 v_uv;
 uniform sampler2D tex;
 uniform float gain;
 uniform float offset;
-uniform float u_premultiplied;  // 1.0 = premul (Cairo), 0.0 = straight (LVGL)
 
 void main() {
     vec4 c = texture2D(tex, v_uv);
@@ -69,13 +57,9 @@ void main() {
         gl_FragColor = vec4(0.0);
         return;
     }
-    // un-premultiply if needed (divisor = c.a for premul, 1.0 for straight)
-    float divisor = mix(1.0, c.a, u_premultiplied);
-    vec3 straight = c.rgb / divisor;
     // inverse transform: x = y/gain - offset
-    vec3 corrected = clamp(straight / gain - offset, 0.0, 1.0);
-    // re-premultiply if needed (matching divisor)
-    gl_FragColor = vec4(corrected * divisor, c.a);
+    vec3 corrected = clamp(c.rgb / gain - offset, 0.0, 1.0);
+    gl_FragColor = vec4(corrected, c.a);
 }
 )GLSL";
 
@@ -242,7 +226,6 @@ bool OsdGl::build_shader() {
     loc_tex_    = glGetUniformLocation(prog_, "tex");
     loc_gain_   = glGetUniformLocation(prog_, "gain");
     loc_offset_ = glGetUniformLocation(prog_, "offset");
-    loc_premul_ = glGetUniformLocation(prog_, "u_premultiplied");
     return true;
 }
 
@@ -322,11 +305,11 @@ void OsdGl::set_params(float gain, float offset) {
     // Uniforms are set per-draw so no extra work needed here
 }
 
-uint32_t OsdGl::process(struct modeset_buf* buf, bool premultiplied)
+uint32_t OsdGl::process(struct modeset_buf* buf)
 {
     if (!ready_ || buf->prime_fd < 0) return 0;
 
-    // --- Import Cairo dumb buffer as EGLImage --------------------------------
+    // --- Import dumb buffer as EGLImage --------------------------------------
     const EGLint src_attrs[] = {
         EGL_WIDTH,                       (EGLint)buf->width,
         EGL_HEIGHT,                      (EGLint)buf->height,
@@ -367,7 +350,6 @@ uint32_t OsdGl::process(struct modeset_buf* buf, bool premultiplied)
     glUniform1i(loc_tex_,    0);
     glUniform1f(loc_gain_,   gain_);
     glUniform1f(loc_offset_, offset_);
-    glUniform1f(loc_premul_, premultiplied ? 1.f : 0.f);
 
     const GLfloat verts[] = {
         // x,   y,    u,   v

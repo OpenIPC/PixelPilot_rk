@@ -7,7 +7,6 @@ Build-Depends:
  debhelper-compat (= 13),
  cmake,
  libdrm-dev,
- libcairo-dev,
  librockchip-mpp-dev,
  libspdlog-dev,
  nlohmann-json3-dev,
