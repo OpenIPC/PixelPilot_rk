@@ -1094,8 +1094,9 @@ private:
 // soft red gradient, opaque at the screen edge and transparent inward; the
 // container's opacity is driven by how far past the threshold the best value is
 // (threshold -> 0, critical -> max). Straight (non-premultiplied) alpha — relies
-// on the OSD plane being composited in "Coverage" blend mode (see drm.c) / RGA
-// PRE_MUL fallback.
+// on the OSD plane being composited in "Coverage" blend mode (see drm.c) on the
+// display path, and on the GL shader's straight-alpha over blend (see
+// frame_colorcorrect.cpp) on the DVR re-encode path.
 class SignalWarningWidget: public Widget {
 public:
 	SignalWarningWidget(int pos_x, int pos_y, double threshold, double critical, uint num_facts,
