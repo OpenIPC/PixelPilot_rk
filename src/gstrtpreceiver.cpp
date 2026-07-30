@@ -212,6 +212,9 @@ namespace {
     // Used to keep audio packets out of the video-only stream trackers (IDR
     // sequence-gap detection and mid-stream codec-switch detection).
     static std::atomic<int> g_audio_pt{-1};
+    // Wall-clock ms of the last observed audio (Opus) packet; 0 = never seen.
+    // Lets the DVR decide whether a recording should carry an audio track.
+    static std::atomic<uint64_t> g_last_audio_pkt_ms{0};
 
     static bool is_audio_pt(uint8_t pt) {
         const int a = g_audio_pt.load(std::memory_order_relaxed);
@@ -249,6 +252,16 @@ namespace {
     static uint64_t now_ms() {
         const auto now = std::chrono::steady_clock::now().time_since_epoch();
         return std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+    }
+
+    // True if Opus is flowing right now (a packet seen very recently). Recording
+    // an empty audio track — which happens when --audio is on but the air sends
+    // no audio — produces an unplayable mp4, so the DVR only adds an audio track
+    // when this is true. Kept short so a recording started shortly after audio
+    // stops doesn't get an empty track either.
+    static bool audio_recently_seen() {
+        const uint64_t last = g_last_audio_pkt_ms.load(std::memory_order_relaxed);
+        return last != 0 && (now_ms() - last) < 1500;
     }
 
     static void request_idr_bursts(const char* reason, int request_count, bool allow_pending);
@@ -1028,6 +1041,9 @@ namespace {
         if (gst_buffer_map(buf, &map, GST_MAP_READ)) {
             if (map.size >= 2) {
                 const bool match = ((map.data[1] & 0x7f) == f->pt);
+                // f->pt is the audio PT for both branch filters, so a match means
+                // an Opus packet just went by — note it for audio_recently_seen().
+                if (match) g_last_audio_pkt_ms.store(now_ms(), std::memory_order_relaxed);
                 drop = f->drop_when_match ? match : !match;
             }
             gst_buffer_unmap(buf, &map);
@@ -2046,6 +2062,9 @@ void GstRtpReceiver::dvr_add_record_bin() {
     }
 
     const bool h265 = (m_video_codec == VideoCodec::H265);
+    // Only mux an audio track when Opus is actually flowing: recording an empty
+    // audio track (--audio on but the air sends none) yields an unplayable mp4.
+    const bool audio = m_audio_active && audio_recently_seen();
     // Native video (no re-encode) + muxed Opus (when active) into one mp4 via
     // splitmuxsink. A leading queue on each input decouples the record branch
     // from the tee so a slow disk cannot back-pressure and stall the live video.
@@ -2055,7 +2074,7 @@ void GstRtpReceiver::dvr_add_record_bin() {
        << (h265 ? "rtph265depay" : "rtph264depay") << " name=dvr_vdepay ! "
        << (h265 ? "h265parse" : "h264parse") << " config-interval=-1 ! "
        << "splitmuxsink name=dvr_sms muxer=mp4mux max-size-bytes=" << static_cast<guint64>(max_bytes);
-    if (m_audio_active) {
+    if (audio) {
         // capssetter (ANY sink template) hands Opus RTP caps to the depayloader
         // without constraining the tee; a PT probe drops non-audio packets.
         ss << " queue name=dvr_aq leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=200000000 ! "
@@ -2090,7 +2109,7 @@ void GstRtpReceiver::dvr_add_record_bin() {
     }
 
     // Payload-type demux for the record branch when audio is muxed into the flow.
-    if (m_audio_active) {
+    if (audio) {
         const uint8_t pt = static_cast<uint8_t>(m_audio_pt);
         attach_pt_filter(m_gst_pipeline, "dvr_vdepay", pt, /*drop_when_match=*/true);
         attach_pt_filter(m_gst_pipeline, "dvr_adepay", pt, /*drop_when_match=*/false);
@@ -2098,7 +2117,7 @@ void GstRtpReceiver::dvr_add_record_bin() {
 
     // Expose the input queue sinks as ghost pads so the tee can link into the bin.
     GstPad* gv = dvr_ghost_sink(bin, "dvr_vq", "vsink");
-    GstPad* ga = m_audio_active ? dvr_ghost_sink(bin, "dvr_aq", "asink") : nullptr;
+    GstPad* ga = audio ? dvr_ghost_sink(bin, "dvr_aq", "asink") : nullptr;
 
     // Sync to PLAYING BEFORE linking to the live tee: linking a still-NULL branch
     // makes the tee push into it and the udpsrc pauses with FLUSHING (kills video).
@@ -2126,7 +2145,7 @@ void GstRtpReceiver::dvr_add_record_bin() {
     m_dvr_rec_bin = bin;
     m_dvr_active.store(true, std::memory_order_relaxed);
     spdlog::info("[DVR] recording -> {}.mp4 (video={}, audio={}, split={}MB)",
-                 base, h265 ? "H.265" : "H.264", m_audio_active ? "opus" : "none",
+                 base, h265 ? "H.265" : "H.264", audio ? "opus" : "none",
                  max_bytes / 1000000);
 
     // Ask the air side for a keyframe so the first fragment opens promptly
@@ -2253,7 +2272,9 @@ void GstRtpReceiver::dvr_add_reenc_bin() {
     }
 
     const bool h265 = (codec == VideoCodec::H265);
-    const bool audio = m_audio_active;
+    // Only mux audio when Opus is actually flowing — an empty audio track (--audio
+    // on but the air sends none) makes the mp4 unplayable.
+    const bool audio = m_audio_active && audio_recently_seen();
     // Video is pushed in from the encoder thread (do-timestamp => live mux). Audio
     // taps the same tee/Opus as the raw recorder.
     std::stringstream ss;
