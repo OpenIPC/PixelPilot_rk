@@ -788,13 +788,14 @@ public:
         args[idx] = fact;
 	}
 
-	// Reset all bound facts to undefined (their initial state). Used to flush stale
-	// facts, e.g. on an RX mode switch. Resets args directly rather than routing
+	// Reset one bound fact to undefined (its initial state). Used to flush stale
+	// facts, e.g. on an RX mode switch. Resets the arg directly rather than routing
 	// through setFact(), because some overrides read the value unconditionally and
 	// would choke on an undefined fact. Marks the widget dirty so it re-renders the
 	// cleared state on the next tick.
-	virtual void clearFacts() {
-		for (auto& a : args) a = Fact();
+	virtual void clearFact(uint idx) {
+		if (idx >= args.size()) return;
+		args[idx] = Fact();
 		dirty = true;
 	}
 
@@ -804,7 +805,7 @@ protected:
 
 	int pos_x, pos_y;
 	std::vector<Fact> args;
-	bool dirty = false;  // widget needs a redraw; set on setFact/clearFacts, cleared in tick()
+	bool dirty = false;  // widget needs a redraw; set on setFact/clearFact, cleared in tick()
 };
 
 
@@ -2771,13 +2772,21 @@ public:
 		return this;
 	};
 
-	// Reset every widget's bound facts to undefined. The active data sources
-	// re-publish what matters right after, so this is a clean-slate for stale facts
-	// (e.g. the previous RX mode's stats). Must run on the fact-processor thread
-	// (under lvgl_mutex), like setFact.
-	void flushFacts() {
-		for (auto* widget : widgets) {
-			widget->clearFacts();
+	// Reset the bound facts whose name starts with one of `prefixes` to undefined.
+	// The sources owning them re-publish right after, so this is a clean slate for
+	// stale facts (e.g. the previous RX mode's link stats). Scoped by name rather
+	// than clearing every widget: facts published only once per stream, like
+	// video.width/height (only on a decoder frame-info change) or video.codec, have
+	// nobody to re-publish them and their widgets would render '?' for good.
+	// Must run on the fact-processor thread (under lvgl_mutex), like setFact.
+	void flushFacts(const std::vector<std::string>& prefixes) {
+		for (auto& [matcher, widget, arg_idx] : matchers) {
+			for (const auto& prefix : prefixes) {
+				if (matcher.name.rfind(prefix, 0) == 0) {
+					widget->clearFact(arg_idx);
+					break;
+				}
+			}
 		}
 	}
 
@@ -2808,7 +2817,7 @@ private:
 
 
 std::queue<Fact> fact_queue;
-std::atomic<bool> flush_facts_requested{false};  // set by osd_flush_facts()
+std::vector<std::string> pending_flush_prefixes;  // guarded by mtx; set by osd_flush_facts()
 std::mutex mtx;
 std::mutex lvgl_mutex;  // Protects all LVGL operations
 std::condition_variable cv;
@@ -2926,6 +2935,7 @@ void factProcessorLoop() {
 
 	while (!osd_thread_signal) {
 		std::vector<Fact> fact_buf;
+		std::vector<std::string> flush_prefixes;
 		{
 			std::unique_lock<std::mutex> lock(mtx);
 			// Wait for facts with 1ms timeout (continuous processing)
@@ -2938,14 +2948,15 @@ void factProcessorLoop() {
 				fact_buf.push_back(fact_queue.front());
 				fact_queue.pop();
 			}
+			flush_prefixes.swap(pending_flush_prefixes);
 		}
 
 		// Process facts with LVGL lock protection
 		if (g_osd) {
 			std::lock_guard<std::mutex> lock(lvgl_mutex);
 			// Flush first, so facts published after the flush request survive.
-			if (flush_facts_requested.exchange(false)) {
-				g_osd->flushFacts();
+			if (!flush_prefixes.empty()) {
+				g_osd->flushFacts(flush_prefixes);
 			}
 			for (const Fact& fact : fact_buf) {
 				g_osd->setFact(fact);
@@ -3149,11 +3160,18 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 	publish(Fact(FactMeta(std::string(name), fact_tags), std::string(value)));
 };
 
-// Reset all facts to a clean (undefined) state. The active data sources re-publish
-// what matters, so this is the clean way to drop stale facts on an RX mode switch
-// instead of retracting each one by hand. Applied on the fact-processor thread.
-void osd_flush_facts(void) {
-	flush_facts_requested.store(true, std::memory_order_release);
+// Reset the facts whose name starts with one of `prefixes` to undefined. The source
+// owning them re-publishes, so this is the clean way to drop a subsystem's stale
+// facts on an RX mode switch instead of retracting each one by hand. Requests are
+// accumulated and applied on the fact-processor thread.
+void osd_flush_facts(const char *const *prefixes, int n_prefixes) {
+	if (!prefixes || n_prefixes <= 0) return;
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		for (int i = 0; i < n_prefixes; i++) {
+			if (prefixes[i]) pending_flush_prefixes.emplace_back(prefixes[i]);
+		}
+	}
 	cv.notify_one();  // wake the fact processor so the flush is applied promptly
 };
 

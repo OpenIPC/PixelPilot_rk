@@ -38,8 +38,11 @@ void osd_publish_int_fact(char const *name, osd_tag *tags, int n_tags, long valu
 void osd_publish_uint_fact(char const *name, osd_tag *tags, int n_tags, ulong value);
 void osd_publish_double_fact(char const *name, osd_tag *tags, int n_tags, double value);
 void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const char *value);
-// Reset all facts to a clean (undefined) state; sources re-publish what matters.
-void osd_flush_facts(void);
+// Reset the facts whose name starts with one of `prefixes` back to undefined;
+// the active sources re-publish theirs. Scoped by name on purpose - facts that
+// are published only once (video.width/height, video.codec, ...) would never
+// come back from a global flush.
+void osd_flush_facts(const char *const *prefixes, int n_prefixes);
 
 #ifndef USE_SIMULATOR
 uint32_t osd_gl_process(struct modeset_buf* buf);

@@ -17,7 +17,7 @@
 #include "helper.h"       /* show_restart_notice(), find_first_focusable_obj() */
 #include "../menu.h"      /* MenuAction, screens */
 #include "../main.h"      /* sig_handler() — graceful shutdown / restart */
-#include "../osd.h"       /* osd_flush_facts() — clear stale facts on RX mode switch */
+#include "../osd.h"       /* osd_flush_facts() — clear stale per-mode facts on RX mode switch */
 #ifndef USE_SIMULATOR
 #include "../drm.h"       /* gamma_lut_controller, gamma_lut_enable/disable */
 #endif
@@ -183,10 +183,17 @@ static void apply_rx_mode(bool apfpv)
     RXMODE = apfpv ? APFPV : WFB;
     setenv("REMOTE_IP",         apfpv ? "192.168.0.1" : "10.5.0.10", 1);
     setenv("AIR_FIRMWARE_TYPE", apfpv ? "apfpv"       : "wfb",       1);
-    /* Drop the previous mode's stale facts (e.g. os_mon.wifi.rssi lingering after
-     * apfpv, or wfb ant_stats after wfb). The active sources re-publish theirs. */
+    /* Drop the previous mode's stale facts: wfbcli.* (the wfbcli thread only runs in
+     * WFB) and os_mon.wifi.* (WiFiRSSIMonitor only runs in apfpv). The active source
+     * re-publishes its own. Only these two prefixes - a blanket flush would also clear
+     * facts nobody re-publishes, e.g. video.width/height (published once per decoder
+     * frame-info change), leaving the VideoWidget stuck on "?x?". */
 #ifndef USE_SIMULATOR
-    if (changed) osd_flush_facts();   // osd.cpp isn't in the sim build
+    if (changed) {
+        static const char *const stale_prefixes[] = { "wfbcli.", "os_mon.wifi." };
+        osd_flush_facts(stale_prefixes,                     // osd.cpp isn't in the sim build
+                        (int)(sizeof(stale_prefixes) / sizeof(stale_prefixes[0])));
+    }
 #else
     (void)changed;
 #endif
