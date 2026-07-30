@@ -415,11 +415,14 @@ static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_
 static const colmenu_item_t sys_receiver_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Codec",   .param="rx_codec" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="RX Mode", .param="rx_mode", .on_change=on_rx_mode_change },
-    { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,    .label="Audio",   .param="audio",   .on_change=on_audio_enabled },
-    { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_AUDIO,    .label="Output",  .param="audio_device", .on_change=on_audio_device },
+};
+static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 2 };
+static const colmenu_item_t sys_audio_items[] = {
+    { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,      .label="Audio",  .param="audio",        .on_change=on_audio_enabled },
+    { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_AUDIO,      .label="Output", .param="audio_device", .on_change=on_audio_device },
     { .kind=COLMENU_SLIDER,   .icon=LV_SYMBOL_VOLUME_MAX, .label="Volume", .param="audio_volume", .on_change=on_audio_volume, .on_live=on_audio_volume },
 };
-static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 5 };
+static const colmenu_page_t sys_audio_page = { "Audio", "gs", "system", sys_audio_items, 3 };
 static const colmenu_item_t sys_display_items[] = {
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="GS Rendering",   .param="gs_rendering" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Connector",      .param="connector" },
@@ -441,10 +444,11 @@ static const colmenu_item_t sys_dvr_items[] = {
 static const colmenu_page_t sys_dvr_page = { "DVR", "gs", "system", sys_dvr_items, 8 };
 static const colmenu_item_t system_items[] = {
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_WIFI,  .label="Receiver", .sub=&sys_receiver_page },
+    { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_AUDIO, .label="Audio",    .sub=&sys_audio_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_IMAGE, .label="Display",  .sub=&sys_display_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_VIDEO, .label="DVR",      .sub=&sys_dvr_page },
 };
-static const colmenu_page_t system_page = { "System", "gs", "system", system_items, 3 };
+static const colmenu_page_t system_page = { "System", "gs", "system", system_items, 4 };
 
 /* WiFi. The WiFi page shows the live connection (get gs wifi ssid) — entering the
  * connected network gives Disconnect / Forget. "Networks" lists only AVAILABLE
