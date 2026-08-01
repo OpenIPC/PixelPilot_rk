@@ -162,9 +162,6 @@ private:
     std::string m_audio_device;
     double m_audio_volume = 1.0;
     int m_audio_pt = 98;
-    // Set while a video-only fallback rebuild (after an audio-sink failure) is in
-    // flight, so the pull thread spawns exactly one rebuild.
-    std::atomic<bool> m_audio_rebuilding{false};
     // True while a switch_to_file_playback() pipeline is up (no live audio branch).
     bool m_file_playback = false;
     // Serializes switch_to_stream() so a menu audio-toggle and an automatic

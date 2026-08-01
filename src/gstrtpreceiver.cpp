@@ -1293,12 +1293,18 @@ static void loop_pull_appsink_samples(bool& keep_looping,GstElement *app_sink_el
 std::string GstRtpReceiver::construct_gstreamer_pipeline()
 {
     std::stringstream ss;
-    // With audio muxed into the same RTP flow the source caps must stay generic
-    // (application/x-rtp) so both the video and audio branches can negotiate
-    // their own media type off the tee; the video branch then re-asserts its
-    // caps with an explicit capsfilter. When audio is off, the source keeps the
-    // codec-specific caps exactly as before.
-    const std::string src_caps = m_audio_active
+    // Two independent concerns:
+    //  - demux_audio: the air unit muxes Opus into the RTP flow (i.e. the user
+    //    enabled audio), so the source caps must stay generic and the video
+    //    branch must DROP audio packets by payload type — otherwise the video
+    //    depayloader chokes on Opus and corrupts the picture. This must hold even
+    //    when playback is impossible (e.g. USB sink unplugged mid-flight): the
+    //    drone keeps sending audio, we just can't play it.
+    //  - play_audio: the ALSA sink is actually usable, so build the playback
+    //    branch. A subset of demux_audio.
+    const bool demux_audio = m_audio_enabled;   // audio present in the flow
+    const bool play_audio  = m_audio_active;     // sink usable -> alsasink branch
+    const std::string src_caps = demux_audio
         ? std::string("caps=\"application/x-rtp\"")
         : pipeline::gst_create_rtp_caps(m_video_codec);
     if (! unix_socket)
@@ -1306,7 +1312,7 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
     else
         ss<<"appsrc name=appsrc "<<src_caps<<" ! tee name=rtp_tee ";
     ss<<"rtp_tee. ! ";
-    if (m_audio_active) {
+    if (demux_audio) {
         ss<<pipeline::gst_rtp_video_caps_fields(m_video_codec)<<" ! ";
         ss<<pipeline::create_rtp_depacketize_for_codec(m_video_codec, "video_depay");
     } else {
@@ -1315,7 +1321,7 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
     ss<<"appsink drop=true name=out_appsink";
-    if (m_audio_active) {
+    if (play_audio) {
         ss<<pipeline::create_audio_branch(m_audio_pt, m_audio_device);
     }
     ss<<create_restream_branch();
@@ -1357,9 +1363,13 @@ void GstRtpReceiver::handle_bus_messages()
             gst_message_parse_warning(msg, &err, &dbg);
 
         if (from_audio_sink) {
-            spdlog::warn("[AUDIO] output sink {}: {}",
-                         GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR ? "error" : "warning",
-                         err ? err->message : "unknown");
+            // Throttle: a disconnected USB sink posts an error per failed write
+            // (hundreds/s). Log once, only while we still think audio is up; after
+            // the fallback below flips m_audio_active off we drain silently.
+            if (m_audio_active && !audio_failed)
+                spdlog::warn("[AUDIO] output sink {}: {} — falling back to video-only",
+                             GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR ? "error" : "warning",
+                             err ? err->message : "unknown");
             audio_failed = true;
         } else if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
             spdlog::warn("[PIPE] error from {}: {}", name ? name : "?", err ? err->message : "unknown");
@@ -1375,14 +1385,18 @@ void GstRtpReceiver::handle_bus_messages()
     // spinning at 100% CPU. Rebuild video-only: switch_to_stream()'s pre-flight
     // (audio_stack_available) finds the device gone and leaves audio out, which
     // also tears the spinning sink down. Off-thread because switch_to_stream()
-    // joins this pull thread; guarded so we spawn exactly one rebuild.
-    if (audio_failed && m_audio_active &&
-        !m_audio_rebuilding.exchange(true, std::memory_order_acq_rel)) {
+    // joins this pull thread.
+    //
+    // Re-entry gate: clear m_audio_active *now*. handle_bus_messages() only ever
+    // runs on the pull thread, so this store alone stops the fast-ticking loop
+    // from spawning a second rebuild — with no persistent flag that could get
+    // stuck true if a later teardown stalls (which made only the first unplug
+    // work). The demux stays up (keyed on m_audio_enabled), so the drone's
+    // ongoing audio keeps being dropped from the video path meanwhile.
+    if (audio_failed && m_audio_active) {
+        m_audio_active = false;
         spdlog::warn("[AUDIO] Output sink failed (device unplugged?) — falling back to video-only");
-        std::thread([this]() {
-            switch_to_stream();
-            m_audio_rebuilding.store(false, std::memory_order_release);
-        }).detach();
+        std::thread([this]() { switch_to_stream(); }).detach();
     }
 }
 
@@ -1503,8 +1517,12 @@ void GstRtpReceiver::stop_receiving() {
         // so a recording that spans a rebuild is re-armed on the new pipeline.
         if (m_dvr_rec_bin) dvr_remove_record_bin();
         if (m_dvr_reenc_bin) dvr_remove_reenc_bin();
-        gst_element_send_event((GstElement*)m_gst_pipeline, gst_event_new_eos());
-        gst_element_set_state(m_gst_pipeline, GST_STATE_PAUSED);
+        // NOTE: no pipeline-wide EOS here. It's redundant now that the recorders
+        // are finalized above, and a pipeline EOS makes alsasink *drain* its ring
+        // buffer — which never completes on a disconnected USB device and would
+        // hang this teardown (freezing video, since the pull thread is already
+        // joined). set_state(NULL) flushes without draining, so a dead sink can't
+        // stall the fallback rebuild.
         gst_element_set_state(m_gst_pipeline, GST_STATE_NULL);
         gst_object_unref(m_gst_pipeline);
         m_gst_pipeline = nullptr;
@@ -1601,7 +1619,9 @@ void GstRtpReceiver::switch_to_stream() {
     // are kept, so the next rebuild picks the device back up once it returns.
     m_audio_active = m_audio_enabled &&
                      audio_stack_available(pipeline::resolve_alsa_device(m_audio_device));
-    g_audio_pt.store(m_audio_active ? m_audio_pt : -1, std::memory_order_relaxed);
+    // Audio is in the RTP flow whenever the user enabled it (even if the sink is
+    // gone), so the payload-type demux must run to keep Opus off the video path.
+    g_audio_pt.store(m_audio_enabled ? m_audio_pt : -1, std::memory_order_relaxed);
     if (m_audio_enabled) {
         spdlog::info("[AUDIO] Opus audio {} (pt={}, device={})",
                      m_audio_active ? "enabled" : "requested but unavailable -> video-only",
@@ -1628,18 +1648,21 @@ void GstRtpReceiver::switch_to_stream() {
     attach_last_hop_probes(m_gst_pipeline);
     bind_restream_valve(m_gst_pipeline);
 
-    // Payload-type demux: keep audio packets off the video depayloader and
-    // non-audio packets off the Opus depayloader (the tee feeds both branches
-    // every packet).
-    if (m_audio_active) {
+    // Payload-type demux. The video filter must run whenever audio is in the flow
+    // (m_audio_enabled) — including the sink-unplugged fallback — to keep Opus off
+    // the video depayloader. The audio-side filter + volume only exist when the
+    // playback branch was actually built (m_audio_active).
+    if (m_audio_enabled) {
         const uint8_t audio_pt = static_cast<uint8_t>(m_audio_pt);
         attach_pt_filter(m_gst_pipeline, "video_depay", audio_pt, /*drop_when_match=*/true);
-        attach_pt_filter(m_gst_pipeline, "audio_depay", audio_pt, /*drop_when_match=*/false);
-        // Apply the configured software volume to the freshly-built branch.
-        GstElement* vol = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "audio_volume");
-        if (vol) {
-            g_object_set(vol, "volume", static_cast<gdouble>(m_audio_volume), NULL);
-            gst_object_unref(vol);
+        if (m_audio_active) {
+            attach_pt_filter(m_gst_pipeline, "audio_depay", audio_pt, /*drop_when_match=*/false);
+            // Apply the configured software volume to the freshly-built branch.
+            GstElement* vol = gst_bin_get_by_name(GST_BIN(m_gst_pipeline), "audio_volume");
+            if (vol) {
+                g_object_set(vol, "volume", static_cast<gdouble>(m_audio_volume), NULL);
+                gst_object_unref(vol);
+            }
         }
     }
 
@@ -1669,8 +1692,10 @@ void GstRtpReceiver::switch_to_stream() {
         
         // With audio muxed in, the appsrc carries mixed media so its caps stay
         // generic (matching the pipeline string); the per-branch capsfilters
-        // pick the media type. Otherwise pin the video codec as before.
-        GstCaps* caps = m_audio_active
+        // pick the media type. Otherwise pin the video codec as before. Keyed on
+        // m_audio_enabled (not _active) so the fallback pipeline (sink gone, audio
+        // still in the flow) keeps generic caps and demuxes the audio out.
+        GstCaps* caps = m_audio_enabled
             ? gst_caps_new_empty_simple("application/x-rtp")
             : gst_caps_new_simple("application/x-rtp",
                 "media", G_TYPE_STRING, "video",
