@@ -672,6 +672,51 @@ struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mod
 	return NULL;
 }
 
+/*
+ * Aspect-preserving, centred destination rectangle for a src_w x src_h source
+ * scaled by out->video_scale_factor.
+ *
+ * The width is rounded down to an even number of pixels when, and only when, it
+ * is a horizontal scale DOWN.  RK3566/3568 VOP2 Esmart/Smart windows cannot
+ * scale down to an odd destination width; the driver trims the pixel itself and
+ * logs
+ *
+ *   [drm] vp0 Esmart0-win0 dsp_w[1843] MODE 2 == 1 at scale down mode
+ *
+ * on every atomic commit, i.e. at frame rate.  An odd width comes up easily:
+ * 1920 * 0.96 = 1843, and the aspect fit alone yields 1905 for a 1920x1088
+ * source even at scale factor 1.0.  Aligning here keeps the log clean and makes
+ * the geometry we ask for the geometry we actually get.
+ *
+ * The restriction is horizontal-scale-down only: the driver gates the warning on
+ * actual_w > dsp_w, and has no equivalent constraint on the destination height.
+ * So do not touch the height, and do not shave a pixel off a width that is being
+ * upscaled or passed through 1:1 — that would shrink the picture for nothing.
+ */
+static void video_dst_rect(const struct modeset_output *out, uint32_t src_w, uint32_t src_h,
+	int *dst_x, int *dst_y, uint32_t *dst_w, uint32_t *dst_h)
+{
+	uint32_t fit_w = out->video_crtc_width;
+	uint32_t fit_h = out->video_crtc_height;
+	float ratio = src_h ? (float)src_w / src_h : 1.0f;
+
+	if (fit_w / ratio > fit_h)
+		fit_w = (uint32_t)(fit_h * ratio);
+	else
+		fit_h = (uint32_t)(fit_w / ratio);
+
+	uint32_t w = (uint32_t)(fit_w * out->video_scale_factor);
+	uint32_t h = (uint32_t)(fit_h * out->video_scale_factor);
+
+	if (w < src_w)
+		w &= ~1u;
+
+	*dst_w = w;
+	*dst_h = h;
+	*dst_x = (out->video_crtc_width  - (int)w) / 2;
+	*dst_y = (out->video_crtc_height - (int)h) / 2;
+}
+
 void modeset_apply_video_scale(int fd, struct modeset_output *out)
 {
 	drmModePlane *plane = drmModeGetPlane(fd, out->video_plane.id);
@@ -685,17 +730,10 @@ void modeset_apply_video_scale(int fd, struct modeset_output *out)
 	if (!fb_id) return;
 
 	/* Recalculate geometry (same logic as modeset_atomic_prepare_commit) */
-	uint32_t orig_crtcw = out->video_crtc_width;
-	uint32_t orig_crtch = out->video_crtc_height;
-	float video_ratio = (float)out->video_frm_width / out->video_frm_height;
-	if (orig_crtcw / video_ratio > orig_crtch)
-		orig_crtcw = (uint32_t)(orig_crtch * video_ratio);
-	else
-		orig_crtch = (uint32_t)(orig_crtcw / video_ratio);
-	uint32_t crtcw = (uint32_t)(orig_crtcw * out->video_scale_factor);
-	uint32_t crtch = (uint32_t)(orig_crtch * out->video_scale_factor);
-	int crtcx = (out->video_crtc_width  - crtcw) / 2;
-	int crtcy = (out->video_crtc_height - crtch) / 2;
+	uint32_t crtcw, crtch;
+	int crtcx, crtcy;
+	video_dst_rect(out, out->video_frm_width, out->video_frm_height,
+		&crtcx, &crtcy, &crtcw, &crtch);
 
 	/*
 	 * Update only the video plane geometry — do NOT touch CRTC/connector
@@ -769,24 +807,10 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 	if (set_drm_object_property(req, plane, "SRC_H", height << 16) < 0)
 		return -1;
 
-	uint32_t orig_crtcw = out->video_crtc_width;
-	uint32_t orig_crtch = out->video_crtc_height;
-	float video_ratio = (float)width / height;
-	if (orig_crtcw / video_ratio > orig_crtch) {
-		orig_crtcw = orig_crtch * video_ratio;
-		orig_crtch = orig_crtch;
-	} else {
-		orig_crtcw = orig_crtcw;
-		orig_crtch = orig_crtcw / video_ratio;
-	}
+	uint32_t crtcw, crtch;
+	int crtcx, crtcy;
+	video_dst_rect(out, width, height, &crtcx, &crtcy, &crtcw, &crtch);
 
-	
-	float scale_factor = out->video_scale_factor;
-	uint32_t crtcw = (uint32_t)(orig_crtcw * scale_factor);
-	uint32_t crtch = (uint32_t)(orig_crtch * scale_factor);
-
-	int crtcx = (out->video_crtc_width - crtcw) / 2;
-	int crtcy = (out->video_crtc_height - crtch) / 2;
 	if (set_drm_object_property(req, plane, "CRTC_X", crtcx) < 0)
 		return -1;
 	if (set_drm_object_property(req, plane, "CRTC_Y", crtcy) < 0)
