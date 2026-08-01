@@ -105,7 +105,14 @@ namespace pipeline {
             // more prone to dropouts on a loaded system — raise buffer-time (e.g.
             // 100000) if you hear crackle/underruns.
             " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=50000000 silent=true"
-            " ! alsasink name=audio_sink sync=false async=false buffer-time=50000 latency-time=10000";
+            // provide-clock=false is critical: audio sinks are GStreamer's default
+            // pipeline-clock provider, so without this alsasink hijacks the clock
+            // and the (sync=true) video appsink paces the display to the *audio*
+            // clock. When audio is sparse/absent that clock stalls -> video frames
+            // are held (repeats) and back-pressure drops RTP packets (scrambled
+            // frames). Keeping the system clock makes video timing independent of
+            // audio, exactly as in the audio-off pipeline.
+            " ! alsasink name=audio_sink sync=false async=false provide-clock=false buffer-time=50000 latency-time=10000";
         const std::string dev = resolve_alsa_device(device);
         if(!dev.empty()){
             ss<<" device=\""<<dev<<"\"";
