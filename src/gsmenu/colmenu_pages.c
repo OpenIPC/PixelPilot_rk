@@ -289,25 +289,28 @@ static const colmenu_page_t air_aalink_page = { "AALink", "air", "aalink", air_a
 
 /* Camera sub-pages (all type=air page=camera) */
 static const colmenu_item_t cam_video_items[] = {
-    /* Size and FPS are WFB-specific; APFPV direct connection has fixed camera modes. */
-    { .kind=COLMENU_DROPDOWN, .label="Size",       .param="size",       .mode_mask=COLMENU_MODE_WFB },
+    /* WFB air units run Waybeam, which exposes a single fixed-mode selector
+     * instead of independent Size/FPS (those were Majestic-specific). APFPV
+     * direct connection still has its own fixed camera modes. */
+    { .kind=COLMENU_DROPDOWN, .label="Mode",       .param="mode",       .mode_mask=COLMENU_MODE_WFB },
     { .kind=COLMENU_DROPDOWN, .label="Video Mode", .param="video_mode", .mode_mask=COLMENU_MODE_APFPV },
-    { .kind=COLMENU_DROPDOWN, .label="FPS",        .param="fps",        .mode_mask=COLMENU_MODE_WFB },
     { .kind=COLMENU_DROPDOWN, .label="Bitrate",    .param="bitrate" },
-    { .kind=COLMENU_DROPDOWN, .label="Codec",      .param="codec" },
+    /* Codec dropdown dropped: the Waybeam/star6e encoder is H.265-only. */
     { .kind=COLMENU_SLIDER,   .label="Gopsize",    .param="gopsize" },
     { .kind=COLMENU_DROPDOWN, .label="RC Mode",    .param="rc_mode" },
 };
-static const colmenu_page_t cam_video_page = { "Video", "air", "camera", cam_video_items, 7 };
+static const colmenu_page_t cam_video_page = { "Video", "air", "camera", cam_video_items, 5 };
 static const colmenu_item_t cam_image_items[] = {
     { .kind=COLMENU_SWITCH, .label="Mirror",     .param="mirror" },
     { .kind=COLMENU_SWITCH, .label="Flip",       .param="flip" },
+    { .kind=COLMENU_SLIDER, .label="Lightness",  .param="lightness" },
     { .kind=COLMENU_SLIDER, .label="Contrast",   .param="contrast" },
-    { .kind=COLMENU_SLIDER, .label="Hue",        .param="hue" },
+    { .kind=COLMENU_SLIDER, .label="Brightness", .param="brightness" },
     { .kind=COLMENU_SLIDER, .label="Saturation", .param="saturation" },
-    { .kind=COLMENU_SLIDER, .label="Luminance",  .param="luminace" },
+    { .kind=COLMENU_SLIDER, .label="Sharpness",  .param="sharpness" },
+    { .kind=COLMENU_SLIDER, .label="HSV",        .param="hsv" },
 };
-static const colmenu_page_t cam_image_page = { "Image", "air", "camera", cam_image_items, 6 };
+static const colmenu_page_t cam_image_page = { "Image", "air", "camera", cam_image_items, 8 };
 static const colmenu_item_t cam_rec_items[] = {
     { .kind=COLMENU_SWITCH, .label="Enabled",  .param="rec_enable" },
     { .kind=COLMENU_SLIDER, .label="Split",    .param="rec_split" },
@@ -315,9 +318,9 @@ static const colmenu_item_t cam_rec_items[] = {
 };
 static const colmenu_page_t cam_rec_page = { "Recording", "air", "camera", cam_rec_items, 3 };
 static const colmenu_item_t cam_isp_items[] = {
-    { .kind=COLMENU_SLIDER,   .label="Exposure",    .param="exposure" },
-    { .kind=COLMENU_DROPDOWN, .label="Antiflicker", .param="antiflicker" },
-    { .kind=COLMENU_DROPDOWN, .label="Sensor File", .param="sensor_file" },
+    { .kind=COLMENU_SLIDER,   .label="EV Compensation", .param="exposure" },
+    { .kind=COLMENU_DROPDOWN, .label="Antiflicker",     .param="antiflicker" },
+    { .kind=COLMENU_DROPDOWN, .label="Sensor File",     .param="sensor_file" },
 };
 static const colmenu_page_t cam_isp_page = { "ISP", "air", "camera", cam_isp_items, 3 };
 static const colmenu_item_t cam_fpv_items[] = {
