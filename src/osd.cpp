@@ -85,6 +85,7 @@ OsdGl osd_gl;
 extern bool enable_live_colortrans;
 extern float live_colortrans_offset;
 extern float live_colortrans_gain;
+extern bool async_commit_planes;
 
 #include "frame_processor.h"
 extern FrameProcessor *frame_proc;
@@ -2985,7 +2986,7 @@ void *__OSD_THREAD__(void *param) {
 
 	struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
 	ret = modeset_perform_modeset(p->fd, p->out, p->out->osd_request, &p->out->osd_plane,
-								  buf->fb, buf->width, buf->height, osd_zpos);
+								  buf->fb, buf->width, buf->height, osd_zpos, async_commit_planes);
 
 	if (!osd_gl.init(p->fd, buf->width, buf->height,
 						live_colortrans_gain, live_colortrans_offset)) {

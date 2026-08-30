@@ -132,9 +132,9 @@ struct modeset_output *modeset_prepare(int fd, uint16_t mode_width, uint16_t mod
 
 void *modeset_print_modes(int fd);
 
-int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos);
+int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos, int async_commit);
 
-int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos);
+int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos, int async_commit);
 
 void modeset_apply_video_scale(int fd, struct modeset_output *out);
 
@@ -146,7 +146,7 @@ int modeset_create_black_video(int fd, struct modeset_output *out);
  * covers the whole screen (for the black backdrop); otherwise the aspect-scaled
  * video geometry from video_frm_width/height is used. */
 void modeset_set_video_geometry(struct modeset_output *out, drmModeAtomicReq *req, int fullscreen, int zpos);
-void restore_planes_zpos(int fd, struct modeset_output *output_list);
+void restore_planes_zpos(int fd, struct modeset_output *output_list, int async_commit);
 
 void modeset_cleanup(int fd, struct modeset_output *output_list);
 

@@ -107,6 +107,7 @@ static std::atomic<bool> mpp_reinit_pending{false};
 bool mavlink_dvr_on_arm = false;
 bool osd_custom_message = false;
 bool disable_vsync = false;
+bool async_commit_planes = false;
 bool disable_gregidr = false;
 uint32_t refresh_frequency_ms = 1000;
 
@@ -275,7 +276,7 @@ void init_buffer(MppFrame frame) {
 	ret = mpi.mpi->control(mpi.ctx, MPP_DEC_SET_EXT_BUF_GROUP, mpi.frm_grp);
 	ret = mpi.mpi->control(mpi.ctx, MPP_DEC_SET_INFO_CHANGE_READY, NULL);
 
-	ret = modeset_perform_modeset(drm_fd, output_list, output_list->video_request, &output_list->video_plane, mpi.frame_to_drm[0].fb_id, output_list->video_frm_width, output_list->video_frm_height, video_zpos);
+	ret = modeset_perform_modeset(drm_fd, output_list, output_list->video_request, &output_list->video_plane, mpi.frame_to_drm[0].fb_id, output_list->video_frm_width, output_list->video_frm_height, video_zpos, async_commit_planes);
 	assert(ret >= 0);
 
 	// Both recorders take their dimensions/codec straight from the parsed
@@ -1296,6 +1297,11 @@ void printHelp() {
     "\n"
     "    --disable-vsync        - Disable VSYNC commits\n"
     "\n"
+    "    --async-commit-planes  - Ask the DRM driver to land plane flips without waiting for\n"
+    "                             vblank (vendor \"ASYNC_COMMIT\" plane property, Rockchip BSP\n"
+    "                             kernels only). Lower latency, may tear. Silently ignored if\n"
+    "                             the driver doesn't expose the property.\n"
+    "\n"
     "    --disable-gregidr      - Disable last-hop probing and IDR requests\n"
     "\n"
     "    --live-colortrans      - Apply colortrans LUT to live display via DRM gamma\n"	
@@ -1559,6 +1565,11 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	__OnArgument("--async-commit-planes") {
+		async_commit_planes = true;
+		continue;
+	}
+
 	__OnArgument("--disable-gregidr") {
 		disable_gregidr = true;
 		continue;
@@ -1765,6 +1776,7 @@ int main(int argc, char **argv)
 	}
 
 	spdlog::info("disable_vsync: {}", disable_vsync);
+	spdlog::info("async_commit_planes: {}", async_commit_planes);
 
 	if (enable_osd == 0 ) {
 		video_zpos = 4;
@@ -2004,7 +2016,7 @@ int main(int argc, char **argv)
 	free(nal_buffer);
 	
 	////////////////////////////////////////////// DRM CLEANUP
-	restore_planes_zpos(drm_fd, output_list);
+	restore_planes_zpos(drm_fd, output_list, async_commit_planes);
 	drmModeSetCrtc(drm_fd,
 			       output_list->saved_crtc->crtc_id,
 			       output_list->saved_crtc->buffer_id,

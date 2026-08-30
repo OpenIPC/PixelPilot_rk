@@ -843,11 +843,11 @@ void modeset_apply_video_scale(int fd, struct modeset_output *out)
 	drmModeAtomicFree(req);
 }
 
-int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos)
+int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq * req, struct drm_object *plane, int fb_id, uint32_t width, uint32_t height, int zpos, int async_commit)
 {
 	int ret, flags;
 
-	ret = modeset_atomic_prepare_commit(fd, out, req, plane, fb_id, width, height, zpos);
+	ret = modeset_atomic_prepare_commit(fd, out, req, plane, fb_id, width, height, zpos, async_commit);
 	if (ret < 0) {
 		fprintf(stderr, "prepare atomic commit failed for plane %d: %m\n", plane->id);
 		return ret;
@@ -870,6 +870,17 @@ int modeset_perform_modeset(int fd, struct modeset_output *out, drmModeAtomicReq
 	return ret;
 }
 
+
+// True if the object exposes a property by this name (no error printed on a miss;
+// callers use this to probe optional/vendor-specific properties before setting them).
+static bool drm_object_has_property(struct drm_object *obj, const char *name)
+{
+	for (int i = 0; i < obj->props->count_props; i++) {
+		if (obj->props_info[i] && !strcmp(obj->props_info[i]->name, name))
+			return true;
+	}
+	return false;
+}
 
 // Find the value of an enum property's named entry (e.g. "pixel blend mode" ->
 // "Coverage"). Returns 0 and sets *value on success, -1 if not found/not enum.
@@ -894,7 +905,7 @@ static int get_drm_object_prop_enum(struct drm_object *obj, const char *prop_nam
 }
 
 int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAtomicReq *req, struct drm_object *plane,
-	int fb_id, uint32_t width, uint32_t height, int zpos)
+	int fb_id, uint32_t width, uint32_t height, int zpos, int async_commit)
 {
 	if (set_drm_object_property(req, &out->connector, "CRTC_ID", out->crtc.id) < 0)
 		return -1;
@@ -941,27 +952,37 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 			set_drm_object_property(req, plane, "pixel blend mode", coverage);
 	}
 
+	// Vendor (Rockchip BSP) VOP2 planes may expose a non-standard "ASYNC_COMMIT"
+	// property: unlike DRM_MODE_ATOMIC_NONBLOCK (which only makes the ioctl
+	// return early — the flip itself still lands on the next vblank), this asks
+	// the driver to land this plane's updates immediately, trading a possible
+	// tear for lower latency. It's a persistent per-plane state, so it only
+	// needs to be (re)asserted here, wherever a full modeset touches the plane.
+	// Optional: silently skipped on kernels/drivers that don't expose it.
+	if (async_commit && drm_object_has_property(plane, "ASYNC_COMMIT"))
+		set_drm_object_property(req, plane, "ASYNC_COMMIT", 1);
+
 	return 0;
 }
 
-void restore_planes_zpos(int fd, struct modeset_output *output_list) {
+void restore_planes_zpos(int fd, struct modeset_output *output_list, int async_commit) {
 	// restore osd zpos
 	int ret, flags;
 	struct modeset_buf *buf = &output_list->osd_bufs[0];
 
 	// TODO(geehe) Find a more elegant way to do this.
 	int64_t zpos = get_property_value(fd, output_list->osd_plane.props, "zpos");
-	ret = modeset_atomic_prepare_commit(fd, output_list, output_list->osd_request, &output_list->osd_plane, buf->fb, buf->width, buf->height, zpos);
+	ret = modeset_atomic_prepare_commit(fd, output_list, output_list->osd_request, &output_list->osd_plane, buf->fb, buf->width, buf->height, zpos, async_commit);
 	if (ret < 0) {
 		fprintf(stderr, "prepare atomic commit failed for plane %d, %m\n", output_list->osd_plane.id);
 		return;
 	}
 	ret = drmModeAtomicCommit(fd, output_list->osd_request, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
-	if (ret < 0) 
+	if (ret < 0)
 		fprintf(stderr, "modeset atomic commit failed for plane %d, %m\n", output_list->osd_plane.id);
 
 	zpos = get_property_value(fd, output_list->video_plane.props, "zpos");
-	ret = modeset_atomic_prepare_commit(fd, output_list, output_list->video_request, &output_list->video_plane, buf->fb, buf->width, buf->height, zpos);
+	ret = modeset_atomic_prepare_commit(fd, output_list, output_list->video_request, &output_list->video_plane, buf->fb, buf->width, buf->height, zpos, async_commit);
 	if (ret < 0) {
 		fprintf(stderr, "prepare atomic commit failed for plane %d, %m\n", output_list->video_plane.id);
 		return;
