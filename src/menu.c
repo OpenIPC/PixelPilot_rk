@@ -25,6 +25,7 @@ enum RXMode RXMODE = WFB;
 
 /* DVR backend (defined in main.cpp / dvr.cpp). */
 extern int dvr_enabled;
+extern bool dvr_on_signal_enabled;   /* --dvr-on-signal master switch */
 void dvr_start_all(void);
 void dvr_stop_all(void);
 
@@ -77,6 +78,12 @@ static void drone_detect_timer(lv_timer_t * t)
         detected = now;
         setenv("GSMENU_VTX_DETECTED", detected ? "1" : "0", 1);
         colmenu_set_drone_detected(detected);
+#ifndef USE_SIMULATOR
+        if(dvr_on_signal_enabled) {
+            if(detected) dvr_start_all();
+            else         dvr_stop_all();
+        }
+#endif
     }
 }
 

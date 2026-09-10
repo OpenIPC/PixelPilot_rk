@@ -516,7 +516,7 @@ void *__DISPLAY_THREAD__(void *param)
 		uint64_t decode_and_handover_display_ms=get_time_ms()-decoding_pts;
 		osd_publish_uint_fact("video.decode_and_handover_ms", NULL, 0, decode_and_handover_display_ms);
 	}
-end:	
+end:
 	spdlog::info("Display thread done.");
 	return nullptr;
 }
@@ -844,6 +844,12 @@ extern "C" {
     void dvr_reenc_set_mode(int enabled) {
         dvr_set_mode(enabled ? DVR_MODE_REENCODE : DVR_MODE_RAW);
     }
+
+    // Live toggle for --dvr-on-signal, so the GS menu can flip it without a
+    // restart (dvr_on_signal_enabled itself is read by menu.c's
+    // drone_detect_timer on every signal-acquired/lost transition).
+    void dvr_set_on_signal(int enabled) { dvr_on_signal_enabled = (bool)enabled; }
+    int  dvr_get_on_signal(void)        { return (int)dvr_on_signal_enabled; }
 }
 
 int decoder_stalled_count=0;
@@ -1236,6 +1242,9 @@ void printHelp() {
     "\n"
     "    --mavlink-dvr-on-arm   - Start recording when armed\n"
     "\n"
+    "    --dvr-on-signal        - Start recording when the air unit's signal is\n"
+    "                             acquired, stop when it's lost\n"
+    "\n"
     "    --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265|auto>)\n"
     "\n"
     "    --audio                - Play Opus audio muxed into the RTP stream (same port, by payload type)\n"
@@ -1513,6 +1522,11 @@ int main(int argc, char **argv)
 
 	__OnArgument("--mavlink-dvr-on-arm") {
 		mavlink_dvr_on_arm = true;
+		continue;
+	}
+
+	__OnArgument("--dvr-on-signal") {
+		dvr_on_signal_enabled = true;
 		continue;
 	}
 

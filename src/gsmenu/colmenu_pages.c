@@ -52,6 +52,7 @@ void dvr_set_mode(int mode);
 void dvr_set_max_size(int mb);
 void dvr_start_all(void);
 void dvr_stop_all(void);
+void dvr_set_on_signal(int enabled);
 #endif
 
 static void on_live_colortrans(const char * value)
@@ -105,6 +106,11 @@ static void on_rec_enabled(const char * value)   /* start/stop recording now */
     int on = value && strcmp(value, "on") == 0;
     if(on) MENU_LIVE(dvr_start_all(), "dvr_start_all()%s", "");
     else   MENU_LIVE(dvr_stop_all(),  "dvr_stop_all()%s",  "");
+}
+static void on_dvr_on_signal(const char * value) /* auto rec while the air unit's signal is present */
+{
+    int on = (value && strcmp(value, "on") == 0) ? 1 : 0;
+    MENU_LIVE(dvr_set_on_signal(on), "dvr_set_on_signal(%d)", on);
 }
 static void on_dvr_osd(const char * value)       /* burn OSD into the re-encode */
 {
@@ -431,6 +437,7 @@ static const colmenu_item_t sys_display_items[] = {
 static const colmenu_page_t sys_display_page = { "Display", "gs", "system", sys_display_items, 5 };
 static const colmenu_item_t sys_dvr_items[] = {
     { .kind=COLMENU_SWITCH,   .label="Enabled",           .param="rec_enabled",          .on_change=on_rec_enabled },
+    { .kind=COLMENU_SWITCH,   .label="Auto-record on Signal", .param="dvr_on_signal",    .on_change=on_dvr_on_signal },
     { .kind=COLMENU_DROPDOWN, .label="Mode",              .param="dvr_mode",             .on_change=on_dvr_mode },
     { .kind=COLMENU_SLIDER,   .label="Max file size (MB)", .param="dvr_max_size",         .on_change=on_dvr_max_size, .display_scale=100 },
     { .kind=COLMENU_DROPDOWN, .label="Codec",             .param="dvr_reenc_codec",      .on_change=on_dvr_reenc_codec },
@@ -439,7 +446,7 @@ static const colmenu_item_t sys_dvr_items[] = {
     { .kind=COLMENU_DROPDOWN, .label="Bitrate (kbps)",    .param="dvr_reenc_bitrate",    .on_change=on_dvr_reenc_bitrate },
     { .kind=COLMENU_SWITCH,   .label="Record OSD in DVR", .param="dvr_osd",              .on_change=on_dvr_osd },
 };
-static const colmenu_page_t sys_dvr_page = { "DVR", "gs", "system", sys_dvr_items, 8 };
+static const colmenu_page_t sys_dvr_page = { "DVR", "gs", "system", sys_dvr_items, 9 };
 
 /* Restream to phone/laptop over the local WiFi. Both rows are served by the app
  * itself, not gsmenu.sh — colmenu.c intercepts the "restream_" params on read

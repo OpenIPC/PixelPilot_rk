@@ -52,6 +52,9 @@ pixelpilot-rk - OpenIPC video display client for wfb-ng
 
     --mavlink-dvr-on-arm   - Start recording when armed
 
+    --dvr-on-signal        - Start recording when the air unit's signal is
+                             acquired, stop when it's lost
+
     --codec <codec>        - Video codec, should be the same as on VTX  (Default: h265 <h264|h265>)
 
     --log-level <level>    - Log verbosity level, debug|info|warn|error (Default: info)
@@ -122,6 +125,9 @@ a complete description, see the **info**(1) files.
 
 **--mavlink-dvr-on-arm**
 : Start recording when armed
+
+**--dvr-on-signal**
+: Start recording when the air unit's signal is acquired, stop when it's lost
 
 **--codec \<codec\>**
 : Video codec, should be the same as on VTX  (Default: h265 <h264|h265>)
