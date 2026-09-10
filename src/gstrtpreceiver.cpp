@@ -1477,13 +1477,11 @@ static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc)
             break;
         }
 
-        // Log packet rate: earliest pipeline stage (radio link -> UDP socket),
-        // at info so it lines up with the [FPS-TRACE] decode/display counters
-        // without needing --log-level debug for a bottleneck hunt.
+        // Log packet rate (optional)
         pkt_counter++;
         auto now = std::chrono::steady_clock::now();
         if (now - last_report >= std::chrono::seconds(1)) {
-            spdlog::info("[FPS-TRACE] net_pkts={}/s", pkt_counter);
+            spdlog::debug("socket pkts/s {}", pkt_counter);
             pkt_counter = 0;
             last_report = now;
         }
