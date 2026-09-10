@@ -372,7 +372,11 @@ namespace {
     static std::string create_restream_branch() {
         std::stringstream ss;
         ss << " rtp_tee. ! valve name=restream_valve drop=true"
-              " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=1000000000 silent=true"
+              // Keep the restream branch shallow: leaky=downstream drops the
+              // oldest buffered data first, but max-size-time was 1s, so a
+              // stalled/slow restream peer could sit a full second of stale
+              // video behind live before drops even start. 150ms bounds that.
+              " ! queue leaky=downstream max-size-buffers=0 max-size-bytes=0 max-size-time=150000000 silent=true"
               " ! udpsink name=restream_sink host=0.0.0.0 port=5600 sync=false async=false qos=false";
         return ss.str();
     }
@@ -1320,7 +1324,12 @@ std::string GstRtpReceiver::construct_gstreamer_pipeline()
     }
     ss<<pipeline::create_parse_for_codec(m_video_codec);
     ss<<pipeline::create_out_caps(m_video_codec);
-    ss<<"appsink drop=true name=out_appsink";
+    // max-buffers bounds the appsink's internal queue so drop=true actually
+    // does something (GStreamer default max-buffers=0 is unlimited, which
+    // makes drop=true a no-op) -- without this a decode/pull stall lets
+    // frames pile up unbounded and the picture catches up in fast-forward
+    // once the stall clears, instead of just skipping ahead to live.
+    ss<<"appsink drop=true max-buffers=1 name=out_appsink";
     if (play_audio) {
         ss<<pipeline::create_audio_branch(m_audio_pt, m_audio_device);
     }
@@ -1468,11 +1477,13 @@ static void loop_read_socket(bool& keep_looping, int sock_fd, GstAppSrc* appsrc)
             break;
         }
 
-        // Log packet rate (optional)
+        // Log packet rate: earliest pipeline stage (radio link -> UDP socket),
+        // at info so it lines up with the [FPS-TRACE] decode/display counters
+        // without needing --log-level debug for a bottleneck hunt.
         pkt_counter++;
         auto now = std::chrono::steady_clock::now();
         if (now - last_report >= std::chrono::seconds(1)) {
-            spdlog::debug("socket pkts/s {}", pkt_counter);
+            spdlog::info("[FPS-TRACE] net_pkts={}/s", pkt_counter);
             pkt_counter = 0;
             last_report = now;
         }
@@ -1555,7 +1566,10 @@ std::string GstRtpReceiver::construct_file_playback_pipeline(const char * file_p
     ss<<"filesrc location="<<file_path<<" ! qtdemux ! ";
     ss<<pipeline::create_parse_for_codec(file_codec);
     ss << pipeline::create_out_caps(file_codec);
-    ss << " appsink drop=true name=out_appsink";
+    // Same reasoning as the live pipeline's out_appsink: bound the queue so
+    // drop=true isn't a no-op and DVR playback tracks live instead of
+    // free-running ahead of the display.
+    ss << " appsink drop=true max-buffers=1 name=out_appsink";
     return ss.str();
 }
 
