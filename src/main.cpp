@@ -1778,6 +1778,10 @@ int main(int argc, char **argv)
 		std::cerr << "Configuration error: " << e.what() << std::endl;
 	}
 
+	// Independent of the os_sensors config above -- the VTX's SoC temp isn't
+	// local hardware, it arrives over its own small TCP feed on the tunnel.
+	os_sensors.addVtxTemp(15552);
+
 	spdlog::info("disable_vsync: {}", disable_vsync);
 
 	if (enable_osd == 0 ) {
