@@ -54,7 +54,6 @@ int channel_to_freq_fallback(int channel) {
     return 0;
 }
 
-
 /* Run `iw <args...>` and capture stdout. Same no-shell fork/execvp approach. */
 std::string run_iw_capture(const std::vector<std::string>& args) {
     int fds[2];
@@ -288,6 +287,11 @@ void run_iface(IfaceHandle iface, std::atomic<bool>* iface_running) {
     }
 }
 
+void stop_worker(IfaceWorker& w) {
+    w.running = false;
+    w.thread.join();
+}
+
 /* Supervisor: watches for adapters appearing/disappearing (USB hotplug) and
  * keeps exactly one run_iface() thread alive per adapter currently present. */
 void worker_loop() {
@@ -300,8 +304,7 @@ void worker_loop() {
             bool still_present = std::any_of(ifaces.begin(), ifaces.end(),
                                               [&](const IfaceHandle& i) { return i.name == it->first; });
             if (!still_present) {
-                it->second->running = false;
-                it->second->thread.join();
+                stop_worker(*it->second);
                 remove_iface_state(it->first);
                 it = g_workers.erase(it);
             } else {
@@ -326,10 +329,7 @@ void worker_loop() {
     }
 
     std::lock_guard<std::mutex> lock(g_workers_mutex);
-    for (auto& [name, w] : g_workers) {
-        w->running = false;
-        w->thread.join();
-    }
+    for (auto& [name, w] : g_workers) stop_worker(*w);
     g_workers.clear();
 }
 

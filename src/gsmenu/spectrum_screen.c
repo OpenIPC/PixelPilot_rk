@@ -41,7 +41,6 @@ static lv_timer_t *  refresh_timer;
 static col_widgets_t cols[SPECTRUM_MAX_ROWS];
 static int           cols_created;
 
-
 static spectrum_iface_t g_snapshot[SPECTRUM_MAX_IFACES];
 static int g_iface_count;
 static int g_iface_idx;
