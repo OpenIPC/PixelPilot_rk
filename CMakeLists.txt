@@ -48,6 +48,10 @@ set(SIMULATOR_SOURCES
         src/gsmenu/executor.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c
+        src/gsmenu/spectrum_screen.h
+        src/gsmenu/spectrum_screen.c
+        src/spectrum_scanner.hpp
+        src/spectrum_scanner.cpp
         src/gsmenu/helper.h
         src/gsmenu/helper.c
         src/gsmenu/gs_dvrplayer.h
@@ -75,6 +79,10 @@ set(LIB_SOURCE_FILES
         src/gsmenu/executor.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c
+        src/gsmenu/spectrum_screen.h
+        src/gsmenu/spectrum_screen.c
+        src/spectrum_scanner.hpp
+        src/spectrum_scanner.cpp
         src/gsmenu/helper.h
         src/gsmenu/helper.c
         src/gsmenu/gs_dvrplayer.h

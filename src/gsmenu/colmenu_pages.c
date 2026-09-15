@@ -148,10 +148,13 @@ static void on_dvr_reenc_bitrate(const char * value)
 extern lv_indev_t * indev_drv;
 extern lv_obj_t   * dvr_screen;
 extern lv_obj_t   * txprofiles_screen;
+extern lv_obj_t   * spectrum_screen;
 extern lv_group_t * dvr_group;               /* dvr player controls            */
 extern lv_group_t * dvr_page_group;          /* Stop returns here              */
 extern lv_group_t * tx_profile_group;        /* txprofiles table               */
 extern lv_group_t * txprofiles_return_group; /* txprofiles back/save return    */
+extern lv_group_t * spectrum_group;          /* spectrum scanner screen        */
+extern lv_group_t * spectrum_return_group;   /* spectrum scanner back return   */
 extern const char * dvr_template;
 void change_playbutton_label(const char * label);
 #ifndef USE_SIMULATOR
@@ -168,6 +171,17 @@ static void open_txprofiles(void)
     if(first) lv_group_focus_obj(first);
     /* swallow the release of the ENTER that opened this, so it doesn't
      * immediately click the focused (Back) button */
+    lv_indev_wait_release(indev_drv);
+}
+
+/* GS-side Spectrum Scanner (rtl88x2eu chan_info), reached from System -> Receiver. */
+static void open_spectrum_scanner(void)
+{
+    spectrum_return_group = lv_indev_get_group(indev_drv);
+    lv_screen_load(spectrum_screen);
+    lv_indev_set_group(indev_drv, spectrum_group);
+    lv_obj_t * first = find_first_focusable_obj(spectrum_screen);
+    if(first) lv_group_focus_obj(first);
     lv_indev_wait_release(indev_drv);
 }
 
@@ -413,8 +427,9 @@ static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_
 static const colmenu_item_t sys_receiver_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Codec",   .param="rx_codec" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="RX Mode", .param="rx_mode", .on_change=on_rx_mode_change },
+    { .kind=COLMENU_ACTION,   .icon=LV_SYMBOL_WIFI, .label="Spectrum Scanner", .on_activate=open_spectrum_scanner },
 };
-static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 2 };
+static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 3 };
 static const colmenu_item_t sys_audio_items[] = {
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,      .label="Audio",  .param="audio",        .on_change=on_audio_enabled },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_AUDIO,      .label="Output", .param="audio_device", .on_change=on_audio_device },
