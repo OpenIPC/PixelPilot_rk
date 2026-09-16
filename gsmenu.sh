@@ -377,6 +377,14 @@ case "$@" in
     "get gs wfbng adaptivelink")
         echo 0
         ;;
+    "get gs wfbng chanscan_results")
+        # integrator: hop your secondary RX NIC across every supported channel,
+        # sampling per-channel RF activity (e.g. rx_packets delta over a short
+        # dwell, since `iw survey dump` isn't implemented by every driver), and
+        # print one "channel:count" line per channel. See PixelPilot's GS menu
+        # "WFB-NG -> Channel Scan" page, which normalizes and bar-graphs this.
+        printf ""
+        ;;
 
     "set gs wfbng gs_channel"*)     : ;;
     "set gs wfbng bandwidth"*)      : ;;

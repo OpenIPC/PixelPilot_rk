@@ -15,6 +15,9 @@ namespace fs = std::filesystem;
 // Master record flag; defined here, declared extern in dvr.h.
 int dvr_enabled = 0;
 
+// --dvr-on-signal master switch; defined here, declared extern in dvr.h.
+bool dvr_on_signal_enabled = false;
+
 const int SEQUENCE_PADDING = 4; // zero-padding width for --dvr-sequenced-files
 
 std::string dvr_next_base_path(const char* filename_template, bool with_sequence) {
