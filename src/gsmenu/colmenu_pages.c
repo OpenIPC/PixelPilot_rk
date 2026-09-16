@@ -405,15 +405,78 @@ static const colmenu_page_t gs_actions_page  = { .title="Actions", .type="gs",  
 
 /* ── GS ────────────────────────────────────────────────────────────────────── */
 
+/* Channel scan (HDZero-style bar graph). gsmenu.sh's chanscan_run() hops the GS's
+ * secondary wfb-ng RX NIC across every channel the adapter supports and reports
+ * back raw per-channel frame counts as "channel:count" lines (see its comment for
+ * why frame-count rather than `iw survey dump`, and why the primary NIC/video
+ * feed isn't touched). Normalizing against the scan's own max here, rather than
+ * in the shell, keeps the bar scale correct regardless of how many channels or
+ * how much traffic a given scan sees. */
+static void chanscan_rescan(void * ctx) { (void)ctx; colmenu_rescan(); }
+/* Selecting a scanned channel applies it exactly like the "Channel" dropdown
+ * (same "set gs wfbng gs_channel" command) — which already both reconfigures
+ * the GS locally and, when a drone is linked, SSHes the air unit to switch its
+ * channel too and restarts wifibroadcast on both ends. */
+static void apply_channel(void * ctx)
+{
+    colmenu_exec((const char *)ctx);
+    colmenu_rescan();
+}
+static void build_chanscan(colmenu_emit_t * e)
+{
+    char * out = colmenu_get("gs", "wfbng", "chanscan_results", NULL);
+    int chans[64], counts[64], n = 0, max_count = 1;
+    if(out) {
+        char * save = NULL;
+        for(char * line = strtok_r(out, "\n", &save); line && n < 64; line = strtok_r(NULL, "\n", &save)) {
+            int ch, count;
+            if(sscanf(line, "%d:%d", &ch, &count) != 2) continue;
+            chans[n] = ch; counts[n] = count; n++;
+            if(count > max_count) max_count = count;
+        }
+    }
+    free(out);
+    /* Noisiest first — the point of the scan is to surface congestion, and the
+     * OSD column only shows a handful of rows at a time without scrolling. */
+    for(int i = 1; i < n; i++) {
+        int kc = counts[i], kh = chans[i], j = i - 1;
+        while(j >= 0 && counts[j] < kc) { counts[j+1] = counts[j]; chans[j+1] = chans[j]; j--; }
+        counts[j+1] = kc; chans[j+1] = kh;
+    }
+    for(int i = 0; i < n; i++) {
+        int pct = counts[i] * 100 / max_count;
+        /* Montserrat's compiled cmap only carries a handful of non-ASCII glyphs
+         * (the LV_SYMBOL_* icon set plus the bullet), no Unicode block elements —
+         * "\xE2\x80\xA2" (U+2022 bullet) is the closest thing to a solid/filled
+         * cell that's actually in the font, verified against
+         * lv_font_montserrat_20.c's unicode_list rather than assumed. */
+        char bar[64];
+        int filled = pct / 10, pos = 0;
+        for(int j = 0; j < filled; j++) { memcpy(bar + pos, "\xE2\x80\xA2", 3); pos += 3; }
+        for(int j = filled; j < 10; j++) bar[pos++] = '.';
+        bar[pos] = '\0';
+        char label[80];
+        snprintf(label, sizeof(label), "Ch %-3d %s %d", chans[i], bar, counts[i]);
+        char cmd[64];
+        snprintf(cmd, sizeof(cmd), "gsmenu.sh set gs wfbng gs_channel %d", chans[i]);
+        colmenu_emit_action(e, LV_SYMBOL_WIFI, label, apply_channel, strdup(cmd));
+    }
+    if(n == 0) colmenu_emit_label(e, "No scan results yet");
+    colmenu_emit_action(e, LV_SYMBOL_REFRESH, "Rescan", chanscan_rescan, NULL);
+}
+static const char * const chanscan_prefetch[] = { "chanscan_results", NULL };
+static const colmenu_page_t gs_chanscan_page = { .title="Channel Scan", .type="gs", .page="wfbng", .build=build_chanscan, .prefetch=chanscan_prefetch };
+
 static const colmenu_item_t gs_wfbng_items[] = {
     { .kind=COLMENU_LABEL,    .label="WFB-NG" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Channel",   .param="gs_channel" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Bandwidth", .param="bandwidth" },
     { .kind=COLMENU_SLIDER,   .icon=LV_SYMBOL_SETTINGS, .label="TXPower (%)", .param="txpower" },
+    { .kind=COLMENU_SUBMENU,  .icon=LV_SYMBOL_WIFI,      .label="Channel Scan", .sub=&gs_chanscan_page },
     { .kind=COLMENU_LABEL,    .label="Adaptive Link" },
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="Enabled",   .param="adaptivelink" },
 };
-static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_items, 6 };
+static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_items, 7 };
 
 /* System → Receiver / Display / DVR */
 static const colmenu_item_t sys_receiver_items[] = {
