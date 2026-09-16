@@ -1814,6 +1814,17 @@ public:
 			return;
 		}
 
+		// This port has been observed intermittently held by an unrelated
+		// process at boot on some boards (wpa_supplicant/udhcpc sharing a
+		// duplicated fd -- see project notes), which fails our bind() and
+		// silently aborts widget setup, leaving the startup preview stuck
+		// forever with nothing left to clear it. SO_REUSEADDR lets our
+		// bind succeed regardless.
+		int reuse = 1;
+		if (setsockopt(udp_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+			SPDLOG_WARN("Failed to set SO_REUSEADDR: {}", strerror(errno));
+		}
+
 		struct sockaddr_in addr {};
 		addr.sin_family = AF_INET;
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -2006,7 +2017,13 @@ private:
 	void udpReaderLoop() {
 		pthread_setname_np(pthread_self(), "MSP-UDP-Reader");
 		spdlog::info("MSP UDP reader thread started");
-		uint8_t buffer[1024];
+		// msposd aggregates multiple MSP DisplayPort commands per UDP datagram
+		// (wfb-ng's radio_mtu is 1445 bytes) -- a full-screen OSD update can
+		// exceed 1024 bytes. recvfrom() silently truncates anything larger
+		// than the buffer with no error, which drops trailing commands
+		// (often the terminating DRAW_SCREEN) and leaves stale glyphs
+		// on screen. Sized well above any realistic aggregated packet.
+		uint8_t buffer[8192];
 		struct sockaddr_in src_addr;
 		socklen_t src_len = sizeof(src_addr);
 
@@ -2014,6 +2031,9 @@ private:
 			int recv_len = recvfrom(udp_socket, buffer, sizeof(buffer), 0,
 									 (struct sockaddr*)&src_addr, &src_len);
 			if (recv_len > 0) {
+				if ((size_t)recv_len == sizeof(buffer)) {
+					spdlog::warn("MSP UDP packet filled the {}-byte buffer -- likely truncated", sizeof(buffer));
+				}
 				last_data_ms.store(nowMs(), std::memory_order_relaxed);  // link is alive
 				static uint32_t packet_count = 0;
 				packet_count++;

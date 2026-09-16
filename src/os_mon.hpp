@@ -23,6 +23,9 @@ public:
     // Adds temperature sensor
     void addTemperature(const std::string &thermal_zone);
     std::size_t discoverTemperature();
+    // Adds a TCP-listening sensor that receives the air unit's SoC temperature,
+    // sent over the wfb-ng tunnel by a small script on the VTX (see openipc-vtx/NOTES.md)
+    void addVtxTemp(int port);
     // Automatically detects and adds all CPU, power and temperature sensors; returns the number
     // of discovered sensors
     std::size_t autodiscover();

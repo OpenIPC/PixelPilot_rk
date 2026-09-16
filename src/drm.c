@@ -584,6 +584,39 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 		goto out_error;
 	}
 
+	if (mode_width == 1280 && mode_height == 720 && mode_vrefresh == 100) {
+		/* Custom timing tuned by hand for this Skyzone O4X Pro unit's HDMI-in lock:
+		   swept horizontal/vertical front porch and back porch against the
+		   connector's stock 720p60 shape until crop on all four edges cleared. */
+		drmModeModeInfo custom;
+		memset(&custom, 0, sizeof(custom));
+		custom.clock = 150705;
+		custom.hdisplay = 1280;
+		custom.hsync_start = 1380;
+		custom.hsync_end = 1420;
+		custom.htotal = 1970;
+		custom.hskew = 0;
+		custom.vdisplay = 720;
+		custom.vsync_start = 740;
+		custom.vsync_end = 745;
+		custom.vtotal = 765;
+		custom.vscan = 0;
+		custom.vrefresh = 100;
+		custom.flags = 0;
+		custom.type = 0x40; /* DRM_MODE_TYPE_USERDEF */
+		snprintf(custom.name, sizeof(custom.name), "custom1280x720-100");
+		memcpy(&out->mode, &custom, sizeof(out->mode));
+		{
+			uint32_t requested_mhz = mode_refresh_mhz(&custom);
+			fprintf(stdout, "Using custom 1280x720 modeline: clock=%ukHz htotal=%u vtotal=%u "
+			                "-> requested refresh %u.%03u Hz (this is what we asked the kernel "
+			                "for; it does not confirm the display actually locks at this rate)\n",
+			        custom.clock, custom.htotal, custom.vtotal,
+			        requested_mhz / 1000, requested_mhz % 1000);
+		}
+		goto have_mode;
+	}
+
 	int fc = 0;
 	int preferred_fc = -1;
 	if (mode_width>0 && mode_height>0 && mode_vrefresh>0) {
@@ -625,6 +658,7 @@ struct modeset_output *modeset_output_create(int fd, drmModeRes *res, drmModeCon
 		printf( "Using screen mode %dx%d@%d (%u.%03u Hz)\n",conn->modes[fc].hdisplay, conn->modes[fc].vdisplay , conn->modes[fc].vrefresh, used_mhz / 1000, used_mhz % 1000 );
 	}
 	memcpy(&out->mode, &conn->modes[fc], sizeof(out->mode));
+have_mode:
 	if (drmModeCreatePropertyBlob(fd, &out->mode, sizeof(out->mode), &out->mode_blob_id) != 0) {
 		fprintf(stderr, "couldn't create a blob property\n");
 		goto out_error;
@@ -898,6 +932,12 @@ int modeset_atomic_prepare_commit(int fd, struct modeset_output *out, drmModeAto
 {
 	if (set_drm_object_property(req, &out->connector, "CRTC_ID", out->crtc.id) < 0)
 		return -1;
+	if (out->mode.hdisplay == 1280 && out->mode.vdisplay == 720 && out->mode.vrefresh == 100) {
+		/* Force limited-range output for our custom 720p100 timing: colors
+		   looked oversaturated under the driver's default (full range)
+		   output on this connector's non-standard userdef mode. */
+		set_drm_object_property(req, &out->connector, "quant_range", 1);
+	}
 	if (set_drm_object_property(req, &out->crtc, "MODE_ID", out->mode_blob_id) < 0)
 		return -1;
 	if (set_drm_object_property(req, &out->crtc, "ACTIVE", 1) < 0)
