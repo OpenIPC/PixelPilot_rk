@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -140,7 +141,6 @@ IfaceSnapshot parse_chan_info(const fs::path& path, const std::map<int, int>& fr
 
     std::string line;
     bool found_bw = false;
-    bool found_header = false;
 
     while (std::getline(f, line)) {
         std::string t = trim(line);
@@ -153,11 +153,10 @@ IfaceSnapshot parse_chan_info(const fs::path& path, const std::map<int, int>& fr
             }
             continue;
         }
-        if (!found_header) {
-            if (t.rfind("Index", 0) == 0) found_header = true;
-            continue;
-        }
-        break;  /* row parsing continues below, after the header line */
+        /* Break as soon as the header line is consumed, in the same
+         * iteration — breaking on the *next* iteration instead would read
+         * (and silently discard) the first data row along with it. */
+        if (t.rfind("Index", 0) == 0) break;
     }
 
     while (std::getline(f, line)) {
@@ -263,8 +262,9 @@ void remove_iface_state(const std::string& name) {
 }
 
 /* One interface's scan loop: repeatedly scan + poll chan_info, with no pause
- * between rounds — as soon as one `iw scan passive` finishes, the next one
- * starts, so the picture keeps updating continuously instead of stalling. */
+ * between successful rounds — as soon as one `iw scan passive` finishes, the
+ * next one starts, so the picture keeps updating continuously instead of
+ * stalling. */
 void run_iface(IfaceHandle iface, std::atomic<bool>* iface_running) {
     std::map<int, int> freq_map = get_channel_freq_map(iface.name);
 
@@ -284,6 +284,23 @@ void run_iface(IfaceHandle iface, std::atomic<bool>* iface_running) {
             waited_pid = waitpid(scan_pid, &status, WNOHANG);
             if (waited_pid == 0) std::this_thread::sleep_for(std::chrono::milliseconds(150));
         } while (waited_pid == 0 && iface_running->load() && g_running.load());
+
+        /* Shutting down (or this adapter unplugged) mid-scan: stop the child
+         * instead of leaving `iw` running past this function returning. */
+        if (scan_pid > 0 && waited_pid == 0) {
+            kill(scan_pid, SIGTERM);
+            waitpid(scan_pid, &status, 0);
+            break;  /* iface_running/g_running are false here; outer while exits too */
+        }
+
+        /* A fork failure or a scan that exits immediately (missing `iw`, a
+         * rejected scan, an unavailable radio) would otherwise spin this
+         * loop as fast as the system allows; back off before retrying. */
+        bool ok = scan_pid > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (!ok) {
+            for (int waited = 0; waited < 1000 && iface_running->load() && g_running.load(); waited += 100)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     }
 }
 
