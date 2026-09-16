@@ -437,7 +437,7 @@ static const colmenu_item_t sys_display_items[] = {
 static const colmenu_page_t sys_display_page = { "Display", "gs", "system", sys_display_items, 5 };
 static const colmenu_item_t sys_dvr_items[] = {
     { .kind=COLMENU_SWITCH,   .label="Enabled",           .param="rec_enabled",          .on_change=on_rec_enabled },
-    { .kind=COLMENU_SWITCH,   .label="Auto-record on Signal", .param="dvr_on_signal",    .on_change=on_dvr_on_signal },
+    { .kind=COLMENU_SWITCH,   .label="Auto Record",       .param="dvr_on_signal",        .on_change=on_dvr_on_signal },
     { .kind=COLMENU_DROPDOWN, .label="Mode",              .param="dvr_mode",             .on_change=on_dvr_mode },
     { .kind=COLMENU_SLIDER,   .label="Max file size (MB)", .param="dvr_max_size",         .on_change=on_dvr_max_size, .display_scale=100 },
     { .kind=COLMENU_DROPDOWN, .label="Codec",             .param="dvr_reenc_codec",      .on_change=on_dvr_reenc_codec },
