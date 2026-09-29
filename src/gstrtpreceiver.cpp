@@ -1987,18 +1987,52 @@ static void dvr_drain_element_messages(GstBus* bus) {
 }
 
 // Wait (bounded) for the splitmuxsink to post fragment-closed after an EOS, so
-// the mp4 moov is written before the bin is torn down.
-static void dvr_wait_fragment_closed(GstBus* bus) {
-    if (!bus) return;
+// the mp4 moov is written before the bin is torn down. Returns the closed
+// file's path (empty on timeout).
+static std::string dvr_wait_fragment_closed(GstBus* bus) {
+    if (!bus) return {};
     const gint64 deadline = g_get_monotonic_time() + G_TIME_SPAN_SECOND * 2;
     bool closed = false;
+    std::string location;
     while (!closed && g_get_monotonic_time() < deadline) {
         GstMessage* msg = gst_bus_timed_pop_filtered(bus, 100 * GST_MSECOND, GST_MESSAGE_ELEMENT);
         if (!msg) continue;
-        if (gst_message_has_name(msg, "splitmuxsink-fragment-closed")) closed = true;
+        if (gst_message_has_name(msg, "splitmuxsink-fragment-closed")) {
+            closed = true;
+            const gchar* loc = gst_structure_get_string(gst_message_get_structure(msg), "location");
+            if (loc) location = loc;
+        }
         gst_message_unref(msg);
     }
     if (!closed) spdlog::warn("[DVR] timed out waiting for mp4 finalization");
+    return location;
+}
+
+// Finished recordings still sit in the page cache after finalization; the moov
+// and the rewritten mdat header are the newest (last-flushed) pages, so pulling
+// power shortly after "stop" loses exactly them and leaves an unplayable mp4.
+// Flush the recording's filesystem (file data, its directory entry and any
+// earlier _partN splits) so a stopped recording is really on disk. Runs on a
+// detached thread: an SD-card flush can take seconds and the caller is the
+// appsink pull thread, which must keep delivering live video. No join needed
+// on exit: syncfs() is uninterruptible, so a process exit waits for it.
+static void dvr_sync_recording_async(const std::string& path) {
+    if (path.empty()) return;
+    std::thread([path] {
+        const auto t0 = std::chrono::steady_clock::now();
+        const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+        if (fd < 0) {
+            spdlog::warn("[DVR] cannot open {} to sync: {}", path, strerror(errno));
+            return;
+        }
+        if (syncfs(fd) != 0)
+            spdlog::warn("[DVR] sync of {} failed: {}", path, strerror(errno));
+        else
+            spdlog::info("[DVR] recording saved to disk: {} ({} ms)", path,
+                         std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - t0).count());
+        close(fd);
+    }).detach();
 }
 
 // Expose an in-bin element's sink pad as a ghost pad so an external tee can link
@@ -2025,6 +2059,22 @@ static GstPad* dvr_request_tee_pad(GstElement* tee) {
 #else
     return gst_element_get_request_pad(tee, "src_%u");
 #endif
+}
+
+// Switch the splitmuxsink's mp4mux to fragmented output so a recording that is
+// never finalized (crash, power loss) stays playable up to the last fragment
+// instead of lacking its moov entirely. With first-moov-then-finalise (1.20+) a
+// clean EOS still rewrites the file into a regular mp4; on 1.18 the property is
+// missing and the file simply stays fragmented (still playable). The muxer
+// instance is reused across size-splits, so setting it once covers all parts.
+static void dvr_set_fragmented_mux(GstElement* sms) {
+    GstElement* mux = nullptr;
+    g_object_get(sms, "muxer", &mux, NULL);
+    if (!mux) return;
+    g_object_set(mux, "fragment-duration", 1000u, NULL); // ms
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(mux), "fragment-mode"))
+        gst_util_set_object_arg(G_OBJECT(mux), "fragment-mode", "first-moov-then-finalise");
+    gst_object_unref(mux);
 }
 
 void GstRtpReceiver::set_dvr_config(int64_t max_size_bytes, std::function<std::string()> base_path_fn) {
@@ -2135,6 +2185,7 @@ void GstRtpReceiver::dvr_add_record_bin() {
     GstElement* sms = gst_bin_get_by_name(GST_BIN(bin), "dvr_sms");
     if (sms) {
         g_object_set(sms, "async-handling", TRUE, NULL);
+        dvr_set_fragmented_mux(sms);
         g_object_set_data_full(G_OBJECT(sms), "dvr-base", g_strdup(base.c_str()), g_free);
         g_signal_connect(sms, "format-location", G_CALLBACK(&GstRtpReceiver::dvr_format_location), nullptr);
         gst_object_unref(sms);
@@ -2205,7 +2256,7 @@ void GstRtpReceiver::dvr_remove_record_bin() {
     dvr_drain_element_messages(bus);
     if (gv) gst_pad_send_event(gv, gst_event_new_eos());
     if (ga) gst_pad_send_event(ga, gst_event_new_eos());
-    dvr_wait_fragment_closed(bus);
+    dvr_sync_recording_async(dvr_wait_fragment_closed(bus));
     if (bus) gst_object_unref(bus);
 
     if (gv) gst_object_unref(gv);
@@ -2346,6 +2397,7 @@ void GstRtpReceiver::dvr_add_reenc_bin() {
     GstElement* sms = gst_bin_get_by_name(GST_BIN(bin), "dvr_reenc_sms");
     if (sms) {
         g_object_set(sms, "async-handling", TRUE, NULL);
+        dvr_set_fragmented_mux(sms);
         g_object_set_data_full(G_OBJECT(sms), "dvr-base", g_strdup(base.c_str()), g_free);
         g_signal_connect(sms, "format-location", G_CALLBACK(&GstRtpReceiver::dvr_format_location), nullptr);
         gst_object_unref(sms);
@@ -2412,7 +2464,7 @@ void GstRtpReceiver::dvr_remove_reenc_bin() {
     dvr_drain_element_messages(bus);
     if (src) gst_app_src_end_of_stream(GST_APP_SRC(src));
     if (ga) gst_pad_send_event(ga, gst_event_new_eos());
-    dvr_wait_fragment_closed(bus);
+    dvr_sync_recording_async(dvr_wait_fragment_closed(bus));
     if (bus) gst_object_unref(bus);
 
     if (ga) gst_object_unref(ga);
