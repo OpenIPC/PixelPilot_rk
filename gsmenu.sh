@@ -366,6 +366,10 @@ case "$@" in
         echo "161"                  # integrator: return current channel
         emit_values "36\n40\n44\n48\n149\n153\n157\n161\n165"
         ;;
+    "get gs wfbng chanscan_results")
+        # integrator: emit one 5GHz channel:activity record per line
+        printf ""
+        ;;
     "get gs wfbng bandwidth")
         echo 20
         emit_values "20\n40"

@@ -148,13 +148,10 @@ static void on_dvr_reenc_bitrate(const char * value)
 extern lv_indev_t * indev_drv;
 extern lv_obj_t   * dvr_screen;
 extern lv_obj_t   * txprofiles_screen;
-extern lv_obj_t   * spectrum_screen;
 extern lv_group_t * dvr_group;               /* dvr player controls            */
 extern lv_group_t * dvr_page_group;          /* Stop returns here              */
 extern lv_group_t * tx_profile_group;        /* txprofiles table               */
 extern lv_group_t * txprofiles_return_group; /* txprofiles back/save return    */
-extern lv_group_t * spectrum_group;          /* spectrum scanner screen        */
-extern lv_group_t * spectrum_return_group;   /* spectrum scanner back return   */
 extern const char * dvr_template;
 void change_playbutton_label(const char * label);
 #ifndef USE_SIMULATOR
@@ -171,17 +168,6 @@ static void open_txprofiles(void)
     if(first) lv_group_focus_obj(first);
     /* swallow the release of the ENTER that opened this, so it doesn't
      * immediately click the focused (Back) button */
-    lv_indev_wait_release(indev_drv);
-}
-
-/* GS-side Spectrum Scanner (rtl88x2eu chan_info), reached from System -> Receiver. */
-static void open_spectrum_scanner(void)
-{
-    spectrum_return_group = lv_indev_get_group(indev_drv);
-    lv_screen_load(spectrum_screen);
-    lv_indev_set_group(indev_drv, spectrum_group);
-    lv_obj_t * first = find_first_focusable_obj(spectrum_screen);
-    if(first) lv_group_focus_obj(first);
     lv_indev_wait_release(indev_drv);
 }
 
@@ -413,23 +399,92 @@ static const colmenu_page_t gs_actions_page  = { .title="Actions", .type="gs",  
 
 /* ── GS ────────────────────────────────────────────────────────────────────── */
 
+/* The integrator owns acquisition: `chanscan_results` may use packet deltas,
+ * survey data, or a vendor API, while this page only normalizes and displays
+ * channel:activity records and reuses the normal channel setter. */
+static void chanscan_rescan(void * ctx) { (void)ctx; colmenu_rescan(); }
+
+static void apply_channel(void * ctx)
+{
+    colmenu_exec((const char *)ctx);
+}
+
+static void build_chanscan(colmenu_emit_t * e)
+{
+    char * out = colmenu_get("gs", "wfbng", "chanscan_results", NULL);
+    int channels[64], counts[64], count = 0, max_count = 1;
+
+    if(out) {
+        char * save = NULL;
+        for(char * line = strtok_r(out, "\n", &save);
+            line && count < 64;
+            line = strtok_r(NULL, "\n", &save)) {
+            int channel, activity;
+            if(sscanf(line, "%d:%d", &channel, &activity) != 2 || channel < 1 || activity < 0)
+                continue;
+            channels[count] = channel;
+            counts[count] = activity;
+            if(activity > max_count) max_count = activity;
+            count++;
+        }
+    }
+    free(out);
+
+    /* Put the noisiest channels first: they are the most useful channels to
+     * avoid, and the dynamic page remains useful on smaller displays. */
+    for(int i = 1; i < count; i++) {
+        int channel = channels[i], activity = counts[i], j = i - 1;
+        while(j >= 0 && counts[j] < activity) {
+            channels[j + 1] = channels[j];
+            counts[j + 1] = counts[j];
+            j--;
+        }
+        channels[j + 1] = channel;
+        counts[j + 1] = activity;
+    }
+
+    for(int i = 0; i < count; i++) {
+        char bar[12];
+        int pct = counts[i] * 100 / max_count;
+        int filled = pct / 10;
+        for(int j = 0; j < filled; j++) bar[j] = '#';
+        for(int j = filled; j < 10; j++) bar[j] = '.';
+        bar[10] = '\0';
+
+        char label[80];
+        snprintf(label, sizeof(label), "Ch %-3d %s %d", channels[i], bar, counts[i]);
+        char command[64];
+        snprintf(command, sizeof(command), "gsmenu.sh set gs wfbng gs_channel %d", channels[i]);
+        colmenu_emit_action(e, LV_SYMBOL_WIFI, label, apply_channel, strdup(command));
+    }
+
+    if(count == 0) colmenu_emit_label(e, "No scan results yet");
+    colmenu_emit_action(e, LV_SYMBOL_REFRESH, "Rescan", chanscan_rescan, NULL);
+}
+
+static const char * const chanscan_prefetch[] = { "chanscan_results", NULL };
+static const colmenu_page_t gs_chanscan_page = {
+    .title="Channel Scan", .type="gs", .page="wfbng",
+    .build=build_chanscan, .prefetch=chanscan_prefetch
+};
+
 static const colmenu_item_t gs_wfbng_items[] = {
     { .kind=COLMENU_LABEL,    .label="WFB-NG" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Channel",   .param="gs_channel" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Bandwidth", .param="bandwidth" },
     { .kind=COLMENU_SLIDER,   .icon=LV_SYMBOL_SETTINGS, .label="TXPower (%)", .param="txpower" },
+    { .kind=COLMENU_SUBMENU,  .icon=LV_SYMBOL_WIFI,      .label="Channel Scan", .sub=&gs_chanscan_page },
     { .kind=COLMENU_LABEL,    .label="Adaptive Link" },
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="Enabled",   .param="adaptivelink" },
 };
-static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_items, 6 };
+static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_items, 7 };
 
 /* System → Receiver / Display / DVR */
 static const colmenu_item_t sys_receiver_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Codec",   .param="rx_codec" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="RX Mode", .param="rx_mode", .on_change=on_rx_mode_change },
-    { .kind=COLMENU_ACTION,   .icon=LV_SYMBOL_WIFI, .label="Spectrum Scanner", .on_activate=open_spectrum_scanner },
 };
-static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 3 };
+static const colmenu_page_t sys_receiver_page = { "Receiver", "gs", "system", sys_receiver_items, 2 };
 static const colmenu_item_t sys_audio_items[] = {
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_AUDIO,      .label="Audio",  .param="audio",        .on_change=on_audio_enabled },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_AUDIO,      .label="Output", .param="audio_device", .on_change=on_audio_device },
