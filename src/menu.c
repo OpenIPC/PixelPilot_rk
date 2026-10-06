@@ -8,6 +8,7 @@
 #include "gsmenu/styles.h"
 #include "gsmenu/gs_dvrplayer.h"
 #include "gsmenu/air_txprofiles.h"
+#include "channel_scan.h"
 #include "gsmenu/colmenu.h"
 #include "gsmenu/colmenu_pages.h"
 #include "gsmenu/gs_connection_checker.h" /* update_network_status() */
@@ -87,6 +88,7 @@ lv_obj_t * pp_menu_screen;
 lv_obj_t * pp_osd_screen;
 lv_obj_t * dvr_screen;
 lv_obj_t * txprofiles_screen;
+lv_obj_t * channel_scan_screen;
 
 /* Back at the root column closes the menu (was ui.c:back_event_handler). */
 static void colmenu_return_to_osd(void * ctx)
@@ -161,6 +163,10 @@ void pp_menu_main(void)
     txprofiles_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_opa(txprofiles_screen, LV_OPA_TRANSP, LV_PART_MAIN);
     create_table(txprofiles_screen);
+
+    channel_scan_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_opa(channel_scan_screen, LV_OPA_TRANSP, LV_PART_MAIN);
+    channel_scan_screen_init(channel_scan_screen);
 
     pp_osd_main();
     lv_screen_load(pp_osd_screen);

@@ -48,6 +48,8 @@ set(SIMULATOR_SOURCES
         src/gsmenu/executor.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c
+        src/channel_scan.h
+        src/channel_scan.c
         src/gsmenu/helper.h
         src/gsmenu/helper.c
         src/gsmenu/gs_dvrplayer.h
@@ -75,6 +77,8 @@ set(LIB_SOURCE_FILES
         src/gsmenu/executor.c
         src/gsmenu/air_txprofiles.h
         src/gsmenu/air_txprofiles.c
+        src/channel_scan.h
+        src/channel_scan.c
         src/gsmenu/helper.h
         src/gsmenu/helper.c
         src/gsmenu/gs_dvrplayer.h
