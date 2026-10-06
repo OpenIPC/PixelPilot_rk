@@ -148,10 +148,13 @@ static void on_dvr_reenc_bitrate(const char * value)
 extern lv_indev_t * indev_drv;
 extern lv_obj_t   * dvr_screen;
 extern lv_obj_t   * txprofiles_screen;
+extern lv_obj_t   * channel_scan_screen;
 extern lv_group_t * dvr_group;               /* dvr player controls            */
 extern lv_group_t * dvr_page_group;          /* Stop returns here              */
 extern lv_group_t * tx_profile_group;        /* txprofiles table               */
 extern lv_group_t * txprofiles_return_group; /* txprofiles back/save return    */
+extern lv_group_t * channel_scan_group;
+extern lv_group_t * channel_scan_return_group;
 extern const char * dvr_template;
 void change_playbutton_label(const char * label);
 #ifndef USE_SIMULATOR
@@ -172,6 +175,16 @@ static void open_txprofiles(void)
 }
 
 static void notify_restart(const char * v) { (void)v; show_restart_notice(); }
+
+static void open_channel_scan(void)
+{
+    channel_scan_return_group = lv_indev_get_group(indev_drv);
+    lv_screen_load(channel_scan_screen);
+    lv_indev_set_group(indev_drv, channel_scan_group);
+    lv_obj_t * focused = lv_group_get_focused(channel_scan_group);
+    if(focused) lv_group_focus_obj(focused);
+    lv_indev_wait_release(indev_drv);
+}
 
 static void on_audio_enabled(const char * value)  /* toggle Opus audio playback now */
 {
@@ -404,10 +417,11 @@ static const colmenu_item_t gs_wfbng_items[] = {
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Channel",   .param="gs_channel" },
     { .kind=COLMENU_DROPDOWN, .icon=LV_SYMBOL_SETTINGS, .label="Bandwidth", .param="bandwidth" },
     { .kind=COLMENU_SLIDER,   .icon=LV_SYMBOL_SETTINGS, .label="TXPower (%)", .param="txpower" },
+    { .kind=COLMENU_ACTION,   .icon=LV_SYMBOL_WIFI,      .label="Channel Scan", .on_activate=open_channel_scan },
     { .kind=COLMENU_LABEL,    .label="Adaptive Link" },
     { .kind=COLMENU_SWITCH,   .icon=LV_SYMBOL_SETTINGS, .label="Enabled",   .param="adaptivelink" },
 };
-static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_items, 6 };
+static const colmenu_page_t gs_wfbng_page = { "WFB-NG", "gs", "wfbng", gs_wfbng_items, 7 };
 
 /* System → Receiver / Display / DVR */
 static const colmenu_item_t sys_receiver_items[] = {
