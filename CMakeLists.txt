@@ -67,6 +67,11 @@ set(SIMULATOR_SOURCES
         src/osd.h
         src/osd.hpp
         src/osd.cpp
+        src/osd_internal.hpp
+        src/osd_schema.hpp
+        src/osd_schema.cpp
+        src/gsmenu/osd_editor_menu.h
+        src/gsmenu/osd_editor_menu.cpp
         src/sim_facts.c
 )
 
@@ -105,6 +110,11 @@ set(LIB_SOURCE_FILES
         src/osd.hpp
         src/osd.cpp
         src/osd_drm.cpp
+        src/osd_internal.hpp
+        src/osd_schema.hpp
+        src/osd_schema.cpp
+        src/gsmenu/osd_editor_menu.h
+        src/gsmenu/osd_editor_menu.cpp
         src/os_mon.hpp
         src/os_mon.cpp
         src/osd_gl.cpp

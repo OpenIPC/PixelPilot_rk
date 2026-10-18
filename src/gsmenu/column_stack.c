@@ -14,7 +14,7 @@ extern lv_indev_t * indev_drv;
 #include "../input.h"
 extern gsmenu_control_mode_t control_mode;
 
-#define CS_MAX_COLS   8
+#define CS_MAX_COLS   12
 #define CS_COL_WIDTH  360
 
 typedef enum {
@@ -43,6 +43,9 @@ typedef struct {
     lv_obj_t *         slider_val;
     int                precision;   /* slider decimals (value = raw/10^prec)     */
     int                display_scale; /* multiply displayed value by this (e.g., 100 for pos*100 MB) */
+    int32_t            step;        /* raw step per key, 0 = 1/20 of the range    */
+    uint32_t           last_adj;    /* tick of the last adjustment (acceleration) */
+    int                streak;      /* quick successive adjustments so far       */
     /* dropdown */
     lv_obj_t *         value_lbl;   /* the "current value" text on the row      */
     char *             options;     /* '\n' separated, owned                    */
@@ -69,6 +72,9 @@ struct colstack {
         lv_obj_t *   body;
         lv_group_t * group;
         lv_obj_t *   origin;   /* the row that opened this column               */
+        bool      (* on_back)(void * ctx);   /* optional: true = Back handled     */
+        void      (* on_reveal)(void * ctx); /* optional: column is on top again  */
+        void *       hook_ctx;
     } cols[CS_MAX_COLS];
     int         depth;        /* number of live columns; root included         */
     lv_obj_t *  edit_slider;  /* non-NULL while a slider is being edited        */
@@ -152,11 +158,29 @@ lv_obj_t * colstack_push(colstack_t * cs, const char * title)
     cs->cols[i].col   = col;
     cs->cols[i].body  = body;
     cs->cols[i].group = grp;
+    cs->cols[i].origin    = NULL;
+    cs->cols[i].on_back   = NULL;
+    cs->cols[i].on_reveal = NULL;
+    cs->cols[i].hook_ctx  = NULL;
 
     lv_indev_set_group(indev_drv, grp);
     lv_obj_scroll_to_view(col, LV_ANIM_ON);
     refresh_active_styling(cs);
     return body;
+}
+
+/* on_reveal runs deferred (the pop usually happens inside a key event of a row
+ * that was just deleted), and only if that column is still the top one. */
+typedef struct { colstack_t * cs; lv_obj_t * col; } cs_reveal_t;
+
+static void cs_reveal_async(void * p)
+{
+    cs_reveal_t * r = p;
+    colstack_t * cs = r->cs;
+    int top = cs->depth - 1;
+    if(cs->cols[top].col == r->col && cs->cols[top].on_reveal)
+        cs->cols[top].on_reveal(cs->cols[top].hook_ctx);
+    free(r);
 }
 
 void colstack_pop(colstack_t * cs)
@@ -171,7 +195,25 @@ void colstack_pop(colstack_t * cs)
     lv_indev_set_group(indev_drv, cs->cols[cs->depth - 1].group);
     lv_obj_scroll_to_view(cs->cols[cs->depth - 1].col, LV_ANIM_ON);
     refresh_active_styling(cs);
+
+    if(cs->cols[cs->depth - 1].on_reveal) {
+        cs_reveal_t * r = malloc(sizeof(*r));
+        r->cs = cs;
+        r->col = cs->cols[cs->depth - 1].col;
+        lv_async_call(cs_reveal_async, r);
+    }
 }
+
+void colstack_set_column_hooks(colstack_t * cs, bool (*on_back)(void * ctx),
+                               void (*on_reveal)(void * ctx), void * ctx)
+{
+    int top = cs->depth - 1;
+    cs->cols[top].on_back   = on_back;
+    cs->cols[top].on_reveal = on_reveal;
+    cs->cols[top].hook_ctx  = ctx;
+}
+
+lv_obj_t * colstack_cur_body(colstack_t * cs) { return cs->cols[cs->depth - 1].body; }
 
 int colstack_depth(colstack_t * cs) { return cs->depth; }
 
@@ -275,7 +317,16 @@ static void item_key_cb(lv_event_t * e)
             int32_t v   = lv_slider_get_value(cs->edit_slider);
             int32_t min = lv_slider_get_min_value(cs->edit_slider);
             int32_t max = lv_slider_get_max_value(cs->edit_slider);
-            int32_t step = (max - min) / 20; if(step < 1) step = 1;
+            int32_t step;
+            if(it->step > 0) {
+                /* fine steps, accelerating while the key repeats (held button) */
+                uint32_t now = lv_tick_get();
+                it->streak = (now - it->last_adj < 250) ? it->streak + 1 : 0;
+                it->last_adj = now;
+                step = it->step * (it->streak >= 20 ? 20 : it->streak >= 10 ? 5 : it->streak >= 4 ? 2 : 1);
+            } else {
+                step = (max - min) / 20; if(step < 1) step = 1;
+            }
             v += (k == LV_KEY_RIGHT) ? step : -step;
             if(v < min) v = min; if(v > max) v = max;
             lv_slider_set_value(cs->edit_slider, v, LV_ANIM_OFF);
@@ -381,7 +432,9 @@ static void item_key_cb(lv_event_t * e)
     }
 
     if(is_back_key(k)) {
+        int top = cs->depth - 1;
         if(cs->depth <= 1) { if(cs->root_back) cs->root_back(cs->root_back_ctx); }
+        else if(cs->cols[top].on_back && cs->cols[top].on_back(cs->cols[top].hook_ctx)) return;
         else               colstack_pop(cs);
     }
 }
@@ -613,6 +666,29 @@ void colstack_set_slider_live(lv_obj_t * row, void (*on_live)(void * ctx, const 
     if(it) { it->on_live = on_live; it->live_ctx = ctx; }
 }
 
+void colstack_set_row_value(lv_obj_t * row, const char * text)
+{
+    cs_item_t * it = lv_obj_get_user_data(row);
+    if(!it || (it->role != CS_SUBMENU && it->role != CS_ACTION)) return;
+    if(!it->value_lbl) {
+        lv_obj_t * val = lv_label_create(row);
+        lv_obj_set_style_text_color(val, lv_color_hex(0x8a93a6), 0);
+        lv_obj_set_style_pad_left(val, 8, 0);
+        lv_label_set_long_mode(val, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_max_width(val, 380, 0);
+        /* before the submenu chevron (the row's last child) */
+        if(it->role == CS_SUBMENU) lv_obj_move_to_index(val, (int32_t)lv_obj_get_child_count(row) - 2);
+        it->value_lbl = val;
+    }
+    lv_label_set_text(it->value_lbl, text ? text : "");
+}
+
+void colstack_set_slider_step(lv_obj_t * row, int32_t step)
+{
+    cs_item_t * it = lv_obj_get_user_data(row);
+    if(it) it->step = step;
+}
+
 void colstack_set_action(lv_obj_t * row, void (*on_activate)(void * ctx), void * ctx)
 {
     cs_item_t * it = lv_obj_get_user_data(row);
@@ -644,6 +720,31 @@ void colstack_rebuild_current(colstack_t * cs)
     if(!it || !it->builder) return;
     lv_obj_clean(cs->cols[i].body);
     it->builder(cs, cs->cols[i].body, it->user);
+}
+
+void colstack_rebuild_current_keep_focus(colstack_t * cs)
+{
+    if(cs->depth <= 1) return;
+    int i = cs->depth - 1;
+    lv_obj_t * body = cs->cols[i].body;
+    lv_obj_t * focused = lv_group_get_focused(cs->cols[i].group);
+    int32_t idx = (focused && lv_obj_get_parent(focused) == body) ? lv_obj_get_index(focused) : 0;
+    int32_t scroll = lv_obj_get_scroll_y(body);
+
+    colstack_rebuild_current(cs);
+
+    /* refocus the row now at the same position (or the nearest one above it) */
+    int32_t n = (int32_t)lv_obj_get_child_count(body);
+    for(int32_t j = idx < n ? idx : n - 1; j >= 0; j--) {
+        lv_obj_t * row = lv_obj_get_child(body, j);
+        if(lv_obj_get_group(row) == cs->cols[i].group) { lv_group_focus_obj(row); break; }
+    }
+    /* drop the scroll-on-focus animations the rebuild queued, keep the old scroll */
+    lv_anim_delete(body, NULL);
+    lv_obj_update_layout(body);
+    lv_obj_scroll_to_y(body, scroll, LV_ANIM_OFF);
+    focused = lv_group_get_focused(cs->cols[i].group);
+    if(focused) lv_obj_scroll_to_view(focused, LV_ANIM_OFF);
 }
 
 void colstack_set_enabled(lv_obj_t * row, bool enabled)
@@ -707,7 +808,11 @@ static int32_t role_ctrl_w(const cs_item_t * it)
             return vw + 48;
         }
         case CS_SWITCH:   return 70;
-        case CS_SUBMENU:  return 34;    /* chevron                              */
+        case CS_SUBMENU: {              /* chevron (+ value, see set_row_value) */
+            int32_t vw = it->value_lbl ? label_text_w(it->value_lbl) + 8 : 0;
+            if(vw > 380) vw = 380;
+            return 34 + vw;
+        }
         default:          return 20;
     }
 }
@@ -765,6 +870,9 @@ void colstack_autofit(colstack_t * cs)
      * LONG_WRAP label that wrapped at the old width keeps its stale line break
      * until some later event (e.g. moving a slider) re-flows it. */
     lv_obj_update_layout(cs->cols[top].col);
+    /* the push scrolled the column into view at its old width; a wider one may
+     * now stick out of the screen */
+    lv_obj_scroll_to_view(cs->cols[top].col, LV_ANIM_ON);
 }
 
 /* ── lifecycle ─────────────────────────────────────────────────────────────── */

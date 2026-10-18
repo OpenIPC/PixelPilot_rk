@@ -2893,6 +2893,7 @@ public:
 		for (size_t i = 0; i < config_["widgets"].size(); i++) {
 			entries_.push_back(Entry{next_id_++});
 			buildEntry(i);
+			replay(entries_[i]);  // a reload keeps the facts seen so far
 		}
 		restack();
 		dirty_ = false;

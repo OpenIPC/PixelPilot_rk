@@ -47,6 +47,7 @@ typedef struct {
     long repeat_time;
     bool is_holding;
     bool long_press_sent;
+    bool deferred;           // press acts on release (short) or after a hold (long)
 } gpio_button_t;
 
 // Global array of GPIO buttons
@@ -203,7 +204,24 @@ void setup_gpio(YAML::Node& config) {
     }
 }
 
+// Which buttons act on release (so a hold can mean something else): left/right
+// in the menu; in MOVE mode every direction repeats instead, and only the center
+// waits, as a hold cancels the move.
+static bool waits_for_release(size_t button_index) {
+    const char *name = gpio_buttons[button_index].name;
+    if (control_mode == GSMENU_CONTROL_MODE_MOVE)
+        return strcmp(name, "center") == 0;
+    return strcmp(name, "right") == 0 || strcmp(name, "left") == 0;
+}
+
 void send_long_press_event(size_t button_index) {
+    if (control_mode == GSMENU_CONTROL_MODE_MOVE) {
+        if (strcmp(gpio_buttons[button_index].name, "center") == 0) {
+            next_key = LV_KEY_ESC;
+            next_key_pressed = true;
+        }
+        return;
+    }
     if (strcmp(gpio_buttons[button_index].name, "right") == 0) {
         next_key = LV_KEY_ENTER;
         next_key_pressed = true;
@@ -284,6 +302,27 @@ void send_button_event(size_t button_index) {
             }
             break;
             
+        case GSMENU_CONTROL_MODE_MOVE:
+            if (strcmp(gpio_buttons[button_index].name, "up") == 0) {
+                next_key = LV_KEY_UP;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "down") == 0) {
+                next_key = LV_KEY_DOWN;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "left") == 0) {
+                next_key = LV_KEY_LEFT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "right") == 0) {
+                next_key = LV_KEY_RIGHT;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "center") == 0) {
+                next_key = LV_KEY_ENTER;
+            }
+            else if (strcmp(gpio_buttons[button_index].name, "rec") == 0) {
+                next_key = LV_KEY_ESC;
+            }
+            break;
+
         case GSMENU_CONTROL_MODE_KEYBOARD:
             if (strcmp(gpio_buttons[button_index].name, "up") == 0) {
                 next_key = LV_KEY_UP;
@@ -336,20 +375,20 @@ void handle_gpio_input(void) {
                     gpio_buttons[i].is_holding = true;
                     gpio_buttons[i].long_press_sent = false;
                     gpio_buttons[i].repeat_time = current_time + INITIAL_REPEAT_DELAY_MS;
+                    // Decided at press time: the press may switch the mode (e.g. ENTER
+                    // starting a move), and its release must not act in the new one.
+                    gpio_buttons[i].deferred = waits_for_release(i);
                     
-                    // Fire event immediately for all buttons EXCEPT 'right' and 'left'.
-                    // For those, we wait to see if it's a short or long press.
-                    if (strcmp(gpio_buttons[i].name, "right") != 0 &&
-                        strcmp(gpio_buttons[i].name, "left") != 0) {
+                    // Fire event immediately for all buttons EXCEPT the deferred ones
+                    // ('right'/'left'): for those, we wait to see if it's a short or long press.
+                    if (!gpio_buttons[i].deferred) {
                         send_button_event(i);
                     }
                 } else { // Button released
                     gpio_buttons[i].is_holding = false;
                     
-                    // If 'right' or 'left' was released without a long press, send the normal event now.
-                    if ((strcmp(gpio_buttons[i].name, "right") == 0 ||
-                         strcmp(gpio_buttons[i].name, "left") == 0) &&
-                        !gpio_buttons[i].long_press_sent) {
+                    // If a deferred button was released without a long press, send the normal event now.
+                    if (gpio_buttons[i].deferred && !gpio_buttons[i].long_press_sent) {
                         send_button_event(i);
                     } else {
                         // For all other buttons, or for a long-pressed 'right' button,
@@ -363,9 +402,8 @@ void handle_gpio_input(void) {
             if (gpio_buttons[i].is_holding && current_state == 1 && 
                 current_time >= gpio_buttons[i].repeat_time) {
                 
-                // Special long-press handling for 'right' and 'left'
-                if (strcmp(gpio_buttons[i].name, "right") == 0 ||
-                    strcmp(gpio_buttons[i].name, "left") == 0) {
+                // Special long-press handling for the deferred buttons ('right' and 'left')
+                if (gpio_buttons[i].deferred) {
                     if (!gpio_buttons[i].long_press_sent) {
                         send_long_press_event(i);
                         gpio_buttons[i].long_press_sent = true;
@@ -449,6 +487,23 @@ static void test_fact_bump(int delta) {
 void handle_keyboard_input(void) {
     char c;
     if (read(STDIN_FILENO, &c, 1) > 0) {
+        /* Terminal arrow keys arrive as ESC [ A..D: treat them like w/s/d/a. A lone
+         * Escape cancels (like 'x'). */
+        if (c == 0x1b) {
+            char seq[2];
+            if (read(STDIN_FILENO, &seq[0], 1) > 0 && seq[0] == '[' &&
+                read(STDIN_FILENO, &seq[1], 1) > 0) {
+                switch (seq[1]) {
+                    case 'A': c = 'w'; break;
+                    case 'B': c = 's'; break;
+                    case 'C': c = 'd'; break;
+                    case 'D': c = 'a'; break;
+                    default: return;
+                }
+            } else {
+                c = 'x';
+            }
+        }
         switch(c) {
             case 'w':
             case 'W':
@@ -464,6 +519,7 @@ void handle_keyboard_input(void) {
                     next_key = LV_KEY_UP;
                     break;
                 case GSMENU_CONTROL_MODE_KEYBOARD:
+                case GSMENU_CONTROL_MODE_MOVE:
                     next_key = LV_KEY_UP;
                     break;
                 default:
@@ -486,6 +542,7 @@ void handle_keyboard_input(void) {
                     next_key = LV_KEY_DOWN;
                     break;
                 case GSMENU_CONTROL_MODE_KEYBOARD:
+                case GSMENU_CONTROL_MODE_MOVE:
                     next_key = LV_KEY_DOWN;
                     break;
                 default:
@@ -507,6 +564,7 @@ void handle_keyboard_input(void) {
                     next_key = LV_KEY_HOME;
                     break;
                 case GSMENU_CONTROL_MODE_KEYBOARD:
+                case GSMENU_CONTROL_MODE_MOVE:
                     next_key = LV_KEY_LEFT;
                     break;
                 default:
@@ -529,6 +587,7 @@ void handle_keyboard_input(void) {
                     next_key = LV_KEY_ENTER;
                     break;
                 case GSMENU_CONTROL_MODE_KEYBOARD:
+                case GSMENU_CONTROL_MODE_MOVE:
                     next_key = LV_KEY_RIGHT;
                     break;
                 default:
@@ -536,6 +595,14 @@ void handle_keyboard_input(void) {
                 }        
                 next_key_pressed = true;
                 printf("Right\n");
+                break;
+            case 'x':
+            case 'X':
+                if (control_mode == GSMENU_CONTROL_MODE_MOVE) {
+                    next_key = LV_KEY_ESC;
+                    next_key_pressed = true;
+                    printf("Cancel\n");
+                }
                 break;
             case '\n':
                 next_key = LV_KEY_ENTER;

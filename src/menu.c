@@ -102,6 +102,16 @@ static void colmenu_return_to_osd(void * ctx)
  * input.cpp loads pp_menu_screen and focuses main_group to open it.
  */
 
+static lv_obj_t * pp_header;
+
+/* The OSD editor hides the logo bar so the top of the OSD stays visible. */
+void pp_menu_set_header_visible(bool visible)
+{
+    if(!pp_header) return;
+    if(visible) lv_obj_remove_flag(pp_header, LV_OBJ_FLAG_HIDDEN);
+    else        lv_obj_add_flag(pp_header, LV_OBJ_FLAG_HIDDEN);
+}
+
 /* The OpenIPC header/logo bar at the top of the menu screen (was ui.c). */
 static lv_obj_t * pp_header_create(lv_obj_t * screen) {
     lv_obj_t *header = lv_obj_create(screen);
@@ -135,7 +145,7 @@ void pp_menu_main(void)
     pp_menu_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_opa(pp_menu_screen, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_clear_flag(pp_menu_screen, LV_OBJ_FLAG_SCROLLABLE);
-    pp_header_create(pp_menu_screen);
+    pp_header = pp_header_create(pp_menu_screen);
 
     lv_obj_t * cm_cont = lv_obj_create(pp_menu_screen);
     lv_obj_set_pos(cm_cont, 0, LV_PCT(20));

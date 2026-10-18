@@ -11,6 +11,10 @@
  */
 #include "../../lvgl/lvgl.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     COLMENU_LABEL,      /* caption / read-only row               */
     COLMENU_VALUE,      /* read-only "label: <gsmenu.sh get>"    */
@@ -105,6 +109,16 @@ void colmenu_reflect_switch(const char * param, bool on);
  * (nothing is written to gsmenu.sh). For e.g. a wifi password. */
 void colmenu_prompt(const char * title, void (*on_ok)(const char * text, void * user), void * user);
 
+/* Same, but the keyboard starts with `initial` (may be NULL); `title` is copied. */
+void colmenu_prompt_text(const char * title, const char * initial,
+                         void (*on_ok)(const char * text, void * user), void * user);
+
+/* Modal dialog with a '\n'-separated list of buttons (NULL/"" = a single "OK").
+ * `cb` (may be NULL) gets the index of the chosen button, or -1 if cancelled with
+ * Back; it runs after the dialog closed and the current column has the keypad. */
+void colmenu_dialog(const char * title, const char * text, const char * buttons,
+                    void (*cb)(int choice, void * user), void * user);
+
 /* Run a shell command on a worker thread while a spinner blocks the menu (like the
  * old menu did for writes). stdout/stderr and the exit code are captured; a
  * non-zero exit shows an error dialog with the command output. */
@@ -112,8 +126,18 @@ void colmenu_exec(const char * cmd);
 
 /* Integration hooks for embedding in the app's menu screen. */
 lv_group_t * colmenu_root_group(void);                               /* focus on open */
+/* The column engine, for pages that build their columns with colstack directly
+ * (e.g. the OSD editor, whose levels carry per-row context). */
+struct colstack;
+struct colstack * colmenu_cs(void);
+struct colstack * colmenu_emit_cs(colmenu_emit_t * e);
+lv_obj_t *        colmenu_emit_body(colmenu_emit_t * e);
 void         colmenu_set_root_back(void (*cb)(void * ctx), void * ctx); /* Back at root */
 
 /* Read gsmenu.sh directly (for dynamic builders): malloc'd value or NULL;
  * *opts (optional) = malloc'd blob after the 0x1e separator. */
 char * colmenu_get(const char * type, const char * page, const char * param, char ** opts);
+
+#ifdef __cplusplus
+}
+#endif
