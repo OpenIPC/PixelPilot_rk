@@ -126,8 +126,15 @@ Build and run gsmenu SDL simulator locally
 ```
 ./sim.sh
 ```
-Simulator has w,a,s,d,Enter input.
-Press t to toggle drone detection.
+Simulator has w,a,s,d,Enter input (arrow keys work too; x / Esc cancels moving a widget).
+Press t to toggle drone detection, r to toggle recording.
+
+The simulator runs the real OSD on top of a background picture, fed by fake facts (link, video,
+system and telemetry values), so OSD layouts and the OSD editor can be tried on the PC. It needs
+nlohmann-json (`sudo apt install nlohmann-json3-dev`, or `-DNLOHMANN_JSON_INCLUDE_DIR=<dir>`).
+Options: `--osd-config <file>` (default: a copy of `config_osd.json` in
+`/tmp/pixelpilot_sim_osd.json`, so saving doesn't touch the repository), `--assets <dir>` (icons,
+default `./src/icons`) and `--res WxH` (default 1920x1080).
 
 ### Build from source for arm64
 
@@ -160,7 +167,9 @@ pixelpilot --help
 ### OSD config
 
 OSD is set-up declaratively in `/etc/pixelpilot/config_osd.json` file (or whatever is set via `--osd-config`
-command line key).
+command line key). It can also be edited on the ground station itself, see [OSD editor](#osd-editor).
+A widget whose config is invalid is left out (with an error in the log and a ⚠ in the editor)
+instead of stopping PixelPilot; prefixing a widget's `type` with `---` switches it off.
 
 Typical OSD config looks like:
 
@@ -444,6 +453,28 @@ Keyboard mode:
   - Enter: Press selected key
 
 When not in menu Up/Down will open the menu.
+
+### OSD editor
+
+System Settings → OSD edits the OSD layout (the `--osd-config` file) while the OSD is running;
+every change shows at once.
+
+* The list shows the widgets, bottom layer first; the selected widget is outlined on the screen
+  (widgets that are normally hidden, like the DVR indicator, show a preview).
+* Add widget: pick a type, then place it with the arrow keys.
+* A widget's page has its settings (text, icon, sizes, colors, ...), its facts, draw order,
+  Duplicate and Delete.
+* Facts are picked from lists: category → fact → source (e.g. which antenna), with the current
+  value next to each. Text widgets get a placeholder for each fact added (`%d`, `%u`, `%.2f`,
+  `%s`, `%b`, matching the fact's type); edit the text around it as you like.
+* Position: the menu hides and the arrow keys move the widget (holding a key speeds up).
+  Center (Enter) keeps the position, holding center (or x / Esc) cancels. Negative x/y count
+  from the right/bottom edge, which keeps a widget in its corner on other screen sizes;
+  Horizontal/Vertical switch that without moving the widget.
+* Save writes the file (the original is kept once as `<file>.bak`); Revert to saved discards the
+  changes. Leaving the editor with unsaved changes asks first.
+
+With "Record OSD in DVR" on, the editor's outline and menus are recorded too.
 
 ## Known issues
 

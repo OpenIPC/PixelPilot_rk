@@ -83,7 +83,7 @@ int main(int argc, char **argv)
     /* The real OSD engine runs in the sim: --osd-config picks the layout (it is
      * also what the OSD editor saves to), --assets the icon dir (the layout's
      * assets_dir points at the device install path), --res the screen size. */
-    const char * osd_config = "./config_osd.json";
+    const char * osd_config = NULL;
     char assets[1024] = "./src/icons";
     int width = 1920, height = 1080;
     for (int i = 1; i < argc; i++) {
@@ -96,6 +96,20 @@ int main(int argc, char **argv)
         }
     }
     char * assets_abs = realpath(assets, NULL);   /* "A:" paths are opened relative to CWD otherwise */
+    if (!osd_config) {
+        /* Default: a scratch copy of the repo's layout, so saving from the OSD
+         * editor doesn't modify the tracked file. Seeded once, then kept. */
+        osd_config = "/tmp/pixelpilot_sim_osd.json";
+        if (access(osd_config, F_OK) != 0) {
+            FILE * in = fopen("./config_osd.json", "rb");
+            FILE * out = in ? fopen(osd_config, "wb") : NULL;
+            char buf[4096];
+            size_t n;
+            while (in && out && (n = fread(buf, 1, sizeof(buf), in)) > 0) fwrite(buf, 1, n, out);
+            if (in) fclose(in);
+            if (out) fclose(out);
+        }
+    }
 
     lv_init();
     lv_disp_t * disp = lv_sdl_window_create(width, height);

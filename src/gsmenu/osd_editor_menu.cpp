@@ -293,6 +293,7 @@ static void hl_show(uint32_t id)
         g_hl_timer = lv_timer_create([](lv_timer_t *) { hl_place(); }, 250, nullptr);
     }
     g_hl_id = id;
+    osd_model::setPreview(id);
     lv_obj_move_background(g_hl);
     hl_place();
 }
@@ -300,12 +301,14 @@ static void hl_show(uint32_t id)
 static void hl_hide()
 {
     g_hl_id = 0;
+    osd_model::setPreview(0);
     if(g_hl) lv_obj_add_flag(g_hl, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void hl_destroy()
 {
     g_hl_id = 0;
+    osd_model::setPreview(0);
     if(g_hl_timer) lv_timer_delete(g_hl_timer);
     if(g_hl) lv_obj_delete(g_hl);
     g_hl_timer = nullptr;

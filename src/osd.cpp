@@ -835,6 +835,10 @@ public:
 	// Full-screen effects drawn beneath every other widget.
 	virtual bool background() const { return false; }
 
+	// Show something even without data, while the OSD editor has the widget
+	// selected (e.g. the DVR indicator while not recording), so it can be placed.
+	virtual void setPreview(bool on) {}
+
 	virtual void setFact(uint idx, Fact fact) {
         if (idx >= args.size()) throw std::out_of_range("setFact index out of range");
         args[idx] = fact;
@@ -1437,6 +1441,18 @@ public:
 
 	bool replayable(uint) const override { return false; }  // a message pops up once
 
+	void setPreview(bool on) override {
+		if (on && !preview_label && lv_parent) {
+			preview_label = lv_label_create(lv_parent);
+			lv_label_set_text(preview_label, "Pop-up message");
+			lv_obj_set_pos(preview_label, ax, ay);
+			styleLabel(preview_label);
+		} else if (!on && preview_label) {
+			lv_obj_delete(preview_label);
+			preview_label = nullptr;
+		}
+	}
+
 	void setFact(uint /*idx*/, Fact fact) override {
 		if (!lv_parent) return;
 		std::string msg = fact.asString();
@@ -1445,12 +1461,7 @@ public:
 		lv_obj_t* label = lv_label_create(lv_parent);
 		lv_label_set_text(label, msg.c_str());
 		lv_obj_set_pos(label, ax, ay);
-		lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
-		lv_obj_set_style_bg_color(label, lv_color_black(), LV_PART_MAIN);
-		lv_obj_set_style_bg_opa(label, LV_OPA_50, LV_PART_MAIN);
-		lv_obj_set_style_border_width(label, 0, LV_PART_MAIN);
-		lv_obj_set_style_radius(label, 4, LV_PART_MAIN);
-		lv_obj_set_style_pad_all(label, 8, LV_PART_MAIN);
+		styleLabel(label);
 
 		// Slide upward
 		lv_anim_t a_y;
@@ -1480,7 +1491,17 @@ public:
 	}
 
 private:
+	static void styleLabel(lv_obj_t* label) {
+		lv_obj_set_style_text_color(label, lv_color_white(), LV_PART_MAIN);
+		lv_obj_set_style_bg_color(label, lv_color_black(), LV_PART_MAIN);
+		lv_obj_set_style_bg_opa(label, LV_OPA_50, LV_PART_MAIN);
+		lv_obj_set_style_border_width(label, 0, LV_PART_MAIN);
+		lv_obj_set_style_radius(label, 4, LV_PART_MAIN);
+		lv_obj_set_style_pad_all(label, 8, LV_PART_MAIN);
+	}
+
 	lv_obj_t* lv_parent = nullptr;
+	lv_obj_t* preview_label = nullptr;  // owned by lv_parent (deleted with it)
 	int ax = 0, ay = 0;
 	uint timeout_ms;
 };
@@ -1515,9 +1536,16 @@ public:
 		dirty = false;
 	}
 
+	void setPreview(bool on) override {
+		preview = on;
+		if (lv_icon) updateStatus();
+	}
+
 private:
+	bool preview = false;
+
 	void updateStatus() {
-		bool recording = args[0].isDefined() && (bool)args[0];
+		bool recording = preview || (args[0].isDefined() && (bool)args[0]);
 		if (recording) {
 			lv_obj_clear_flag(lv_icon, LV_OBJ_FLAG_HIDDEN);
 			lv_obj_clear_flag(lv_label, LV_OBJ_FLAG_HIDDEN);
@@ -1803,10 +1831,31 @@ public:
         dirty = false;
     }
 
+    void setPreview(bool on) override {
+        preview = on;
+        if (lv_img) updateIcon();
+    }
+
 private:
+    bool preview = false;
+
+    // No value (or none in range): hidden, or the first icon while previewing.
+    void hideIcon() {
+        if (preview && !lv_icon_paths.empty()) {
+            const std::string& path = lv_icon_paths.begin()->second;
+            if (current_path != path) {
+                current_path = path;
+                lv_image_set_src(lv_img, path.c_str());
+            }
+            lv_obj_clear_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     void updateIcon() {
         if (!args[0].isDefined()) {
-            lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+            hideIcon();
             return;
         }
 
@@ -1820,7 +1869,7 @@ private:
                 try { value = std::stol(args[0].getStrValue()); } catch (...) { value = 0; }
                 break;
             default:
-                lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+                hideIcon();
                 return;
         }
 
@@ -1834,7 +1883,7 @@ private:
                 return;
             }
         }
-        lv_obj_add_flag(lv_img, LV_OBJ_FLAG_HIDDEN);
+        hideIcon();
     }
 
     std::map<std::pair<int, int>, std::string> lv_icon_paths;
@@ -3044,6 +3093,15 @@ public:
 		y = toScreen(e.built_y, screen_h_) + e.dy;
 	}
 
+	// Preview widget i (or none: -1) as shown while selected in the editor.
+	void setPreview(int i) {
+		uint32_t id = i >= 0 && i < (int)entries_.size() ? entries_[i].id : 0;
+		if (id == preview_id_) return;
+		for (auto& e : entries_)
+			if (e.widget && (e.id == preview_id_ || e.id == id)) e.widget->setPreview(e.id == id);
+		preview_id_ = id;
+	}
+
 	bool bbox(size_t i, lv_area_t& out) const {
 		const Entry& e = entries_[i];
 		if (!e.root) return false;
@@ -3160,6 +3218,7 @@ private:
 			matchers.push_back(std::make_tuple(matcher, e.widget, arg_idx));
 			arg_idx++;
 		}
+		if (e.id == preview_id_) e.widget->setPreview(true);
 	}
 
 	void destroyEntry(Entry& e) {
@@ -3253,6 +3312,7 @@ private:
 	std::string config_path_;
 	std::string assets_override_;  // replaces the config's assets_dir (simulator); never saved
 	uint32_t next_id_ = 1;
+	uint32_t preview_id_ = 0;  // widget previewed for the editor (0 = none)
 	bool dirty_ = false;
 	std::chrono::steady_clock::time_point last_widget_error_;
 };
@@ -3414,6 +3474,10 @@ void setAnchor(uint32_t id, bool right, bool bottom) {
 bool bbox(uint32_t id, lv_area_t& out) {
 	int i = index(id);
 	return i >= 0 && g_osd->bbox(i, out);
+}
+
+void setPreview(uint32_t id) {
+	if (g_osd) g_osd->setPreview(id ? index(id) : -1);
 }
 
 void anchorPoint(uint32_t id, int& x, int& y) {

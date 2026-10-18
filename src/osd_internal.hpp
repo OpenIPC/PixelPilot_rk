@@ -58,6 +58,9 @@ void setAnchor(uint32_t id, bool right, bool bottom);
 bool bbox(uint32_t id, lv_area_t& out);
 // The configured x/y on screen (incl. offset).
 void anchorPoint(uint32_t id, int& x, int& y);
+// Make the widget show something even without data (DVR indicator, icons,
+// pop-ups), for placing it; 0 = no widget.
+void setPreview(uint32_t id);
 
 void screen(int& w, int& h);
 std::vector<SeenFact> seen();
