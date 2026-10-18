@@ -45,6 +45,7 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -3513,17 +3514,29 @@ std::string save() {
 	if (ec) target = path;
 	std::string text = g_osd->config().dump(4) + "\n";
 
+	// The new file keeps the old one's permissions and owner (pixelpilot may run
+	// with a restrictive umask); a new file is world-readable like the default one.
+	struct stat st;
+	bool existed = stat(target.c_str(), &st) == 0;
+
 	// Keep the file as it was before the first save from the editor.
 	fs::path bak = target.string() + ".bak";
-	if (fs::exists(target) && !fs::exists(bak)) {
+	if (existed && !fs::exists(bak)) {
 		fs::copy_file(target, bak, ec);
 		if (ec) return fmt::format("can't back up {}: {}", target.string(), ec.message());
+		chmod(bak.c_str(), st.st_mode & 07777);
 	}
 
 	// Write a temp file next to it, flush it to disk, then swap it in atomically.
 	std::string tmp = target.string() + ".tmp";
 	int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (fd < 0) return fmt::format("can't write {}: {}", tmp, strerror(errno));
+	if (existed) {
+		fchmod(fd, st.st_mode & 07777);
+		if (fchown(fd, st.st_uid, st.st_gid) != 0) { /* keep ours if not allowed */ }
+	} else {
+		fchmod(fd, 0644);
+	}
 	const char* p = text.data();
 	size_t left = text.size();
 	while (left > 0) {
