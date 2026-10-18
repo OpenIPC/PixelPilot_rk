@@ -23,12 +23,11 @@ extern lv_indev_t * indev_drv;
 
 extern int dvr_enabled;
 
+extern bool menu_active;
 #ifdef USE_SIMULATOR
-bool menu_active;
 lv_timer_t * timer = NULL;
 #endif
 #ifndef USE_SIMULATOR
-extern bool menu_active;
 #define MAX_GPIO_BUTTONS 6  // Adjust based on your hardware
 #define DEBOUNCE_DELAY_MS 50 // Debounce delay in milliseconds
 #define INITIAL_REPEAT_DELAY_MS 500  // Time before repeat starts
@@ -442,9 +441,7 @@ static void test_fact_bump(int delta) {
     v += delta;
     if (v > 100) v = 100;
     else if (v < -100) v = -100;
-#ifndef USE_SIMULATOR
-    osd_publish_int_fact("test.value", NULL, 0, v);   // osd.cpp isn't in the sim build
-#endif
+    osd_publish_int_fact("test.value", NULL, 0, v);
     printf("test.value = %d\n", v);
 }
 

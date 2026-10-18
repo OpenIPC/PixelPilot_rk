@@ -64,6 +64,10 @@ set(SIMULATOR_SOURCES
         src/menu.c
         src/input.h
         src/input.cpp
+        src/osd.h
+        src/osd.hpp
+        src/osd.cpp
+        src/sim_facts.c
 )
 
 add_compile_options("-Wno-address-of-packed-member")
@@ -100,6 +104,7 @@ set(LIB_SOURCE_FILES
         src/osd.h
         src/osd.hpp
         src/osd.cpp
+        src/osd_drm.cpp
         src/os_mon.hpp
         src/os_mon.cpp
         src/osd_gl.cpp
@@ -133,8 +138,20 @@ if(USE_SIMULATOR)
   add_definitions(-DUSE_SIMULATOR)
   target_compile_definitions(lvgl PRIVATE USE_SIMULATOR)
   pkg_check_modules(LIBSDL REQUIRED sdl2)
+  # The simulator runs the real OSD engine (osd.cpp). nlohmann/json is header-only:
+  # install nlohmann-json3-dev, or point NLOHMANN_JSON_INCLUDE_DIR at a copy.
+  find_package(nlohmann_json 3 QUIET)
+  if(NOT nlohmann_json_FOUND)
+    find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp)
+    if(NOT NLOHMANN_JSON_INCLUDE_DIR)
+      message(FATAL_ERROR "nlohmann/json not found: install nlohmann-json3-dev or set -DNLOHMANN_JSON_INCLUDE_DIR=<dir>")
+    endif()
+    add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED)
+    target_include_directories(nlohmann_json::nlohmann_json INTERFACE ${NLOHMANN_JSON_INCLUDE_DIR})
+  endif()
   add_executable(${PROJECT_NAME} ${SIMULATOR_SOURCES})
-  target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES} ${PNG_LIBRARIES} ${LIBDRM_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES} ${PNG_LIBRARIES} ${LIBDRM_LIBRARIES}
+      nlohmann_json::nlohmann_json spdlog::spdlog fmt::fmt pthread)
 else()
   find_package(nlohmann_json 3 REQUIRED)
   find_package(yaml-cpp REQUIRED)

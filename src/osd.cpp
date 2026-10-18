@@ -6,22 +6,23 @@
  * and "subscriptions" to Facts.
  *
  * OSD runs in a separate thread and receives all the facts via queue.
+ *
+ * This file is the display-independent engine, shared with the SDL simulator; the
+ * DRM display driver and the device render thread are in osd_drm.cpp.
  */
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <csetjmp>
-extern "C" {
-#include "drm.h"
-#include "mavlink.h"
-#include "menu.h"
-#include "input.h"
-}
 #include "osd.h"
 #include "osd.hpp"
+#include "osd_internal.hpp"
 
 #include <pthread.h>
+#include <algorithm>
 #include <map>
+#include <stdexcept>
+#include <unordered_map>
 #include <vector>
 #include <ranges>
 #include <memory>
@@ -39,6 +40,7 @@ extern "C" {
 #include <regex>
 #include <utility>
 #include <filesystem>
+#include <fstream>
 #include <time.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -54,7 +56,6 @@ extern "C" {
 #include "../lvgl/src/draw/lv_image_decoder_private.h"
 #include "../lvgl/src/draw/sw/lv_draw_sw_gradient.h"  // lv_gradient_init_stops() for SignalWarningWidget
 #include <png.h>
-#include "osd_gl.hpp"
 
 #ifdef BUILD_TESTS
 #include <catch2/catch.hpp>
@@ -65,32 +66,15 @@ extern "C" {
 
 #define PATH_MAX	4096
 
-using json = nlohmann::json;
+using json = nlohmann::ordered_json;
 
 int enable_osd = 0;
-int osd_zpos = 2;
 extern uint32_t refresh_frequency_ms;
 extern uint32_t frames_received;
 uint32_t stats_rx_bytes = 0;
 struct timespec last_timestamp = {0, 0};
 float rx_rate = 0;
 int hours = 0, minutes = 0, seconds = 0, milliseconds = 0;
-extern pthread_mutex_t video_mutex;
-extern pthread_cond_t video_cond;
-bool osd_update_ready = false;
-bool menu_active = false;
-bool gsmenu_enabled = false;
-
-OsdGl osd_gl;
-extern bool enable_live_colortrans;
-extern float live_colortrans_offset;
-extern float live_colortrans_gain;
-
-#include "frame_processor.h"
-extern FrameProcessor *frame_proc;
-extern bool dvr_osd;
-
-osd_thread_params *p;
 
 double getTimeInterval(struct timespec* timestamp, struct timespec* last_meansure_timestamp) {
   return (timestamp->tv_sec - last_meansure_timestamp->tv_sec) +
@@ -152,6 +136,13 @@ public:
             root = nullptr;
         }
     }
+
+    // Assignment, so FactMatchers can be stored in (and erased from) vectors
+    ExpressionTree& operator=(const ExpressionTree& other) {
+        if (this != &other) root = other.root ? std::make_unique<Node>(*other.root) : nullptr;
+        return *this;
+    }
+    ExpressionTree& operator=(ExpressionTree&& other) noexcept = default;
 
 	// Tokenize the expression string, return vector of tokens
 	std::vector<std::string> tokenize(const std::string& expression) {
@@ -222,9 +213,19 @@ public:
         }
 
         while (!operators.empty()) {
+            if (operators.back()->op == '(') {
+                throw ExpressionException(
+                    ExpressionException::MISMATCHED_PARENTHESES,
+                    "Mismatched parentheses");
+            }
             processOperator(output, operators);
         }
 
+        // Exactly one tree left, or the operators/operands didn't pair up ("x +", "2 3", "")
+        if (output.size() != 1) {
+            throw ExpressionException(ExpressionException::INVALID_EXPRESSION,
+                                      "Incomplete expression");
+        }
         root.reset(output.back());
     }
 
@@ -278,6 +279,10 @@ private:
     }
 
     void processOperator(std::vector<Node*>& output, std::vector<Node*>& operators) {
+        if (output.size() < 2) {
+            throw ExpressionException(ExpressionException::INVALID_EXPRESSION,
+                                      "Operator without operands");
+        }
         Node* right = output.back(); output.pop_back();
         Node* left = output.back(); output.pop_back();
         Node* opNode = operators.back(); operators.pop_back();
@@ -338,12 +343,22 @@ public:
 
 	std::string getName() const { return name; }
 	FactTags getTags() const { return tags; }
+	const std::string& nameRef() const { return name; }
+	const FactTags& tagsRef() const { return tags; }
 
 private:
 	std::string name;
 	FactTags tags;
 };
 
+
+// A fact was read as a type it doesn't have, e.g. a template placeholder or widget
+// expecting an integer got a string. Thrown instead of asserting, so a mismatched
+// (or freshly edited) OSD layout costs one widget value, not the whole process.
+class FactTypeError : public std::runtime_error {
+public:
+	using std::runtime_error::runtime_error;
+};
 
 class Fact {
 public:
@@ -367,7 +382,9 @@ public:
 		return type != T_UNDEF;
 	}
 
-    operator bool() {
+    // Value conversions between the numeric types (strings are parsed); used where
+    // a widget only needs "a number" and must not care which type the source sends.
+    operator bool() const {
         switch (type) {
         case T_BOOL:
             return getBoolValue();
@@ -379,10 +396,12 @@ public:
             return getDoubleValue() != 0.0;
         case T_STRING:
             return getStrValue() != "";
+        default:
+            return false;
         }
     }
 
-    operator long() {
+    operator long() const {
         switch (type) {
         case T_BOOL:
             return getBoolValue() ? 1 : 0;
@@ -392,10 +411,14 @@ public:
             return getIntValue();
         case T_DOUBLE:
             return round(getDoubleValue());
+        case T_STRING:
+            return std::strtol(getStrValue().c_str(), nullptr, 10);
+        default:
+            return 0;
         }
     }
 
-    operator ulong() {
+    operator ulong() const {
         switch (type) {
         case T_BOOL:
             return getBoolValue() ? 1 : 0;
@@ -405,10 +428,14 @@ public:
             return (ulong)getIntValue();
         case T_DOUBLE:
             return round(getDoubleValue());
+        case T_STRING:
+            return std::strtoul(getStrValue().c_str(), nullptr, 10);
+        default:
+            return 0;
         }
     }
 
-    operator double() {
+    operator double() const {
         switch (type) {
         case T_BOOL:
             return getBoolValue() ? 1.0 : 0.0;
@@ -418,10 +445,15 @@ public:
             return getIntValue() * 1.0;
         case T_DOUBLE:
             return getDoubleValue();
+        case T_STRING:
+            return std::strtod(getStrValue().c_str(), nullptr);
+        default:
+            return 0.0;
         }
     }
 
-	// TODO: try to cast instead of crash
+	// Strict getters: throw FactTypeError on a type mismatch; use the conversion
+	// operators above to accept any numeric type.
 	bool getBoolValue() const {
 		assertType(T_BOOL);
 		return std::get<bool>(value);
@@ -462,6 +494,9 @@ public:
 	FactTags getTags() const {
 		return meta.getTags();
 	}
+
+	const std::string& nameRef() const { return meta.nameRef(); }
+	const FactTags& tagsRef() const { return meta.tagsRef(); }
 
 	std::string asString() const {
 		switch(type) {
@@ -521,9 +556,8 @@ private:
 
 	void assertType(Type t) const {
 		if (t != type) {
-			spdlog::error("'{}': requested type of {}, but the actual type is {}",
-						  asVerboseString(), typeName(t), typeName(type));
-			assert(type == t);
+			throw FactTypeError(fmt::format("'{}' is {}, not {}", meta.getName(),
+			                                typeName(type), typeName(t)));
 		}
 	}
 	FactMeta meta;
@@ -552,9 +586,9 @@ public:
 	/**
 	 * Returns true if names are equal and all match_tags are defined and have equal value
 	 */
-	bool matches(Fact fact) {
-		if(fact.getName() != name) return false;
-		FactTags fact_tags = fact.getTags();
+	bool matches(const Fact& fact) const {
+		if(fact.nameRef() != name) return false;
+		const FactTags& fact_tags = fact.tagsRef();
 		
 		for (const auto& [key, match_value] : tags) {
 			// Compare against fact_tags.end(): find() returns an iterator into
@@ -572,7 +606,7 @@ public:
 	 * Applies 'convert' expression to the fact's value.
 	 * On success, a new fact is returned with `.converted` appended to its name and value converted
 	 */
-	Fact convert(Fact fact_in) {
+	Fact convert(const Fact& fact_in) {
 		if (converter.has_value()) {
 			std::string name = fact_in.getName();
 			FactTags tags = fact_in.getTags();
@@ -782,8 +816,24 @@ public:
 		}
 	};
 
+	// The Osd deletes the widget's LVGL objects (via the container it passed as
+	// `parent`) before the widget itself, so destructors must not touch them.
+	virtual ~Widget() = default;
+
 	virtual void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) {}
 	virtual void tick() {}
+
+	// Stop internal threads before the widget is torn down (e.g. rebuilt by the
+	// OSD editor); called with the LVGL objects still alive.
+	virtual void stop() {}
+
+	// Whether the last value of fact `idx` may be fed again into a freshly built
+	// widget (e.g. after an edit). No for facts a widget turns into a rate or a
+	// one-off event, where a replayed sample would count twice.
+	virtual bool replayable(uint idx) const { return true; }
+
+	// Full-screen effects drawn beneath every other widget.
+	virtual bool background() const { return false; }
 
 	virtual void setFact(uint idx, Fact fact) {
         if (idx >= args.size()) throw std::out_of_range("setFact index out of range");
@@ -940,21 +990,24 @@ protected:
                 if (fact_i >= facts.size() || !facts[fact_i].isDefined()) {
                     msg << '?'; // Append '?' for undefined facts
                 } else {
+                    // Convert rather than insist on the exact type, so a placeholder
+                    // that doesn't match its fact still renders (e.g. %d on a uint).
+                    const Fact& f = facts[fact_i];
                     switch (token.type) {
                     case TokenType::Boolean:
-                        msg << (facts[fact_i].getBoolValue() ? 't' : 'f');
+                        msg << ((bool)f ? 't' : 'f');
                         break;
                     case TokenType::Int:
-                        msg << facts[fact_i].getIntValue();
+                        msg << (long)f;
                         break;
                     case TokenType::Uint:
-                        msg << facts[fact_i].getUintValue();
+                        msg << (ulong)f;
                         break;
                     case TokenType::Float:
-                        msg << std::fixed << std::setprecision(token.precision) << facts[fact_i].getDoubleValue();
+                        msg << std::fixed << std::setprecision(token.precision) << (double)f;
                         break;
                     case TokenType::String:
-                        msg << facts[fact_i].getStrValue();
+                        msg << f.asString();
                         break;
                     }
                 }
@@ -1107,7 +1160,6 @@ public:
 		mkBar(0,           0,           screen_w,  b,         &grad[2], LV_GRAD_DIR_VER, true);   // top
 		mkBar(0,           screen_h-b,  screen_w,  b,         &grad[3], LV_GRAD_DIR_VER, false);  // bottom
 
-		lv_obj_move_background(vig);
 		lv_obj_add_flag(vig, LV_OBJ_FLAG_HIDDEN);
 		lv_obj_set_style_opa(vig, 0, LV_PART_MAIN);
 	}
@@ -1125,6 +1177,9 @@ public:
 		}
 		dirty = true;
 	}
+
+	bool replayable(uint) const override { return rate_ras.empty(); }
+	bool background() const override { return true; }
 
 	void tick() override {
 		if (!vig || !dirty) return;
@@ -1244,16 +1299,11 @@ public:
 		stats(window_s * 1000, window_s * 1000 / num_buckets) {};
 
 	virtual void setFact(uint idx, Fact fact) {
-		assert(idx == 0);
-		switch (fact.getType()) {
-		case Fact::T_INT:
-			stats.add(fact.getIntValue());
-			break;
-		case Fact::T_UINT:
-			stats.add(static_cast<long>(fact.getUintValue()));
-		}
+		stats.add((long)fact);
 		dirty = true;
 	}
+
+	bool replayable(uint) const override { return false; }
 
 	void createLvObjects(lv_obj_t* parent, int screen_w, int screen_h) override {
 		lv_chart = lv_chart_create(parent);
@@ -1385,9 +1435,11 @@ public:
 		ay = absY(screen_h);
 	}
 
+	bool replayable(uint) const override { return false; }  // a message pops up once
+
 	void setFact(uint /*idx*/, Fact fact) override {
 		if (!lv_parent) return;
-		std::string msg = fact.getStrValue();
+		std::string msg = fact.asString();
 		if (msg.empty()) return;
 
 		lv_obj_t* label = lv_label_create(lv_parent);
@@ -1465,7 +1517,7 @@ public:
 
 private:
 	void updateStatus() {
-		bool recording = args[0].isDefined() && args[0].getBoolValue();
+		bool recording = args[0].isDefined() && (bool)args[0];
 		if (recording) {
 			lv_obj_clear_flag(lv_icon, LV_OBJ_FLAG_HIDDEN);
 			lv_obj_clear_flag(lv_label, LV_OBJ_FLAG_HIDDEN);
@@ -1486,7 +1538,7 @@ public:
 	virtual void setFact(uint idx, Fact fact) {
 		if (idx == 0) {
 			// replace the value with its increment rate per-second
-			ulong num_frames = fact.getUintValue(); // should be always '1'
+			ulong num_frames = (ulong)fact; // should be always '1'
 			fps.add(num_frames);
 			args[idx] = Fact(FactMeta("video_fps"), (ulong)fps.rate_per_second_over_last_ms(1000));
 		} else {
@@ -1494,6 +1546,8 @@ public:
 		}
 		dirty = true;
 	}
+
+	bool replayable(uint idx) const override { return idx != 0; }
 
 private:
 	RunningAverage fps;
@@ -1509,14 +1563,15 @@ public:
   };
 
 	virtual void setFact(uint idx, Fact fact) {
-		assert(idx == 0);
 		// replace the value with its increment rate per-second
-		ulong num_bytes = fact.getUintValue();
+		ulong num_bytes = (ulong)fact;
 		bps.add(num_bytes);
 		// 125000 is 1_000_000 / 8 (megabits, not megabytes)
 		args[idx] = Fact(FactMeta("video_mbps"), bps.rate_per_second_over_last_ms(1000) / 125000.0);
 		dirty = true;
 	}
+
+	bool replayable(uint) const override { return false; }
 
 private:
 	RunningAverage bps;
@@ -1532,8 +1587,7 @@ public:
   };
 
 	virtual void setFact(uint idx, Fact fact) {
-		assert(idx == 0);
-		ulong decode_time = fact.getUintValue();
+		ulong decode_time = (ulong)fact;
 		timing.add(decode_time);
 		Stats stats = timing.get_stats_over_last_ms_result(1000);
 		args[0] = Fact(FactMeta("video_avg"), stats.average);
@@ -1541,6 +1595,8 @@ public:
 		args[2] = Fact(FactMeta("video_max"), stats.max);
 		dirty = true;
 	}
+
+	bool replayable(uint) const override { return false; }
 
 private:
 	RunningAverage timing;
@@ -1580,7 +1636,7 @@ private:
 		if (!lv_label) return;
 		if (!(args[0].isDefined() && args[1].isDefined() && args[2].isDefined())) return;
 		const char* fix_type = "undef";
-		switch (args[0].getUintValue()) {
+		switch ((ulong)args[0]) {
 		case 0: fix_type = "no GPS"; break;
 		case 1: fix_type = "no fix"; break;
 		case 2: fix_type = "2D fix"; break;
@@ -1591,8 +1647,8 @@ private:
 		case 7: fix_type = "Static fixed"; break;
 		case 8: fix_type = "PPP 3D"; break;
 		}
-		double lat = args[1].getIntValue() * 1.0e-7;
-		double lon = args[2].getIntValue() * 1.0e-7;
+		double lat = (long)args[1] * 1.0e-7;
+		double lon = (long)args[2] * 1.0e-7;
 		char buf[64];
 		snprintf(buf, sizeof(buf), "%s Lat:%f, Lon:%f", fix_type, lat, lon);
 		lv_label_set_text(lv_label, buf);
@@ -1623,9 +1679,8 @@ public:
     };
 
     virtual void setFact(uint idx, Fact fact) {
-        assert(idx == 0);
         // replace the pack value with per-cell value
-        long voltage_mv = fact.getIntValue();
+        long voltage_mv = (long)fact;
         int cells;
         if (num_cells > 0) {
             cells = num_cells;
@@ -1946,15 +2001,19 @@ public:
 		}
 	}
 
-	~MspDisplayPortWidget() {
+	void stop() override {
 		running = false;
+		// recvfrom() blocks until a packet arrives; shutting the socket down wakes
+		// the reader so the join can't hang (and the port is free for a rebuild).
+		if (udp_socket >= 0) shutdown(udp_socket, SHUT_RDWR);
 		if (reader_thread.joinable()) reader_thread.join();
 		if (parser_thread.joinable()) parser_thread.join();
+	}
+
+	~MspDisplayPortWidget() {
+		stop();
 		if (udp_socket >= 0) close(udp_socket);
-		if (display_buffer) free(display_buffer);
-		if (canvas) lv_obj_del(canvas);
-		if (font_image) lv_obj_del(font_image);
-		if (no_data_label) lv_obj_del(no_data_label);
+		if (display_buffer) free(display_buffer);  // the canvas using it is gone by now
 	}
 
 private:
@@ -2474,6 +2533,7 @@ public:
 
 		if (ftruncate(shm_fd, shm_size) == -1) {
 			perror("Failed to set shared memory size");
+			close(shm_fd);
 			shm_unlink(shm_name.c_str());
 			return;
 		}
@@ -2483,10 +2543,12 @@ public:
 		);
 		if (shm_region == MAP_FAILED) {
 			perror("Failed to map shared memory");
+			close(shm_fd);
 			shm_unlink(shm_name.c_str());
 			return;
 		}
 
+		close(shm_fd);  // the mapping stays valid
 		shm_region->width = screen_w;
 		shm_region->height = screen_h;
 
@@ -2512,13 +2574,11 @@ public:
 
 	~ExternalSurfaceWidget() {
 		SPDLOG_INFO("bye, bye, shm region {}", shm_name);
-		if (canvas) {
-			lv_obj_del(canvas);
-		}
+		// No shm_unlink: the producer (e.g. msposd) keeps its mapping of the region,
+		// and a rebuilt widget re-opens the same one instead of an orphaned copy.
 		if (shm_data) {
 			munmap(shm_data, shm_size);
 		}
-		shm_unlink(shm_name.c_str());
 	}
 
 protected:
@@ -2531,251 +2591,323 @@ protected:
 };
 
 
+//
+// Building widgets from the layout JSON
+//
+
+// A widget's JSON can't be turned into a widget; what() says why.
+class ConfigError : public std::runtime_error {
+public:
+	using std::runtime_error::runtime_error;
+};
+
+template <typename T>
+static T cfgGet(const json& j, const char* key) {
+	auto it = j.find(key);
+	if (it == j.end()) throw ConfigError(fmt::format("missing '{}'", key));
+	try {
+		return it->template get<T>();
+	} catch (const json::exception&) {
+		throw ConfigError(fmt::format("'{}' has the wrong type", key));
+	}
+}
+
+template <typename T>
+static T cfgGet(const json& j, const char* key, T def) {
+	return j.contains(key) ? cfgGet<T>(j, key) : def;
+}
+
+// A number within [lo, hi] (read as a wide type, so a negative value can't wrap
+// into a huge unsigned one).
+template <typename T>
+static T cfgNum(const json& j, const char* key, T lo, T hi) {
+	auto it = j.find(key);
+	if (it == j.end()) throw ConfigError(fmt::format("missing '{}'", key));
+	if (!it->is_number()) throw ConfigError(fmt::format("'{}' must be a number", key));
+	double v = it->template get<double>();
+	if (v < (double)lo || v > (double)hi)
+		throw ConfigError(fmt::format("'{}' must be {}..{}", key, lo, hi));
+	return it->template get<T>();
+}
+
+template <typename T>
+static T cfgNum(const json& j, const char* key, T lo, T hi, T def) {
+	return j.contains(key) ? cfgNum<T>(j, key, lo, hi) : def;
+}
+
+static void needFacts(const std::vector<FactMatcher>& matchers, size_t min, size_t max) {
+	if (matchers.size() < min || matchers.size() > max) {
+		if (min == max)
+			throw ConfigError(fmt::format("needs exactly {} fact{}", min, min == 1 ? "" : "s"));
+		throw ConfigError(fmt::format("needs at least {} fact{}", min, min == 1 ? "" : "s"));
+	}
+}
+
+static std::string lvIconPath(const std::filesystem::path& base, std::filesystem::path icon) {
+	if (icon.is_relative()) icon = base / icon;
+	return "A:" + icon.string();
+}
+
+// A widget is switched off in the file by prefixing its type with "---".
+static bool isDisabledType(const std::string& type) {
+	return type.rfind("---", 0) == 0;
+}
+
+static std::vector<FactMatcher> buildMatchers(const json& widget_j) {
+	std::vector<FactMatcher> matchers;
+	if (!widget_j.contains("facts")) return matchers;
+	const json& facts_j = widget_j.at("facts");
+	if (!facts_j.is_array()) throw ConfigError("'facts' must be a list");
+	for (const json& matcher_j : facts_j) {
+		auto matcher_name = cfgGet<std::string>(matcher_j, "name");
+		if (matcher_name.empty()) throw ConfigError("a fact has no name");
+		FactTags tags;
+		if (matcher_j.contains("tags")) {
+			for (auto& [key, value] : matcher_j.at("tags").items()) {
+				if (!value.is_string())
+					throw ConfigError(fmt::format("tag '{}' of {} must be a string", key, matcher_name));
+				tags.insert({key, value.template get<std::string>()});
+			}
+		}
+		if (matcher_j.contains("convert")) {
+			auto expression_str = cfgGet<std::string>(matcher_j, "convert");
+			try {
+				matchers.push_back(FactMatcher(matcher_name, tags, expression_str));
+			} catch (const ExpressionException& e) {
+				// Dropping just this matcher would shift the following facts onto
+				// the wrong template placeholders, so reject the widget.
+				throw ConfigError(fmt::format("invalid convert '{}': {}", expression_str, e.what()));
+			}
+		} else {
+			matchers.push_back(FactMatcher(matcher_name, tags));
+		}
+	}
+	return matchers;
+}
+
+// Build one widget from its JSON. Returns nullptr for a disabled widget; throws
+// ConfigError if the JSON can't make a working widget.
+static Widget* buildWidget(const json& widget_j, const std::filesystem::path& assets_dir,
+                           std::vector<FactMatcher>& matchers) {
+	if (!widget_j.is_object()) throw ConfigError("not a JSON object");
+	auto type = cfgGet<std::string>(widget_j, "type");
+	if (isDisabledType(type)) return nullptr;
+	auto x = cfgGet<int>(widget_j, "x");
+	auto y = cfgGet<int>(widget_j, "y");
+	matchers = buildMatchers(widget_j);
+
+	if (type == "TextWidget") {
+		return new TextWidget(x, y, cfgGet<std::string>(widget_j, "text"));
+	} else if (type == "ExternalSurfaceWidget") {
+		auto shm_name = cfgGet<std::string>(widget_j, "shm_name");
+		uint refresh_ms = cfgNum<uint>(widget_j, "refresh_interval_ms", 1, 10000, 16);  // Default ~60Hz
+		return new ExternalSurfaceWidget(x, y, shm_name, refresh_ms);
+	} else if (type == "MspDisplayPortWidget") {
+		auto font_path = cfgGet<std::string>(widget_j, "font_path");
+		uint udp_port = cfgNum<uint>(widget_j, "udp_port", 1, 65535, 14551);  // Default MSP DisplayPort UDP port
+		return new MspDisplayPortWidget(x, y, font_path, udp_port);
+	} else if (type == "IconSelectorWidget") {
+		needFacts(matchers, 1, 1);
+		std::vector<std::pair<std::pair<int, int>, std::filesystem::path>> ranges_and_icons;
+		auto list_j = cfgGet<json>(widget_j, "ranges_and_icons");
+		if (!list_j.is_array()) throw ConfigError("'ranges_and_icons' must be a list");
+		for (const auto& range_icon : list_j) {
+			auto range = cfgGet<std::vector<int>>(range_icon, "range");
+			if (range.size() != 2) throw ConfigError("a range needs [from, to]");
+			std::filesystem::path icon_path = cfgGet<std::string>(range_icon, "icon_path");
+			ranges_and_icons.push_back({{range[0], range[1]}, icon_path});
+		}
+		return new IconSelectorWidget(x, y, ranges_and_icons, assets_dir);
+	} else if (type == "TplTextWidget") {
+		auto tpl = cfgGet<std::string>(widget_j, "template");
+		return new TplTextWidget(x, y, tpl, (uint)matchers.size());
+	} else if (type == "IconTplTextWidget") {
+		auto tpl = cfgGet<std::string>(widget_j, "template");
+		auto icon_path = cfgGet<std::string>(widget_j, "icon_path");
+		return new IconTplTextWidget(x, y, lvIconPath(assets_dir, icon_path), tpl, (uint)matchers.size());
+	} else if (type == "DvrStatusWidget") {
+		needFacts(matchers, 1, 1);
+		auto text = cfgGet<std::string>(widget_j, "text");
+		auto icon_path = cfgGet<std::string>(widget_j, "icon_path");
+		return new DvrStatusWidget(x, y, lvIconPath(assets_dir, icon_path), text);
+	} else if (type == "VideoWidget" || type == "VideoBitrateWidget" ||
+	           type == "VideoDecodeLatencyWidget") {
+		auto tpl = cfgGet<std::string>(widget_j, "template");
+		auto icon_path = lvIconPath(assets_dir, cfgGet<std::string>(widget_j, "icon_path"));
+		uint window_ms = cfgNum<uint>(widget_j, "per_second_window_s", 1, 60) * 1000;
+		uint bucket_ms = cfgNum<uint>(widget_j, "per_second_bucket_ms", 10, 60000);
+		if (bucket_ms > window_ms) throw ConfigError("per_second_bucket_ms is longer than the window");
+		if (type == "VideoWidget") {
+			needFacts(matchers, 1, 16);
+			return new VideoWidget(x, y, window_ms, bucket_ms, icon_path, tpl, (uint)matchers.size());
+		}
+		needFacts(matchers, 1, 1);
+		if (type == "VideoBitrateWidget")
+			return new VideoBitrateWidget(x, y, window_ms, bucket_ms, icon_path, tpl, 1);
+		return new VideoDecodeLatencyWidget(x, y, window_ms, bucket_ms, icon_path, tpl, 1);
+	} else if (type == "BoxWidget") {
+		auto width = cfgNum<uint>(widget_j, "width", 1, 8192);
+		auto height = cfgNum<uint>(widget_j, "height", 1, 8192);
+		auto color_j = cfgGet<json>(widget_j, "color");
+		auto r = cfgNum<double>(color_j, "r", 0, 1);
+		auto g = cfgNum<double>(color_j, "g", 0, 1);
+		auto b = cfgNum<double>(color_j, "b", 0, 1);
+		auto a = cfgNum<double>(color_j, "alpha", 0, 1, 1.0);
+		return new BoxWidget(x, y, width, height, r, g, b, a);
+	} else if (type == "SignalWarningWidget") {
+		needFacts(matchers, 1, 64);
+		double threshold = cfgGet<double>(widget_j, "threshold");
+		// Value at which the border reaches full intensity. Omit for an
+		// on/off effect (full intensity once past threshold).
+		double critical = cfgGet<double>(widget_j, "critical", threshold);
+		// Optional: smooth the aggregated value over this many ms (0 = off).
+		// In rate mode this is the rate window instead (default 1000).
+		int average_ms = cfgNum<int>(widget_j, "average_ms", 0, 60000, 0);
+		// Optional: treat facts as byte/packet deltas and warn on their
+		// per-second rate (like VideoBitrateWidget). 'rate_divisor' scales
+		// the rate, e.g. 125000 for bytes/s -> Mbit/s.
+		bool rate_mode = cfgGet<bool>(widget_j, "rate", false);
+		double rate_divisor = cfgNum<double>(widget_j, "rate_divisor", 1e-9, 1e12, 1.0);
+		return new SignalWarningWidget(x, y, threshold, critical, (uint)matchers.size(),
+		                               average_ms, rate_mode, rate_divisor);
+	} else if (type == "BarChartWidget") {
+		needFacts(matchers, 1, 1);
+		auto width = cfgNum<uint>(widget_j, "width", 1, 8192);
+		auto height = cfgNum<uint>(widget_j, "height", 1, 8192);
+		auto window_s = cfgNum<uint>(widget_j, "window_s", 1, 3600);
+		auto num_buckets = cfgNum<uint>(widget_j, "num_buckets", 1, std::min(1000u, window_s * 1000));
+		auto stats_kind_str = cfgGet<std::string>(widget_j, "stats_kind");
+		BarChartWidget::StatsField stats_kind;
+		if (stats_kind_str == "sum") {
+			stats_kind = BarChartWidget::STATS_SUM;
+		} else if (stats_kind_str == "min") {
+			stats_kind = BarChartWidget::STATS_MIN;
+		} else if (stats_kind_str == "max") {
+			stats_kind = BarChartWidget::STATS_MAX;
+		} else if (stats_kind_str == "count") {
+			stats_kind = BarChartWidget::STATS_COUNT;
+		} else if (stats_kind_str == "avg") {
+			stats_kind = BarChartWidget::STATS_AVG;
+		} else {
+			throw ConfigError(fmt::format("invalid stats_kind '{}'", stats_kind_str));
+		}
+		return new BarChartWidget(x, y, width, height, window_s, num_buckets, stats_kind);
+	} else if (type == "GPSWidget") {
+		needFacts(matchers, 3, 3);
+		return new GPSWidget(x, y, (uint)matchers.size());
+	} else if (type == "BatteryCellWidget") {
+		needFacts(matchers, 1, 1);
+		auto tpl = cfgGet<std::string>(widget_j, "template");
+		int critical_mv = (int)(cfgNum<double>(widget_j, "critical_voltage", 0.5, 10, 3.5) * 1000);
+		int max_mv = (int)(cfgNum<double>(widget_j, "max_voltage", 0.5, 10, 4.2) * 1000);
+		if (critical_mv >= max_mv) throw ConfigError("critical_voltage must be below max_voltage");
+		int num_cells = -1;  // "even"
+		if (widget_j.contains("num_cells")) {
+			const json& cells_j = widget_j.at("num_cells");
+			std::string cells = cells_j.is_string() ? cells_j.template get<std::string>() : cells_j.dump();
+			if (cells == "auto") {
+				num_cells = 0;
+			} else if (cells == "even") {
+				num_cells = -1;
+			} else {
+				char* end = nullptr;
+				long n = std::strtol(cells.c_str(), &end, 10);
+				if (*end || n < 1 || n > 24) throw ConfigError("num_cells must be auto, even or 1..24");
+				num_cells = (int)n;
+			}
+		}
+		return new BatteryCellWidget(x, y, critical_mv, max_mv, num_cells, tpl, 1);
+	} else if (type == "PopupWidget") {
+		auto timeout_ms = cfgNum<uint>(widget_j, "timeout_ms", 100, 600000);
+		return new PopupWidget(x, y, timeout_ms, (uint)matchers.size());
+	} else if (type == "DebugWidget") {
+		return new DebugWidget(x, y, (uint)matchers.size());
+	}
+	throw ConfigError(fmt::format("unknown widget type '{}'", type));
+}
+
+
 class Osd {
 public:
-	void createWidgets(lv_obj_t* parent, int screen_w, int screen_h) {
-		for (auto& widget : widgets)
-			widget->createLvObjects(parent, screen_w, screen_h);
+	// One widget of the layout. entries_[i] belongs to config_["widgets"][i].
+	struct Entry {
+		uint32_t id;
+		Widget* widget = nullptr;  // null: disabled, or failed to build (see error)
+		lv_obj_t* root = nullptr;  // full-screen container holding the widget's LVGL objects
+		std::string error;
+		int built_x = 0, built_y = 0;  // the x/y the widget was built with
+		int dx = 0, dy = 0;            // editor offset of the root, until the next rebuild
+	};
+
+	void init(lv_obj_t* cont, int screen_w, int screen_h,
+	          const std::string& config_path, const std::string& assets_override) {
+		cont_ = cont;
+		screen_w_ = screen_w;
+		screen_h_ = screen_h;
+		config_path_ = config_path;
+		assets_override_ = assets_override;
+		std::string err = load();
+		if (!err.empty()) spdlog::error("OSD config: {}", err);
 	}
 
-	void tick() {
-		for (auto& widget : widgets)
-			widget->tick();
+	// (Re)load the layout file and rebuild every widget. On error the OSD is left
+	// with what could be loaded and the message is returned.
+	std::string load() {
+		json cfg = json::object();
+		std::string err;
+		if (!config_path_.empty()) {
+			try {
+				std::ifstream f(config_path_);
+				if (f) {
+					cfg = json::parse(f);
+				} else if (std::filesystem::exists(config_path_)) {
+					err = fmt::format("can't read {}", config_path_);
+				} else {
+					spdlog::info("OSD config {} doesn't exist yet, starting empty", config_path_);
+				}
+			} catch (const json::exception& e) {
+				err = fmt::format("can't parse {}: {}", config_path_, e.what());
+				cfg = json::object();
+			}
+		}
+		setConfig(std::move(cfg));
+		return err;
 	}
 
-	void loadConfig(json cfg) {
-		json obj;
+	void setConfig(json cfg) {
+		clear();
+		if (!cfg.is_object()) cfg = json::object();
 		if (cfg.contains("format")) {
-			auto cfg_format = cfg.at("format").template get<std::string>();
+			auto cfg_format = cfg.at("format").is_string() ? cfg.at("format").template get<std::string>() : "";
 			if (cfg_format != "0.0.1" && cfg_format != "0.0.2") {
 				spdlog::warn("Unexpected OSD config format: {}. OSD may look wrong", cfg_format);
 			}
 		} else {
-			spdlog::error("OSD config doesn't have 'format' key");
-			return;
+			cfg["format"] = "0.0.2";
 		}
-		if (!cfg.contains("widgets")) {
-			//|| cfg["widgets"].type() != json::value_t::array)
-			spdlog::error("OSD config doesn't have 'widgets' key");
-			return;
+		if (!cfg.contains("assets_dir")) cfg["assets_dir"] = "/usr/share/pixelpilot/";
+		if (!cfg.contains("widgets") || !cfg.at("widgets").is_array()) {
+			cfg["widgets"] = json::array();
 		}
-		std::filesystem::path assets_dir(".");
-		if (cfg.contains("assets_dir")) {
-			assets_dir = cfg.at("assets_dir").template get<std::filesystem::path>();
+		config_ = std::move(cfg);
+		for (size_t i = 0; i < config_["widgets"].size(); i++) {
+			entries_.push_back(Entry{next_id_++});
+			buildEntry(i);
 		}
-		json widgets_j = cfg.at("widgets");
-		for (json widget_j : widgets_j) {
-			if(!(widget_j.contains("name") || widget_j.contains("type") || widget_j.contains("x") ||
-				 widget_j.contains("y") || widget_j.contains("facts"))) {
-				spdlog::error("Missing required key name/type/x/y/facts");
-				return;
-			}
-			auto name = widget_j.at("name").template get<std::string>();
-			auto type = widget_j.at("type").template get<std::string>();
-			auto x = widget_j.at("x").template get<int>();
-			auto y = widget_j.at("y").template get<int>();
-			std::vector<FactMatcher> matchers;
-			for(json matcher_j : widget_j.at("facts")) {
-				auto matcher_name = matcher_j.at("name").template get<std::string>();
-				FactTags tags;
-				if (matcher_j.contains("tags")) {
-					for (auto& [key, value] : matcher_j.at("tags").items()) {
-						tags.insert({key, value});
-					}
-				}
-				if (matcher_j.contains("convert")) {
-					auto expression_str = matcher_j.at("convert").template get<std::string>();
-					try {
-						matchers.push_back(FactMatcher(matcher_name, tags, expression_str));
-					} catch (const ExpressionException& e) {
-						spdlog::error("Invalid convert expression {}: {}",
-									  expression_str, e.what());
-					}
-				} else {
-					matchers.push_back(FactMatcher(matcher_name, tags));
-				}
-			}
-			if (type == "TextWidget") {
-				addWidget(new TextWidget(x, y, widget_j.at("text").template get<std::string>()),
-						  matchers);
-			} else if (type == "ExternalSurfaceWidget") {
-				if (!widget_j.contains("shm_name")) {
-					spdlog::error("ExternalSurfaceWidget '{}' missing required 'shm_name'", name);
-					continue;
-				}
-				auto shm_name = widget_j.at("shm_name").template get<std::string>();
-				uint refresh_ms = 16;  // Default ~60Hz
-				if (widget_j.contains("refresh_interval_ms")) {
-					refresh_ms = widget_j.at("refresh_interval_ms").template get<uint>();
-				}
-				addWidget(new ExternalSurfaceWidget(x, y, shm_name, refresh_ms), matchers);
-			} else if (type == "MspDisplayPortWidget") {
-				if (!widget_j.contains("font_path")) {
-					spdlog::error("MspDisplayPortWidget '{}' missing required 'font_path'", name);
-					continue;
-				}
-				auto font_path = widget_j.at("font_path").template get<std::string>();
-				uint udp_port = 14551;  // Default MSP DisplayPort UDP port
-				if (widget_j.contains("udp_port")) {
-					udp_port = widget_j.at("udp_port").template get<uint>();
-				}
-				addWidget(new MspDisplayPortWidget(x, y, font_path, udp_port), matchers);
-			} else if (type == "IconSelectorWidget") {
-				std::vector<std::pair<std::pair<int, int>, std::filesystem::path>> ranges_and_icons;
-				for (const auto& range_icon : widget_j.at("ranges_and_icons")) {
-					int range_start = range_icon.at("range")[0];
-					int range_end = range_icon.at("range")[1];
-					std::filesystem::path icon_path = range_icon.at("icon_path");
-					ranges_and_icons.push_back({{range_start, range_end}, icon_path});
-				}
-				addWidget(new IconSelectorWidget(x, y, ranges_and_icons, assets_dir), matchers);
-			} else if (type == "TplTextWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				addWidget(new TplTextWidget(x, y, tpl, (uint)matchers.size()), matchers);
-			} else if(type == "IconTplTextWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				addWidget(new IconTplTextWidget(x, y, lvIconPath(assets_dir, icon_path),
-				                               tpl, (uint)matchers.size()), matchers);
-			} else if(type == "DvrStatusWidget") {
-				auto text = widget_j.at("text").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				addWidget(new DvrStatusWidget(x, y, lvIconPath(assets_dir, icon_path), text), matchers);
-			} else if(type == "VideoWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				uint window_size_s = widget_j.at("per_second_window_s").template get<uint>();
-				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();
-				addWidget(new VideoWidget(x, y, window_size_s * 1000, bucket_size_ms,
-				                         lvIconPath(assets_dir, icon_path), tpl, (uint)matchers.size()),
-						  matchers);
-			} else if(type == "VideoBitrateWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				uint window_size_s = widget_j.at("per_second_window_s").template get<uint>();
-				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();
-				addWidget(new VideoBitrateWidget(x, y, window_size_s * 1000, bucket_size_ms,
-				                                lvIconPath(assets_dir, icon_path), tpl, (uint)matchers.size()),
-						  matchers);
-			} else if(type == "VideoDecodeLatencyWidget") {
-				auto tpl = widget_j.at("template").template get<std::string>();
-				auto icon_path = widget_j.at("icon_path").template get<std::filesystem::path>();
-				uint window_size_s = widget_j.at("per_second_window_s").template get<uint>();
-				uint bucket_size_ms = widget_j.at("per_second_bucket_ms").template get<uint>();
-				addWidget(new VideoDecodeLatencyWidget(x, y, window_size_s * 1000, bucket_size_ms,
-				                                      lvIconPath(assets_dir, icon_path), tpl, 1),
-						  matchers);
-			} else if(type == "BoxWidget") {
-				auto width = widget_j.at("width").template get<uint>();
-				auto height = widget_j.at("height").template get<uint>();
-				json color_j = widget_j.at("color");
-				auto r = color_j.at("r").template get<double>();
-				auto g = color_j.at("g").template get<double>();
-				auto b = color_j.at("b").template get<double>();
-				auto a = color_j.at("alpha").template get<double>();
-				addWidget(new BoxWidget(x, y, width, height, r, g, b, a), matchers);
-			} else if(type == "SignalWarningWidget") {
-				if (matchers.empty()) {
-					spdlog::error("SignalWarningWidget '{}' needs at least one fact", name);
-					continue;
-				}
-				double threshold = widget_j.at("threshold").template get<double>();
-				// Value at which the border reaches full intensity. Omit for an
-				// on/off effect (full intensity once past threshold).
-				double critical = threshold;
-				if (widget_j.contains("critical")) {
-					critical = widget_j.at("critical").template get<double>();
-				}
-				// Optional: smooth the aggregated value over this many ms (0 = off).
-				// In rate mode this is the rate window instead (default 1000).
-				int average_ms = 0;
-				if (widget_j.contains("average_ms")) {
-					average_ms = widget_j.at("average_ms").template get<int>();
-				}
-				// Optional: treat facts as byte/packet deltas and warn on their
-				// per-second rate (like VideoBitrateWidget). 'rate_divisor' scales
-				// the rate, e.g. 125000 for bytes/s -> Mbit/s.
-				bool rate_mode = false;
-				if (widget_j.contains("rate")) {
-					rate_mode = widget_j.at("rate").template get<bool>();
-				}
-				double rate_divisor = 1.0;
-				if (widget_j.contains("rate_divisor")) {
-					rate_divisor = widget_j.at("rate_divisor").template get<double>();
-				}
-				addWidget(new SignalWarningWidget(x, y, threshold, critical, (uint)matchers.size(),
-				                                  average_ms, rate_mode, rate_divisor), matchers);
-			} else if(type == "BarChartWidget") {
-				auto width = widget_j.at("width").template get<uint>();
-				auto height = widget_j.at("height").template get<uint>();
-				auto window_s = widget_j.at("window_s").template get<uint>();
-				auto num_buckets = widget_j.at("num_buckets").template get<uint>();
-				auto stats_kind_str = widget_j.at("stats_kind").template get<std::string>();
-				BarChartWidget::StatsField stats_kind;
-				if (stats_kind_str == "sum") {
-					stats_kind = BarChartWidget::STATS_SUM;
-				} else if (stats_kind_str == "min") {
-					stats_kind = BarChartWidget::STATS_MIN;
-				} else if (stats_kind_str == "max") {
-					stats_kind = BarChartWidget::STATS_MAX;
-				} else if (stats_kind_str == "count") {
-					stats_kind = BarChartWidget::STATS_COUNT;
-				} else if (stats_kind_str == "avg") {
-					stats_kind = BarChartWidget::STATS_AVG;
-				} else {
-					SPDLOG_WARN("{}: invalid stats_kind {}", name, stats_kind_str);
-					break;
-				}
-				addWidget(new BarChartWidget(x, y, width, height, window_s, num_buckets, stats_kind),
-						  matchers);
-			} else if (type == "GPSWidget") {
-				addWidget(new GPSWidget(x, y, (uint)matchers.size()), matchers);
-            } else if (type == "BatteryCellWidget") {
-                int critical_mv = 3500;
-                int max_mv = 4200;
-                int num_cells = -1;
-				auto tpl = widget_j.at("template").template get<std::string>();
-                if (widget_j.contains("critical_voltage")) {
-                    critical_mv = (int)(widget_j.at("critical_voltage").template get<float>() * 1000);
-                }
-                if (widget_j.contains("max_voltage")) {
-                    max_mv = (int)(widget_j.at("max_voltage").template get<float>() * 1000);
-                }
-                if (widget_j.contains("num_cells")) {
-                    std::string cells = widget_j["num_cells"];
-                    if (cells == "auto") {
-                        num_cells = 0;
-                    } else if (cells == "even") {
-                        num_cells = -1;
-                    } else {
-                        num_cells = widget_j["num_cells"].get<int>();
-                    }
-                }
-                assert(critical_mv < max_mv);
-                addWidget(new BatteryCellWidget(x, y, critical_mv, max_mv, num_cells,
-                                                tpl, (uint)matchers.size()),
-                          matchers);
-			} else if (type == "PopupWidget") {
-				auto timeout_ms = widget_j.at("timeout_ms").template get<uint>();
-				addWidget(new PopupWidget(x, y, timeout_ms, (uint)matchers.size()),
-						  matchers);
-			} else if (type == "DebugWidget") {
-				addWidget(new DebugWidget(x, y, (uint)matchers.size()), matchers);
-			} else {
-				spdlog::warn("Widget '{}': unknown type: {}", name, type);
+		restack();
+		dirty_ = false;
+	}
+
+	void tick() {
+		for (auto& e : entries_) {
+			if (!e.widget) continue;
+			try {
+				e.widget->tick();
+			} catch (const std::exception& ex) {
+				logWidgetError(e, ex.what());
 			}
 		}
 	}
-
-	Osd *addWidget(Widget *widget, std::vector<FactMatcher> param_matchers) {
-		uint arg_idx = 0;
-		widgets.push_back(widget);
-		for (auto matcher : param_matchers) {
-			matchers.push_back(std::make_tuple(matcher, widget, arg_idx));
-			arg_idx++;
-		}
-		return this;
-	};
 
 	// Reset the bound facts whose name starts with one of `prefixes` to undefined.
 	// The sources owning them re-publish right after, so this is a clean slate for
@@ -2793,9 +2925,22 @@ public:
 				}
 			}
 		}
+		for (auto it = seen_.begin(); it != seen_.end();) {
+			bool flushed = false;
+			for (const auto& prefix : prefixes) {
+				if (it->first.rfind(prefix, 0) == 0) { flushed = true; break; }
+			}
+			if (flushed) {
+				seen_count_ -= it->second.size();
+				it = seen_.erase(it);
+			} else {
+				++it;
+			}
+		}
 	}
 
-	void setFact(Fact fact) {
+	void setFact(const Fact& fact) {
+		remember(fact);
 		for (auto& [matcher, widget, arg_idx] : matchers) {
 			if (matcher.matches(fact)) {
 				try {
@@ -2804,20 +2949,311 @@ public:
 				} catch (const ExpressionException& e) {
 					spdlog::error("Failed to evaluate 'convert' expression for {}: {}",
 								  fact.asVerboseString(), e.what());
+				} catch (const std::exception& e) {
+					if (Entry* entry = entryOf(widget)) logWidgetError(*entry, e.what());
 				}
 			}
 		}
 	};
 
-private:
+	//
+	// Editing (OSD editor; on the LVGL thread, lock held)
+	//
 
-	static std::string lvIconPath(const std::filesystem::path& base, std::filesystem::path icon) {
-		if (icon.is_relative()) icon = base / icon;
-		return "A:" + icon.string();
+	const std::vector<Entry>& entries() const { return entries_; }
+	json& widgetJson(size_t i) { return config_["widgets"][i]; }
+	const json& config() const { return config_; }
+
+	int indexOf(uint32_t id) const {
+		for (size_t i = 0; i < entries_.size(); i++)
+			if (entries_[i].id == id) return (int)i;
+		return -1;
 	}
 
-	std::vector<Widget *> widgets;
+	// Replace widget i's JSON; rebuilt unless only its name changed.
+	std::string setWidget(size_t i, const json& widget_j) {
+		json old_j = config_["widgets"][i];
+		config_["widgets"][i] = widget_j;
+		dirty_ = true;
+		json a = old_j, b = widget_j;
+		if (a.is_object()) a.erase("name");
+		if (b.is_object()) b.erase("name");
+		if (a != b) rebuild(i);
+		return entries_[i].error;
+	}
+
+	uint32_t insertWidget(const json& widget_j, int at) {
+		auto& list = config_["widgets"];
+		if (at < 0 || at > (int)list.size()) at = (int)list.size();
+		list.insert(list.begin() + at, widget_j);
+		entries_.insert(entries_.begin() + at, Entry{next_id_++});
+		buildEntry(at);
+		replay(entries_[at]);
+		restack();
+		dirty_ = true;
+		return entries_[at].id;
+	}
+
+	void removeWidget(size_t i) {
+		destroyEntry(entries_[i]);
+		entries_.erase(entries_.begin() + i);
+		config_["widgets"].erase(config_["widgets"].begin() + i);
+		dirty_ = true;
+	}
+
+	int moveWidget(size_t i, int delta) {
+		int j = (int)i + delta;
+		if (j < 0 || j >= (int)entries_.size()) return (int)i;
+		std::swap(entries_[i], entries_[j]);
+		std::swap(config_["widgets"][i], config_["widgets"][j]);
+		restack();
+		dirty_ = true;
+		return j;
+	}
+
+	void setOffset(size_t i, int dx, int dy) {
+		Entry& e = entries_[i];
+		e.dx = dx;
+		e.dy = dy;
+		if (e.root) lv_obj_set_pos(e.root, dx, dy);
+	}
+
+	// Write the offset position into x/y, from the same screen edges as before.
+	void commitOffset(size_t i) {
+		Entry& e = entries_[i];
+		json& w = config_["widgets"][i];
+		if (!w.is_object() || (!e.dx && !e.dy)) return;
+		int x = intOr(w, "x", 0), y = intOr(w, "y", 0);
+		w["x"] = fromScreen(toScreen(e.built_x, screen_w_) + e.dx, screen_w_, x < 0);
+		w["y"] = fromScreen(toScreen(e.built_y, screen_h_) + e.dy, screen_h_, y < 0);
+		dirty_ = true;
+	}
+
+	void setAnchor(size_t i, bool right, bool bottom) {
+		json& w = config_["widgets"][i];
+		if (!w.is_object()) return;
+		w["x"] = fromScreen(toScreen(intOr(w, "x", 0), screen_w_), screen_w_, right);
+		w["y"] = fromScreen(toScreen(intOr(w, "y", 0), screen_h_), screen_h_, bottom);
+		dirty_ = true;
+	}
+
+	void anchorPoint(size_t i, int& x, int& y) const {
+		const Entry& e = entries_[i];
+		x = toScreen(e.built_x, screen_w_) + e.dx;
+		y = toScreen(e.built_y, screen_h_) + e.dy;
+	}
+
+	bool bbox(size_t i, lv_area_t& out) const {
+		const Entry& e = entries_[i];
+		if (!e.root) return false;
+		lv_obj_update_layout(e.root);
+		bool any = false;
+		unionVisible(e.root, out, any);
+		return any;
+	}
+
+	std::vector<std::tuple<std::string, FactTags, std::string, std::string>> seenFacts() const {
+		std::vector<std::tuple<std::string, FactTags, std::string, std::string>> out;
+		for (const auto& [name, facts] : seen_)
+			for (const auto& f : facts)
+				out.emplace_back(name, f.tagsRef(), f.getTypeName(), f.asString());
+		return out;
+	}
+
+	std::string assetsDir() const {
+		if (!assets_override_.empty()) return assets_override_;
+		auto it = config_.find("assets_dir");
+		return it != config_.end() && it->is_string() ? it->template get<std::string>() : ".";
+	}
+
+	int screenW() const { return screen_w_; }
+	int screenH() const { return screen_h_; }
+	const std::string& configPath() const { return config_path_; }
+	bool dirty() const { return dirty_; }
+	void markSaved() { dirty_ = false; }
+
+private:
+	static int intOr(const json& j, const char* key, int def) {
+		if (!j.is_object()) return def;
+		auto it = j.find(key);
+		return it != j.end() && it->is_number() ? it->template get<int>() : def;
+	}
+	static std::string nameOf(const json& j) {
+		if (!j.is_object()) return "?";
+		auto it = j.find("name");
+		return it != j.end() && it->is_string() ? it->template get<std::string>() : "?";
+	}
+
+	// Screen position of a (possibly negative = from the far edge) coordinate, and back.
+	static int toScreen(int v, int size) { return (size + v) % size; }
+	static int fromScreen(int pos, int size, bool far_edge) {
+		return far_edge ? std::min(pos - size, -1) : std::max(pos, 0);
+	}
+
+	static void unionVisible(lv_obj_t* obj, lv_area_t& acc, bool& any) {
+		uint32_t n = lv_obj_get_child_count(obj);
+		for (uint32_t c = 0; c < n; c++) {
+			lv_obj_t* child = lv_obj_get_child(obj, c);
+			if (lv_obj_has_flag(child, LV_OBJ_FLAG_HIDDEN)) continue;
+			lv_area_t a;
+			lv_obj_get_coords(child, &a);
+			if (lv_area_get_width(&a) > 1 && lv_area_get_height(&a) > 1) {
+				if (!any) {
+					acc = a;
+					any = true;
+				} else {
+					acc.x1 = std::min(acc.x1, a.x1);
+					acc.y1 = std::min(acc.y1, a.y1);
+					acc.x2 = std::max(acc.x2, a.x2);
+					acc.y2 = std::max(acc.y2, a.y2);
+				}
+			}
+			unionVisible(child, acc, any);
+		}
+	}
+
+	void clear() {
+		for (auto& e : entries_) destroyEntry(e);
+		entries_.clear();
+		matchers.clear();
+	}
+
+	// Build entries_[i] from its JSON: a fresh root container plus the widget in it.
+	void buildEntry(size_t i) {
+		Entry& e = entries_[i];
+		const json& widget_j = config_["widgets"][i];
+		e.error.clear();
+		e.dx = e.dy = 0;
+		e.built_x = intOr(widget_j, "x", 0);
+		e.built_y = intOr(widget_j, "y", 0);
+
+		e.root = lv_obj_create(cont_);
+		lv_obj_remove_style_all(e.root);
+		lv_obj_set_pos(e.root, 0, 0);
+		lv_obj_set_size(e.root, screen_w_, screen_h_);
+		lv_obj_clear_flag(e.root, LV_OBJ_FLAG_SCROLLABLE);
+		lv_obj_clear_flag(e.root, LV_OBJ_FLAG_CLICKABLE);
+
+		std::string name = nameOf(widget_j);
+		std::vector<FactMatcher> widget_matchers;
+		try {
+			e.widget = buildWidget(widget_j, assetsDir(), widget_matchers);
+			if (!e.widget) {
+				SPDLOG_INFO("Widget '{}' is disabled", name);
+				return;
+			}
+			e.widget->createLvObjects(e.root, screen_w_, screen_h_);
+		} catch (const std::exception& ex) {
+			e.error = ex.what();
+			spdlog::error("Widget '{}': {}", name, e.error);
+			if (e.widget) {
+				e.widget->stop();
+				lv_obj_clean(e.root);
+				delete e.widget;
+				e.widget = nullptr;
+			}
+			return;
+		}
+		uint arg_idx = 0;
+		for (auto& matcher : widget_matchers) {
+			matchers.push_back(std::make_tuple(matcher, e.widget, arg_idx));
+			arg_idx++;
+		}
+	}
+
+	void destroyEntry(Entry& e) {
+		if (e.widget) {
+			e.widget->stop();
+			Widget* w = e.widget;
+			matchers.erase(std::remove_if(matchers.begin(), matchers.end(),
+			                              [w](const auto& m) { return std::get<1>(m) == w; }),
+			               matchers.end());
+		}
+		if (e.root) lv_obj_delete(e.root);
+		delete e.widget;
+		e.widget = nullptr;
+		e.root = nullptr;
+	}
+
+	void rebuild(size_t i) {
+		destroyEntry(entries_[i]);
+		buildEntry(i);
+		replay(entries_[i]);
+		restack();
+	}
+
+	// Feed a freshly built widget the latest value of each of its facts, so facts
+	// published once (video.width, dvr.recording, ...) don't stay at '?'.
+	void replay(Entry& e) {
+		if (!e.widget) return;
+		try {
+			for (auto& [matcher, widget, arg_idx] : matchers) {
+				if (widget != e.widget || !widget->replayable(arg_idx)) continue;
+				auto it = seen_.find(matcher.name);
+				if (it == seen_.end()) continue;
+				for (const Fact& fact : it->second) {
+					if (matcher.matches(fact)) widget->setFact(arg_idx, matcher.convert(fact));
+				}
+			}
+			e.widget->tick();
+		} catch (const std::exception& ex) {
+			logWidgetError(e, ex.what());
+		}
+	}
+
+	// Root containers are stacked in layout order; background effects at the bottom.
+	void restack() {
+		for (size_t i = 0; i < entries_.size(); i++)
+			if (entries_[i].root) lv_obj_move_to_index(entries_[i].root, (int32_t)i);
+		for (auto& e : entries_)
+			if (e.widget && e.widget->background()) lv_obj_move_background(e.root);
+	}
+
+	// Keep the latest value of every fact (per name + tags) for replay() and the
+	// editor's fact picker. Bounded, in case a source invents tags without end.
+	void remember(const Fact& fact) {
+		auto& facts = seen_[fact.nameRef()];
+		for (auto& f : facts) {
+			if (f.tagsRef() == fact.tagsRef()) {
+				f = fact;
+				return;
+			}
+		}
+		if (seen_count_ < kMaxSeenFacts) {
+			facts.push_back(fact);
+			seen_count_++;
+		}
+	}
+
+	Entry* entryOf(const Widget* w) {
+		for (auto& e : entries_)
+			if (e.widget == w) return &e;
+		return nullptr;
+	}
+
+	// A widget threw while handling a fact or ticking; log it, but not every frame.
+	void logWidgetError(Entry& e, const char* what) {
+		auto now = std::chrono::steady_clock::now();
+		if (now - last_widget_error_ < std::chrono::seconds(5)) return;
+		last_widget_error_ = now;
+		int i = (int)(&e - entries_.data());
+		spdlog::error("Widget '{}': {}", nameOf(config_["widgets"][i]), what);
+	}
+
+	static constexpr size_t kMaxSeenFacts = 2048;
+
+	json config_;
+	std::vector<Entry> entries_;
 	std::vector<std::tuple<FactMatcher, Widget *, uint>> matchers;
+	std::unordered_map<std::string, std::vector<Fact>> seen_;
+	size_t seen_count_ = 0;
+	lv_obj_t* cont_ = nullptr;
+	int screen_w_ = 0, screen_h_ = 0;
+	std::string config_path_;
+	std::string assets_override_;  // replaces the config's assets_dir (simulator); never saved
+	uint32_t next_id_ = 1;
+	bool dirty_ = false;
+	std::chrono::steady_clock::time_point last_widget_error_;
 };
 
 
@@ -2826,111 +3262,8 @@ std::vector<std::string> pending_flush_prefixes;  // guarded by mtx; set by osd_
 std::mutex mtx;
 std::mutex lvgl_mutex;  // Protects all LVGL operations
 std::condition_variable cv;
-pthread_mutex_t osd_mutex;
 
 int osd_thread_signal;
-
-typedef struct png_closure
-{
-	unsigned char * iter;
-	unsigned int bytes_left;
-} png_closure_t;
-
-/* LVGL renders into this cached (normal RAM) shadow buffer instead of the
- * write-combined DRM dumb buffers. Alpha blending is read-modify-write, and
- * uncached reads on ARM are extremely slow — rendering directly into the dumb
- * buffers is what made the menu sluggish. The shadow always holds the complete
- * current UI; my_flush_cb copies it to the off-screen DRM buffer and flips. */
-static uint8_t * lvgl_shadow;
-
-void my_flush_cb(lv_display_t * display, const lv_area_t * area, uint8_t * px_map)
-{
-	(void)area; (void)px_map;
-
-	/* Direct mode calls flush once per invalidated area. Acting on the
-	 * intermediate calls used to flip the visible buffer mid-frame — the
-	 * display thread commits on every video frame, so scanout could catch a
-	 * half-rendered frame (rows blinking out during navigation, stale fade
-	 * ghosts). Only publish once the frame is complete. */
-	if (!lv_display_flush_is_last(display)) {
-		lv_display_flush_ready(display);
-		return;
-	}
-
-	/* osd_buf_switch is only ever flipped on this thread, so the back buffer
-	 * is stable: copy without the lock. */
-	int back = p->out->osd_buf_switch ^ 1;
-	struct modeset_buf *dst = &p->out->osd_bufs[back];
-	memcpy(dst->map, lvgl_shadow, dst->size);
-
-	int ret = pthread_mutex_lock(&osd_mutex);
-	assert(!ret);
-	p->out->osd_buf_switch = back;
-	if (enable_live_colortrans) {
-		dst->gl_fb_id = osd_gl_process(dst);
-	}
-	ret = pthread_mutex_unlock(&osd_mutex);
-	assert(!ret);
-
-	if (dvr_osd && frame_proc)
-		frame_proc->set_osd_blend(dst->prime_fd, dst->width, dst->height,
-		                         dst->stride / 4);
-
-	// tell the display thread that we have a update
-	ret = pthread_mutex_lock(&video_mutex);
-	assert(!ret);
-	osd_update_ready = true;
-	ret = pthread_cond_signal(&video_cond);
-	assert(!ret);
-	ret = pthread_mutex_unlock(&video_mutex);
-	assert(!ret);
-
-    /* IMPORTANT!!!
-     * Inform LVGL that flushing is complete so buffer can be modified again. */
-    lv_display_flush_ready(display);
-}
-
-uint32_t my_get_milliseconds() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
-}
-
-lv_display_t * display;
-static lv_draw_buf_t lvgl_draw_buf1;
-
-void setup_lvgl(osd_thread_params *p) {
-
-	/* Initialize LVGL. */
-    lv_init();
-
-	struct modeset_buf *buf1 = &p->out->osd_bufs[0];
-
-	display = lv_display_create(buf1->width, buf1->height);
-	lv_display_set_color_format(display, LV_COLOR_FORMAT_ARGB8888);
-
-	/* Single cached shadow buffer as the one draw buffer (see my_flush_cb).
-	 * With one buffer LVGL renders in place and never runs its dual-buffer
-	 * dirty-area sync (which read back from uncached DRM memory every frame).
-	 * Keep the DRM pitch (buf->stride) so the shadow's row layout matches the
-	 * hardware-aligned scanline stride and the flush copy is one flat memcpy. */
-	size_t shadow_sz = ((size_t)buf1->size + 63) & ~(size_t)63;
-	lvgl_shadow = (uint8_t *)aligned_alloc(64, shadow_sz);
-	assert(lvgl_shadow);
-	memset(lvgl_shadow, 0, shadow_sz);
-	lv_draw_buf_init(&lvgl_draw_buf1, buf1->width, buf1->height,
-	                 LV_COLOR_FORMAT_ARGB8888, buf1->stride, lvgl_shadow, buf1->size);
-	lv_display_set_draw_buffers(display, &lvgl_draw_buf1, NULL);
-	lv_display_set_render_mode(display, LV_DISPLAY_RENDER_MODE_DIRECT);
-
-	lv_display_set_flush_cb(display, my_flush_cb);
-
-	lv_tick_set_cb(my_get_milliseconds);
-
-    lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(lv_layer_bottom(), LV_OPA_TRANSP, LV_PART_MAIN);
-
-}
 
 static Osd *g_osd = nullptr;  // Global for fact processor thread
 
@@ -2971,87 +3304,210 @@ void factProcessorLoop() {
 	spdlog::info("OSD fact processor thread stopped");
 }
 
-void *__OSD_THREAD__(void *param) {
-	p = (osd_thread_params *)param;
+extern "C" void osd_engine_start(lv_obj_t *parent, int screen_w, int screen_h,
+                                 const char *config_path, const char *assets_override) {
+	// Full-screen transparent container for all the widgets
+	lv_obj_t* osd_cont = lv_obj_create(parent);
+	lv_obj_set_pos(osd_cont, 0, 0);
+	lv_obj_set_size(osd_cont, screen_w, screen_h);
+	lv_obj_set_style_bg_opa(osd_cont, LV_OPA_TRANSP, LV_PART_MAIN);
+	lv_obj_set_style_border_width(osd_cont, 0, LV_PART_MAIN);
+	lv_obj_set_style_radius(osd_cont, 0, LV_PART_MAIN);
+	lv_obj_set_style_pad_all(osd_cont, 0, LV_PART_MAIN);
+	lv_obj_clear_flag(osd_cont, LV_OBJ_FLAG_SCROLLABLE);
+	lv_obj_set_style_text_font(osd_cont, &lv_font_montserrat_20, LV_PART_MAIN);
+
 	Osd *osd = new Osd;
+	osd->init(osd_cont, screen_w, screen_h, config_path ? config_path : "",
+	          assets_override ? assets_override : "");
+
 	g_osd = osd;  // Store for fact processor thread
-	pthread_setname_np(pthread_self(), "__OSD");
-
-	osd->loadConfig(p->config);
-	auto last_lvgl_tick_at = std::chrono::steady_clock::now();
-
-	int ret = pthread_mutex_init(&osd_mutex, NULL);
-	assert(!ret);
-
-	struct modeset_buf *buf = &p->out->osd_bufs[p->out->osd_buf_switch];
-	ret = modeset_perform_modeset(p->fd, p->out, p->out->osd_request, &p->out->osd_plane,
-								  buf->fb, buf->width, buf->height, osd_zpos);
-
-	if (!osd_gl.init(p->fd, buf->width, buf->height,
-						live_colortrans_gain, live_colortrans_offset)) {
-		spdlog::warn("OSD GL: init failed");
-	}
-
-	// LVGL is always initialized: OSD rendering now uses LVGL widgets
-	setup_lvgl(p);
-
-	// Full-screen transparent container on layer_bottom (below menu layer)
-	{
-		int screen_w = buf->width;
-		int screen_h = buf->height;
-		lv_obj_t* osd_cont = lv_obj_create(lv_layer_bottom());
-		lv_obj_set_pos(osd_cont, 0, 0);
-		lv_obj_set_size(osd_cont, screen_w, screen_h);
-		lv_obj_set_style_bg_opa(osd_cont, LV_OPA_TRANSP, LV_PART_MAIN);
-		lv_obj_set_style_border_width(osd_cont, 0, LV_PART_MAIN);
-		lv_obj_set_style_radius(osd_cont, 0, LV_PART_MAIN);
-		lv_obj_set_style_pad_all(osd_cont, 0, LV_PART_MAIN);
-		lv_obj_clear_flag(osd_cont, LV_OBJ_FLAG_SCROLLABLE);
-		lv_obj_set_style_text_font(osd_cont, &lv_font_montserrat_20, LV_PART_MAIN);
-		osd->createWidgets(osd_cont, screen_w, screen_h);
-	}
-
-	// Force an initial render so the video thread receives an OSD buffer signal
-	lv_task_handler();
-
 	// Start fact processor thread (runs continuously, independent of rendering)
 	std::thread fact_processor(factProcessorLoop);
 	fact_processor.detach();  // Let it run independently
+}
 
-	if (gsmenu_enabled) {
-		pp_menu_main();
+extern "C" void osd_lock(void) { lvgl_mutex.lock(); }
+extern "C" void osd_unlock(void) { lvgl_mutex.unlock(); }
+
+extern "C" void osd_tick_if_due(void) {
+	static auto last_tick_at = std::chrono::steady_clock::now();
+	auto now = std::chrono::steady_clock::now();
+	if (g_osd && now - last_tick_at >= std::chrono::milliseconds(refresh_frequency_ms)) {
+		g_osd->tick();
+		last_tick_at = now;
+	}
+}
+
+//
+// OSD editor access (see osd_internal.hpp)
+//
+
+namespace osd_model {
+
+std::vector<WidgetInfo> list() {
+	std::vector<WidgetInfo> out;
+	if (!g_osd) return out;
+	for (size_t i = 0; i < g_osd->entries().size(); i++) {
+		const auto& e = g_osd->entries()[i];
+		const json& w = g_osd->widgetJson(i);
+		std::string type = w.is_object() && w.contains("type") && w["type"].is_string() ? w["type"].get<std::string>() : "";
+		bool enabled = !isDisabledType(type);
+		if (!enabled) type = type.substr(3);
+		std::string name = w.is_object() && w.contains("name") && w["name"].is_string() ? w["name"].get<std::string>() : "";
+		out.push_back({e.id, name, type, e.error, enabled});
+	}
+	return out;
+}
+
+int index(uint32_t id) { return g_osd ? g_osd->indexOf(id) : -1; }
+
+json get(uint32_t id) {
+	int i = index(id);
+	return i < 0 ? json() : g_osd->widgetJson(i);
+}
+
+std::string set(uint32_t id, const json& widget) {
+	int i = index(id);
+	return i < 0 ? "widget is gone" : g_osd->setWidget(i, widget);
+}
+
+uint32_t insert(const json& widget, int at) {
+	return g_osd ? g_osd->insertWidget(widget, at) : 0;
+}
+
+void remove(uint32_t id) {
+	int i = index(id);
+	if (i >= 0) g_osd->removeWidget(i);
+}
+
+int moveZ(uint32_t id, int delta) {
+	int i = index(id);
+	return i < 0 ? -1 : g_osd->moveWidget(i, delta);
+}
+
+void setOffset(uint32_t id, int dx, int dy) {
+	int i = index(id);
+	if (i >= 0) g_osd->setOffset(i, dx, dy);
+}
+
+void getOffset(uint32_t id, int& dx, int& dy) {
+	int i = index(id);
+	dx = dy = 0;
+	if (i >= 0) {
+		dx = g_osd->entries()[i].dx;
+		dy = g_osd->entries()[i].dy;
+	}
+}
+
+void commitOffset(uint32_t id) {
+	int i = index(id);
+	if (i >= 0) g_osd->commitOffset(i);
+}
+
+void setAnchor(uint32_t id, bool right, bool bottom) {
+	int i = index(id);
+	if (i >= 0) g_osd->setAnchor(i, right, bottom);
+}
+
+bool bbox(uint32_t id, lv_area_t& out) {
+	int i = index(id);
+	return i >= 0 && g_osd->bbox(i, out);
+}
+
+void anchorPoint(uint32_t id, int& x, int& y) {
+	int i = index(id);
+	x = y = 0;
+	if (i >= 0) g_osd->anchorPoint(i, x, y);
+}
+
+void screen(int& w, int& h) {
+	w = g_osd ? g_osd->screenW() : 0;
+	h = g_osd ? g_osd->screenH() : 0;
+}
+
+std::vector<SeenFact> seen() {
+	std::vector<SeenFact> out;
+	if (!g_osd) return out;
+	for (auto& [name, tags, type, value] : g_osd->seenFacts())
+		out.push_back({name, tags, type, value});
+	return out;
+}
+
+std::string assetsDir() { return g_osd ? g_osd->assetsDir() : ""; }
+std::string configPath() { return g_osd ? g_osd->configPath() : ""; }
+bool dirty() { return g_osd && g_osd->dirty(); }
+
+std::string save() {
+	if (!g_osd) return "OSD is not running";
+	const std::string& path = g_osd->configPath();
+	if (path.empty()) return "pixelpilot was started without --osd-config";
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::path target = fs::weakly_canonical(path, ec);
+	if (ec) target = path;
+	std::string text = g_osd->config().dump(4) + "\n";
+
+	// Keep the file as it was before the first save from the editor.
+	fs::path bak = target.string() + ".bak";
+	if (fs::exists(target) && !fs::exists(bak)) {
+		fs::copy_file(target, bak, ec);
+		if (ec) return fmt::format("can't back up {}: {}", target.string(), ec.message());
 	}
 
-	// Main loop: focus purely on rendering
-	while (!osd_thread_signal) {
-
-		if (gsmenu_enabled) {
-			handle_keyboard_input();
+	// Write a temp file next to it, flush it to disk, then swap it in atomically.
+	std::string tmp = target.string() + ".tmp";
+	int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (fd < 0) return fmt::format("can't write {}: {}", tmp, strerror(errno));
+	const char* p = text.data();
+	size_t left = text.size();
+	while (left > 0) {
+		ssize_t n = write(fd, p, left);
+		if (n < 0) {
+			if (errno == EINTR) continue;
+			std::string err = fmt::format("can't write {}: {}", tmp, strerror(errno));
+			close(fd);
+			unlink(tmp.c_str());
+			return err;
 		}
-
-		{
-			std::lock_guard<std::mutex> lock(lvgl_mutex);
-
-			// Update time-based widgets at fixed intervals
-			auto now = std::chrono::steady_clock::now();
-			auto since_last_tick = now - last_lvgl_tick_at;
-			if (since_last_tick >= std::chrono::milliseconds(refresh_frequency_ms)) {
-				osd->tick();
-				last_lvgl_tick_at = now;
-			}
-
-			// Render frequently for smooth animations (~60Hz)
-			lv_task_handler();
-		}
-
-		// Sleep briefly to avoid busy loop, ~60Hz
-		std::this_thread::sleep_for(std::chrono::milliseconds(16));
-    }
-
-	spdlog::info("OSD thread done.");
-	g_osd = nullptr;
-	return nullptr;
+		p += n;
+		left -= n;
+	}
+	if (fsync(fd) != 0 || close(fd) != 0) {
+		std::string err = fmt::format("can't write {}: {}", tmp, strerror(errno));
+		unlink(tmp.c_str());
+		return err;
+	}
+	if (rename(tmp.c_str(), target.c_str()) != 0) {
+		std::string err = fmt::format("can't replace {}: {}", target.string(), strerror(errno));
+		unlink(tmp.c_str());
+		return err;
+	}
+	int dir = open(target.parent_path().empty() ? "." : target.parent_path().c_str(), O_RDONLY | O_DIRECTORY);
+	if (dir >= 0) {
+		fsync(dir);
+		close(dir);
+	}
+	g_osd->markSaved();
+	spdlog::info("OSD config saved to {}", target.string());
+	return "";
 }
+
+std::string reload() {
+	return g_osd ? g_osd->load() : "OSD is not running";
+}
+
+std::string checkExpression(const std::string& expr) {
+	try {
+		ExpressionTree tree(expr);
+		tree.evaluate(1.0);
+	} catch (const ExpressionException& e) {
+		if (e.type() != ExpressionException::DIVISION_BY_ZERO) return e.what();
+	}
+	return "";
+}
+
+}  // namespace osd_model
 
 void mk_tags(osd_tag *tags, int n_tags, FactTags *fact_tags) {
 	osd_tag tag;
@@ -3179,10 +3635,6 @@ void osd_flush_facts(const char *const *prefixes, int n_prefixes) {
 	}
 	cv.notify_one();  // wake the fact processor so the flush is applied promptly
 };
-
-uint32_t osd_gl_process(struct modeset_buf* buf){
-	return osd_gl.process(buf);
-}
 
 #ifdef __cplusplus
 }

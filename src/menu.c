@@ -16,7 +16,7 @@
 /* Focused by input.cpp's toggle_screen() to open the menu. Was in the old ui.c. */
 lv_group_t * main_group;
 extern lv_group_t * osd_group;
-extern bool menu_active;
+bool menu_active = false;  /* the menu screen (or a screen it opened) owns the keys */
 extern uint64_t gtotal_tunnel_data;   /* tunnel bytes from the VTX (drone) */
 
 /* WFB vs APFPV receiver mode. Owned here (not in the old menu's gs_system.c) so
