@@ -14,6 +14,12 @@ enum DvrMode { DVR_MODE_RAW = 0, DVR_MODE_REENCODE = 1, DVR_MODE_BOTH = 2 };
 // mirrored to the receiver's recorders.
 extern int dvr_enabled;
 
+// --dvr-on-signal: auto-start recording when the GS starts receiving data
+// from the air unit (tunnel/RX traffic) and auto-stop when it drops out.
+// Watched by menu.c's drone_detect_timer, the same signal that greys out the
+// drone pages when the VTX isn't seen.
+extern bool dvr_on_signal_enabled;
+
 // Resolve the next DVR recording's base path from a filename template WITHOUT
 // the extension: <dir>/[NNNN_]<strftime(template)> minus a trailing ".mp4".
 // Honours --dvr-sequenced-files. Returns "" if the directory does not exist.

@@ -5,6 +5,12 @@
 #include <string>
 #include <optional>
 #include <filesystem>
+#include <thread>
+#include <atomic>
+#include <cstring>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
 #include "spdlog/spdlog.h"
 
@@ -377,6 +383,96 @@ private:
 
 };
 
+/**
+ * @brief Receives the air unit's SoC temperature over a plain TCP connection.
+ *
+ * A small script on the VTX periodically opens a TCP connection to this port
+ * (over the wfb-ng tunnel) and writes the temperature in degrees C as ASCII,
+ * then closes. There's no MSP/DisplayPort framing here at all -- this is
+ * intentionally independent of the msposd/MspDisplayPortWidget telemetry
+ * path, since the air unit's SoC temp isn't something the flight controller
+ * knows about.
+ */
+class VtxTempSensor : public ISensor {
+public:
+    explicit VtxTempSensor(int port) : port(port) {
+        server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (server_fd < 0) {
+            spdlog::error("VtxTempSensor: socket() failed");
+            return;
+        }
+        int opt = 1;
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port = htons(static_cast<uint16_t>(port));
+        if (bind(server_fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
+            spdlog::error("VtxTempSensor: bind() failed on port {}", port);
+            close(server_fd);
+            server_fd = -1;
+            return;
+        }
+        listen(server_fd, 4);
+        is_valid_sensor = true;
+        worker = std::thread(&VtxTempSensor::listenLoop, this);
+    }
+
+    ~VtxTempSensor() override {
+        running = false;
+        if (server_fd >= 0) {
+            shutdown(server_fd, SHUT_RDWR);
+            close(server_fd);
+        }
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+
+    void run() override {
+        if (!is_valid_sensor) {
+            return;
+        }
+        osd_tag tags[1];
+        strcpy(tags[0].key, "name");
+        strcpy(tags[0].val, "vtx");
+        osd_publish_double_fact("vtx.temperature", tags, 1, latest.load());
+    }
+
+    bool is_valid() override {
+        return is_valid_sensor;
+    }
+
+private:
+    void listenLoop() {
+        while (running) {
+            sockaddr_in client{};
+            socklen_t len = sizeof(client);
+            int fd = accept(server_fd, reinterpret_cast<sockaddr *>(&client), &len);
+            if (fd < 0) {
+                continue; // server_fd was closed (shutdown) -> loop exits on `running` check
+            }
+            char buf[64] = {0};
+            ssize_t n = read(fd, buf, sizeof(buf) - 1);
+            if (n > 0) {
+                try {
+                    latest.store(std::stod(std::string(buf, static_cast<std::size_t>(n))));
+                } catch (...) {
+                    spdlog::warn("VtxTempSensor: got unparseable data on port {}", port);
+                }
+            }
+            close(fd);
+        }
+    }
+
+    int port;
+    int server_fd = -1;
+    bool is_valid_sensor = false;
+    std::atomic<bool> running{true};
+    std::atomic<double> latest{0.0};
+    std::thread worker;
+};
+
 
 void OsSensors::addCPU() {
     sensors.push_back(std::make_shared<CPUSensor>());
@@ -406,6 +502,10 @@ std::size_t OsSensors::discoverTemperature() {
 	std::size_t before = sensors.size();
 	TemperatureSensor::detect(sensors);
 	return sensors.size() - before;
+}
+
+void OsSensors::addVtxTemp(int port) {
+    sensors.push_back(std::make_shared<VtxTempSensor>(port));
 }
 
 std::size_t OsSensors::autodiscover() {
