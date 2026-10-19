@@ -260,7 +260,7 @@ static void hl_place()
 {
     if(!g_hl || !g_hl_id) return;
     if(osd_model::index(g_hl_id) < 0) {
-        lv_obj_add_flag(g_hl, LV_OBJ_FLAG_HIDDEN);
+        if(!lv_obj_has_flag(g_hl, LV_OBJ_FLAG_HIDDEN)) lv_obj_add_flag(g_hl, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     lv_area_t a;
@@ -274,7 +274,8 @@ static void hl_place()
         lv_obj_set_pos(g_hl, x - 12, y - 12);
         lv_obj_set_size(g_hl, 24, 24);
     }
-    lv_obj_remove_flag(g_hl, LV_OBJ_FLAG_HIDDEN);
+    /* (unhiding always invalidates, i.e. a redraw on every refresh tick) */
+    if(lv_obj_has_flag(g_hl, LV_OBJ_FLAG_HIDDEN)) lv_obj_remove_flag(g_hl, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void hl_show(uint32_t id)

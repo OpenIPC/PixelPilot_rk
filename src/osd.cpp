@@ -1165,8 +1165,7 @@ public:
 		mkBar(0,           0,           screen_w,  b,         &grad[2], LV_GRAD_DIR_VER, true);   // top
 		mkBar(0,           screen_h-b,  screen_w,  b,         &grad[3], LV_GRAD_DIR_VER, false);  // bottom
 
-		lv_obj_add_flag(vig, LV_OBJ_FLAG_HIDDEN);
-		lv_obj_set_style_opa(vig, 0, LV_PART_MAIN);
+		for (auto* bar : bars) lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
 	}
 
 	void setFact(uint idx, Fact fact) override {
@@ -1232,12 +1231,14 @@ public:
 		int q = opa / 8;  // quantise to avoid churn on small fluctuations
 		if (q == last_q) return;
 		last_q = q;
+		// Fade via the bars' gradients, not an opacity on the full-screen container:
+		// that invalidated (and layer-rendered) the whole screen on every change,
+		// which made the menu sluggish while the warning was active.
 		if (opa == 0) {
-			lv_obj_add_flag(vig, LV_OBJ_FLAG_HIDDEN);
+			for (auto* bar : bars) lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
 		} else {
-			setHalo(s);  // yellow -> red with severity, alongside the opacity ramp
-			lv_obj_set_style_opa(vig, opa, LV_PART_MAIN);
-			lv_obj_clear_flag(vig, LV_OBJ_FLAG_HIDDEN);
+			setHalo(s, opa);  // yellow -> red with severity, alongside the opacity ramp
+			for (auto* bar : bars) lv_obj_clear_flag(bar, LV_OBJ_FLAG_HIDDEN);
 		}
 	}
 
@@ -1257,19 +1258,22 @@ private:
 		lv_gradient_init_stops(g, colors, opas, fracs, 2);
 		g->dir = dir;
 		bars[g - grad] = bar;
+		edge_stop[g - grad] = edge_at_start ? 0 : 1;
 		lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
 		lv_obj_set_style_bg_grad(bar, g, LV_PART_MAIN);
 	}
 
 	// Fade the halo hue with severity to mirror the opacity ramp: yellow at the
-	// threshold (s~0) through to red at critical (s~1). The SW gradient is recomputed
-	// from the descriptor on every draw, so mutating the stops in place is enough.
-	void setHalo(double s) {
+	// threshold (s~0) through to red at critical (s~1); `opa` is the opacity at the
+	// screen edge. The SW gradient is recomputed from the descriptor on every draw,
+	// so mutating the stops in place is enough.
+	void setHalo(double s, lv_opa_t opa) {
 		uint8_t green = (uint8_t)(255.0 * (1.0 - s) + 0.5);
 		lv_color_t c = lv_color_make(255, green, 0);
 		for (int i = 0; i < 4; i++) {
 			grad[i].stops[0].color = c;
 			grad[i].stops[1].color = c;
+			grad[i].stops[edge_stop[i]].opa = opa;
 			if (bars[i]) lv_obj_invalidate(bars[i]);
 		}
 	}
@@ -1285,6 +1289,7 @@ private:
 
 	lv_grad_dsc_t grad[4]{};   // one persistent descriptor per edge bar
 	lv_obj_t* bars[4] = {};    // the four edge bars, indexed like grad[]
+	uint8_t edge_stop[4] = {}; // which gradient stop of each bar is at the screen edge
 	lv_obj_t* vig = nullptr;
 	int last_q = -1;
 };
@@ -2607,6 +2612,10 @@ public:
 		lv_obj_set_pos(canvas, absX(screen_w), absY(screen_h));
 
 		shm_data = reinterpret_cast<unsigned char*>(shm_region);
+		pixels = reinterpret_cast<const uint32_t*>(shm_region->data);
+		width = screen_w;
+		height = screen_h;
+		row_hash.assign(height, 0);
 		last_refresh = std::chrono::steady_clock::now();
 	}
 
@@ -2617,7 +2626,7 @@ public:
 		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refresh);
 
 		if (elapsed.count() >= refresh_interval_ms) {
-			lv_obj_invalidate(canvas);
+			invalidateChangedRows();
 			last_refresh = now;
 		}
 	}
@@ -2632,8 +2641,35 @@ public:
 	}
 
 protected:
+	// Redraw only the rows the producer changed since the last look. The surface
+	// covers the whole screen, and invalidating all of it every tick re-rendered
+	// the entire OSD (and the menu over it) each time - on the SBC that took up
+	// to ~250 ms per frame with the menu open and made the menu sluggish.
+	void invalidateChangedRows() {
+		int first = -1, last = -1;
+		for (int y = 0; y < height; y++) {
+			const uint32_t* row = pixels + (size_t)y * width;
+			uint64_t h = 1469598103934665603ull;  // FNV-1a over the row's pixels
+			for (int x = 0; x < width; x++) h = (h ^ row[x]) * 1099511628211ull;
+			if (h != row_hash[y]) {
+				row_hash[y] = h;
+				if (first < 0) first = y;
+				last = y;
+			}
+		}
+		if (first < 0) return;
+		lv_area_t a;
+		lv_obj_get_coords(canvas, &a);
+		a.y2 = a.y1 + last;
+		a.y1 = a.y1 + first;
+		lv_obj_invalidate_area(canvas, &a);
+	}
+
 	lv_obj_t *canvas = nullptr;
 	unsigned char *shm_data = nullptr;
+	const uint32_t *pixels = nullptr;
+	int width = 0, height = 0;
+	std::vector<uint64_t> row_hash;
 	size_t shm_size = 0;
 	std::string shm_name;
 	uint refresh_interval_ms;
