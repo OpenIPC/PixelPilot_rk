@@ -255,6 +255,36 @@ static std::vector<std::string> icon_files()
 static lv_obj_t * g_hl;
 static lv_timer_t * g_hl_timer;
 static uint32_t g_hl_id;
+static lv_obj_t * g_root_body;   /* the editor's list column (set while the editor is open) */
+static struct MoveState * g_move;
+
+static int32_t overlap(const lv_area_t & a, const lv_area_t & b)
+{
+    int32_t w = std::min(a.x2, b.x2) - std::max(a.x1, b.x1) + 1;
+    int32_t h = std::min(a.y2, b.y2) - std::max(a.y1, b.y1) + 1;
+    return w > 0 && h > 0 ? w * h : 0;
+}
+
+/* Keep the menu off the selected widget: if the columns cover it and would cover
+ * less of it on the other side of the screen, dock them there. (Only switches when
+ * it helps, so the menu doesn't jump around while browsing.) */
+static void dock_update(const lv_area_t & widget)
+{
+    if(!g_root_body || g_move) return;
+    lv_area_t menu, view;
+    if(!colstack_visible_area(cs(), &menu, &view)) return;
+    int32_t mw = lv_area_get_width(&menu);
+    bool right = colstack_dock_right(cs());
+    if(mw > lv_area_get_width(&view)) {          /* too wide to choose a side */
+        if(right) colstack_set_dock_right(cs(), false);
+        return;
+    }
+    lv_area_t left_side  = { view.x1, menu.y1, view.x1 + mw - 1, menu.y2 };
+    lv_area_t right_side = { view.x2 - mw + 1, menu.y1, view.x2, menu.y2 };
+    int32_t cur = overlap(widget, right ? right_side : left_side);
+    int32_t alt = overlap(widget, right ? left_side : right_side);
+    if(cur > 0 && alt < cur) colstack_set_dock_right(cs(), !right);
+}
 
 static void hl_place()
 {
@@ -273,7 +303,9 @@ static void hl_place()
         osd_model::anchorPoint(g_hl_id, x, y);
         lv_obj_set_pos(g_hl, x - 12, y - 12);
         lv_obj_set_size(g_hl, 24, 24);
+        a = { x - 12, y - 12, x + 12, y + 12 };
     }
+    dock_update(a);
     /* (unhiding always invalidates, i.e. a redraw on every refresh tick) */
     if(lv_obj_has_flag(g_hl, LV_OBJ_FLAG_HIDDEN)) lv_obj_remove_flag(g_hl, LV_OBJ_FLAG_HIDDEN);
 }
@@ -336,7 +368,6 @@ struct MoveState {
     int streak;
     bool closing;
 };
-static MoveState * g_move;
 
 static void move_readout(MoveState * m, int step)
 {
@@ -552,7 +583,6 @@ static void build_add(colstack_t * c, lv_obj_t * body, void * user);
 
 /* ── OSD: the widget list ──────────────────────────────────────────────────── */
 
-static lv_obj_t * g_root_body;
 static std::vector<std::pair<uint32_t, lv_obj_t *>> g_root_rows;
 
 static lv_obj_t * root_row_of(uint32_t id)
@@ -604,10 +634,14 @@ static void build_root(colmenu_emit_t * e)
     colstack_t * c = colmenu_emit_cs(e);
     lv_obj_t * body = colmenu_emit_body(e);
     if(body != g_root_body) {
-        /* entering the editor: show the whole OSD (no logo bar) until we leave */
+        /* entering the editor: show the whole OSD (no logo bar) until we leave,
+         * and keep the menu narrow - only the editor's last two columns, without
+         * the Menu / System Settings columns - so it can dock away from the
+         * selected widget (dock_update) */
         g_root_body = body;
         lv_obj_add_event_cb(body, root_body_deleted, LV_EVENT_DELETE, nullptr);
         pp_menu_set_header_visible(false);
+        colstack_limit_visible(c, colstack_depth(c) - 1, 2);
     }
     colstack_set_column_hooks(c, root_on_back, reveal_refresh, nullptr);
     g_root_rows.clear();

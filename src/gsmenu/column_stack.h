@@ -138,6 +138,17 @@ void colstack_set_column_hooks(colstack_t * cs, bool (*on_back)(void * ctx),
 /* Body of the top column. */
 lv_obj_t * colstack_cur_body(colstack_t * cs);
 
+/* Show only the last `max_cols` columns, and none before column `from_idx` (e.g.
+ * a page that needs the screen keeps its parents out of the way). The limit ends
+ * by itself when column `from_idx` is popped; (0, 0) shows all columns. */
+void colstack_limit_visible(colstack_t * cs, int from_idx, int max_cols);
+/* Pack the columns against the right screen edge instead of the left one. */
+void colstack_set_dock_right(colstack_t * cs, bool right);
+bool colstack_dock_right(colstack_t * cs);
+/* Screen area the visible columns cover, and the area the stack can use; false
+ * if no column is visible. */
+bool colstack_visible_area(colstack_t * cs, lv_area_t * menu, lv_area_t * viewport);
+
 /* Resize the current (top) column to fit its widest row (clamped). Call after
  * a column has been fully populated. */
 void colstack_autofit(colstack_t * cs);

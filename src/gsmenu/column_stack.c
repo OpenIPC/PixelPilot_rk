@@ -82,6 +82,9 @@ struct colstack {
     int32_t     edit_start;   /* slider value on entering edit (for cancel)     */
     void     (* root_back)(void * ctx);  /* back pressed at the root column       */
     void *      root_back_ctx;
+    int         vis_from;     /* colstack_limit_visible: never show columns before */
+    int         vis_max;      /*   this index, and at most this many (0 = all)     */
+    bool        dock_right;   /* columns packed against the right edge            */
 };
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -146,6 +149,31 @@ static lv_obj_t * make_column(colstack_t * cs, const char * title)
     return col;
 }
 
+/* Hide the columns the visibility limit leaves out; a limit whose first column
+ * was popped is dropped (and the stack docked left again). */
+static void apply_visibility(colstack_t * cs)
+{
+    if(cs->vis_max > 0 && cs->vis_from >= cs->depth) {
+        cs->vis_from = cs->vis_max = 0;
+        if(cs->dock_right) {
+            cs->dock_right = false;
+            lv_obj_set_flex_align(cs->stack, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+        }
+    }
+    int first = 0;
+    if(cs->vis_max > 0) {
+        first = cs->depth - cs->vis_max;
+        if(first < cs->vis_from) first = cs->vis_from;
+        if(first < 0) first = 0;
+    }
+    for(int i = 0; i < cs->depth; i++) {
+        bool hide = i < first;
+        if(hide == lv_obj_has_flag(cs->cols[i].col, LV_OBJ_FLAG_HIDDEN)) continue;   /* (toggling invalidates) */
+        if(hide) lv_obj_add_flag(cs->cols[i].col, LV_OBJ_FLAG_HIDDEN);
+        else     lv_obj_remove_flag(cs->cols[i].col, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 lv_obj_t * colstack_push(colstack_t * cs, const char * title)
 {
     if(cs->depth >= CS_MAX_COLS) return NULL;
@@ -163,6 +191,7 @@ lv_obj_t * colstack_push(colstack_t * cs, const char * title)
     cs->cols[i].on_reveal = NULL;
     cs->cols[i].hook_ctx  = NULL;
 
+    apply_visibility(cs);
     lv_indev_set_group(indev_drv, grp);
     lv_obj_scroll_to_view(col, LV_ANIM_ON);
     refresh_active_styling(cs);
@@ -192,6 +221,7 @@ void colstack_pop(colstack_t * cs)
     lv_obj_delete(cs->cols[i].col);
     cs->cols[i].col = NULL;
 
+    apply_visibility(cs);
     lv_indev_set_group(indev_drv, cs->cols[cs->depth - 1].group);
     lv_obj_scroll_to_view(cs->cols[cs->depth - 1].col, LV_ANIM_ON);
     refresh_active_styling(cs);
@@ -214,6 +244,47 @@ void colstack_set_column_hooks(colstack_t * cs, bool (*on_back)(void * ctx),
 }
 
 lv_obj_t * colstack_cur_body(colstack_t * cs) { return cs->cols[cs->depth - 1].body; }
+
+void colstack_limit_visible(colstack_t * cs, int from_idx, int max_cols)
+{
+    cs->vis_from = from_idx;
+    cs->vis_max  = max_cols;
+    apply_visibility(cs);
+    lv_obj_update_layout(cs->stack);
+    lv_obj_scroll_to_view(cs->cols[cs->depth - 1].col, LV_ANIM_OFF);
+}
+
+void colstack_set_dock_right(colstack_t * cs, bool right)
+{
+    if(cs->dock_right == right) return;
+    cs->dock_right = right;
+    lv_obj_set_flex_align(cs->stack, right ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_update_layout(cs->stack);
+    lv_obj_scroll_to_view(cs->cols[cs->depth - 1].col, LV_ANIM_OFF);
+}
+
+bool colstack_dock_right(colstack_t * cs) { return cs->dock_right; }
+
+bool colstack_visible_area(colstack_t * cs, lv_area_t * menu, lv_area_t * viewport)
+{
+    bool any = false;
+    for(int i = 0; i < cs->depth; i++) {
+        lv_obj_t * col = cs->cols[i].col;
+        if(lv_obj_has_flag(col, LV_OBJ_FLAG_HIDDEN)) continue;
+        lv_area_t a;
+        lv_obj_get_coords(col, &a);
+        if(!any) { *menu = a; any = true; }
+        else {
+            if(a.x1 < menu->x1) menu->x1 = a.x1;
+            if(a.y1 < menu->y1) menu->y1 = a.y1;
+            if(a.x2 > menu->x2) menu->x2 = a.x2;
+            if(a.y2 > menu->y2) menu->y2 = a.y2;
+        }
+    }
+    lv_obj_get_content_coords(cs->stack, viewport);
+    return any;
+}
 
 int colstack_depth(colstack_t * cs) { return cs->depth; }
 
