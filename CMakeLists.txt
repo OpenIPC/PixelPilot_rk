@@ -161,7 +161,7 @@ if(USE_SIMULATOR)
   endif()
   add_executable(${PROJECT_NAME} ${SIMULATOR_SOURCES})
   target_link_libraries(${PROJECT_NAME} lvgl ${LIBSDL_LIBRARIES} ${PNG_LIBRARIES} ${LIBDRM_LIBRARIES}
-      nlohmann_json::nlohmann_json spdlog::spdlog fmt::fmt pthread)
+      nlohmann_json::nlohmann_json spdlog::spdlog fmt::fmt pthread m)
 else()
   find_package(nlohmann_json 3 REQUIRED)
   find_package(yaml-cpp REQUIRED)

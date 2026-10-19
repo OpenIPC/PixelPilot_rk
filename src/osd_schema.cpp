@@ -37,7 +37,7 @@ const std::vector<WidgetType>& types() {
 		    {"range": [-90, -81], "icon_path": "signal7.png"}, {"range": [-130, -91], "icon_path": "signal8.png"}]})j",
 		 true, false},
 		{"VideoWidget", "Video fps + size", videoFields(),
-		 1, -1, R"j({"icon_path": "framerate.png", "template": "%u fps | %ux%u", "per_second_window_s": 2,
+		 1, 16, R"j({"icon_path": "framerate.png", "template": "%u fps | %ux%u", "per_second_window_s": 2,
 		  "per_second_bucket_ms": 200,
 		  "facts": [{"name": "video.displayed_frame"}, {"name": "video.width"}, {"name": "video.height"}]})j",
 		 true, false},

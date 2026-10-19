@@ -996,11 +996,21 @@ protected:
                     msg << '?'; // Append '?' for undefined facts
                 } else {
                     // Convert rather than insist on the exact type, so a placeholder
-                    // that doesn't match its fact still renders (e.g. %d on a uint).
+                    // that doesn't match its fact still renders (e.g. %d on a uint);
+                    // but text that isn't a number/boolean renders '?', not a made-up 0.
                     const Fact& f = facts[fact_i];
+                    if (f.getType() == Fact::T_STRING && token.type != TokenType::String &&
+                        !textConverts(f.getStrValue(), token.type)) {
+                        msg << '?';
+                        fact_i++;
+                        continue;
+                    }
                     switch (token.type) {
                     case TokenType::Boolean:
-                        msg << ((bool)f ? 't' : 'f');
+                        if (f.getType() == Fact::T_STRING)
+                            msg << (textIsTrue(f.getStrValue()) ? 't' : 'f');
+                        else
+                            msg << ((bool)f ? 't' : 'f');
                         break;
                     case TokenType::Int:
                         msg << (long)f;
@@ -1020,6 +1030,22 @@ protected:
             }
         }
         return std::make_unique<std::string>(msg.str());
+    }
+
+    static bool textIsTrue(const std::string& s) {
+        return s == "true" || s == "on" || s == "yes" || (std::strtod(s.c_str(), nullptr) != 0.0);
+    }
+
+    // Whether a text fact can be shown by a placeholder of `type`.
+    static bool textConverts(const std::string& s, TokenType type) {
+        if (type == TokenType::Boolean &&
+            (s == "true" || s == "false" || s == "on" || s == "off" || s == "yes" || s == "no"))
+            return true;
+        if (s.empty()) return false;
+        char* end = nullptr;
+        std::strtod(s.c_str(), &end);
+        while (*end == ' ' || *end == '\n') end++;
+        return *end == 0;
     }
 
     std::vector<Token> tokenize(const std::string& tpl) {
@@ -2938,7 +2964,9 @@ public:
 
 	// (Re)load the layout file and rebuild every widget. On error the OSD is left
 	// with what could be loaded and the message is returned.
-	std::string load() {
+	// With `keep_on_error` (the editor's Revert) a file that can't be read leaves
+	// the running layout and its unsaved edits alone.
+	std::string load(bool keep_on_error = false) {
 		json cfg = json::object();
 		std::string err;
 		if (!config_path_.empty()) {
@@ -2948,6 +2976,8 @@ public:
 					cfg = json::parse(f);
 				} else if (std::filesystem::exists(config_path_)) {
 					err = fmt::format("can't read {}", config_path_);
+				} else if (keep_on_error) {
+					err = fmt::format("{} doesn't exist", config_path_);
 				} else {
 					spdlog::info("OSD config {} doesn't exist yet, starting empty", config_path_);
 				}
@@ -2955,7 +2985,10 @@ public:
 				err = fmt::format("can't parse {}: {}", config_path_, e.what());
 				cfg = json::object();
 			}
+		} else if (keep_on_error) {
+			err = "pixelpilot was started without --osd-config";
 		}
+		if (!err.empty() && keep_on_error) return err;
 		setConfig(std::move(cfg));
 		return err;
 	}
@@ -3066,6 +3099,7 @@ public:
 		if (a.is_object()) a.erase("name");
 		if (b.is_object()) b.erase("name");
 		if (a != b) rebuild(i);
+		releaseShm(shmNameOf(old_j));
 		return entries_[i].error;
 	}
 
@@ -3082,10 +3116,12 @@ public:
 	}
 
 	void removeWidget(size_t i) {
+		std::string shm = shmNameOf(config_["widgets"][i]);
 		destroyEntry(entries_[i]);
 		entries_.erase(entries_.begin() + i);
 		config_["widgets"].erase(config_["widgets"].begin() + i);
 		dirty_ = true;
+		releaseShm(shm);
 	}
 
 	int moveWidget(size_t i, int delta) {
@@ -3256,6 +3292,24 @@ private:
 			arg_idx++;
 		}
 		if (e.id == preview_id_) e.widget->setPreview(true);
+	}
+
+	// The shared memory an ExternalSurfaceWidget's JSON names ("" if none).
+	static std::string shmNameOf(const json& w) {
+		if (!w.is_object()) return "";
+		auto it = w.find("shm_name");
+		return it != w.end() && it->is_string() ? it->template get<std::string>() : "";
+	}
+
+	// Remove a shared-memory surface once no widget of the layout names it any more
+	// (deleted, or renamed). Not on a mere rebuild: its producer (e.g. msposd)
+	// keeps writing to the region it mapped, and the rebuilt widget reopens it.
+	void releaseShm(const std::string& name) {
+		if (name.empty()) return;
+		for (const auto& w : config_["widgets"])
+			if (shmNameOf(w) == name) return;
+		SPDLOG_INFO("removing shm region {}", name);
+		shm_unlink(name.c_str());
 	}
 
 	void destroyEntry(Entry& e) {
@@ -3564,12 +3618,16 @@ std::string save() {
 	}
 
 	// Write a temp file next to it, flush it to disk, then swap it in atomically.
-	std::string tmp = target.string() + ".tmp";
-	int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	// The temp file gets a unique name and is created exclusively, so an existing
+	// file or symlink of that name can't redirect the write.
+	std::string tmp = target.string() + ".XXXXXX";
+	int fd = mkstemp(tmp.data());
 	if (fd < 0) return fmt::format("can't write {}: {}", tmp, strerror(errno));
 	if (existed) {
 		fchmod(fd, st.st_mode & 07777);
-		if (fchown(fd, st.st_uid, st.st_gid) != 0) { /* keep ours if not allowed */ }
+		if (fchown(fd, st.st_uid, st.st_gid) != 0)
+			spdlog::warn("OSD config {}: can't keep its owner ({}), saving it as ours",
+			             target.string(), strerror(errno));
 	} else {
 		fchmod(fd, 0644);
 	}
@@ -3587,8 +3645,14 @@ std::string save() {
 		p += n;
 		left -= n;
 	}
-	if (fsync(fd) != 0 || close(fd) != 0) {
-		std::string err = fmt::format("can't write {}: {}", tmp, strerror(errno));
+	int rc = fsync(fd);
+	int e = errno;
+	if (close(fd) != 0 && rc == 0) {   // always close, also when fsync failed
+		rc = -1;
+		e = errno;
+	}
+	if (rc != 0) {
+		std::string err = fmt::format("can't write {}: {}", tmp, strerror(e));
 		unlink(tmp.c_str());
 		return err;
 	}
@@ -3597,18 +3661,21 @@ std::string save() {
 		unlink(tmp.c_str());
 		return err;
 	}
-	int dir = open(target.parent_path().empty() ? "." : target.parent_path().c_str(), O_RDONLY | O_DIRECTORY);
-	if (dir >= 0) {
-		fsync(dir);
-		close(dir);
-	}
+	// Flush the directory too, or the rename may not survive a power cut.
+	std::string dir_path = target.parent_path().empty() ? "." : target.parent_path().string();
+	int dir = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
+	if (dir < 0) return fmt::format("can't sync {}: {}", dir_path, strerror(errno));
+	rc = fsync(dir);
+	e = errno;
+	close(dir);
+	if (rc != 0) return fmt::format("can't sync {}: {}", dir_path, strerror(e));
 	g_osd->markSaved();
 	spdlog::info("OSD config saved to {}", target.string());
 	return "";
 }
 
 std::string reload() {
-	return g_osd ? g_osd->load() : "OSD is not running";
+	return g_osd ? g_osd->load(true) : "OSD is not running";
 }
 
 std::string checkExpression(const std::string& expr) {

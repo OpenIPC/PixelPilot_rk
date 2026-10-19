@@ -77,6 +77,25 @@ static double num(const json & j, const char * key, double def)
     return it != j.end() && it->is_number() ? it->get<double>() : def;
 }
 
+/* The range item `index` of w[key] as an object to edit in place, or nullptr if
+ * the widget or the item is gone. */
+static json * range_item(json & w, const std::string & key, int index)
+{
+    if(!w.is_object() || !w.contains(key) || !w[key].is_array()) return nullptr;
+    if(index < 0 || index >= (int)w[key].size()) return nullptr;
+    json & item = w[key][index];
+    if(!item.is_object()) item = json::object();
+    return &item;
+}
+
+/* w[key] if it is a list, else an empty one (w may be null: the widget is gone) */
+static json list_of(const json & w, const char * key)
+{
+    if(!w.is_object()) return json::array();
+    auto it = w.find(key);
+    return it != w.end() && it->is_array() ? *it : json::array();
+}
+
 static std::string fmt_num(double v, int precision = -1)
 {
     char buf[64];
@@ -942,8 +961,11 @@ static void duplicate_async(void * p)
     json w = osd_model::get(id);
     if(w.is_null()) return;
     w["name"] = unique_name(str(w, "name") + " copy");
-    w["x"] = (int)num(w, "x", 0) + 20;
-    w["y"] = (int)num(w, "y", 0) + 20;
+    /* 20 px away from the edge each coordinate counts from, so a right/bottom
+     * anchored (negative) one stays negative instead of flipping sides */
+    auto shift = [](int v) { return v < 0 ? v - 20 : v + 20; };
+    w["x"] = shift((int)num(w, "x", 0));
+    w["y"] = shift((int)num(w, "y", 0));
     uint32_t copy = osd_model::insert(w, osd_model::index(id) + 1);
     colstack_pop(cs());
     open_widget(copy);
@@ -1106,15 +1128,16 @@ static void build_range(colstack_t * c, lv_obj_t * body, void * user)
 {
     RowCtx * owner = static_cast<RowCtx *>(user);
     json w = osd_model::get(owner->id);
-    json list = w.value(owner->key, json::array());
+    json list = list_of(w, owner->key.c_str());
     if(owner->index < 0 || owner->index >= (int)list.size()) {
         colstack_add_title(c, body, "This range is gone");
         finish(c);
         return;
     }
     const json & r = list[owner->index];
-    int lo = r.contains("range") && r["range"].is_array() && r["range"].size() == 2 ? r["range"][0].get<int>() : 0;
-    int hi = r.contains("range") && r["range"].is_array() && r["range"].size() == 2 ? r["range"][1].get<int>() : 0;
+    json ends = list_of(r, "range");
+    int lo = ends.size() == 2 && ends[0].is_number() ? ends[0].get<int>() : 0;
+    int hi = ends.size() == 2 && ends[1].is_number() ? ends[1].get<int>() : 0;
 
     for(int end = 0; end < 2; end++) {
         int v = end ? hi : lo;
@@ -1126,7 +1149,9 @@ static void build_range(colstack_t * c, lv_obj_t * body, void * user)
             RowCtx * x = static_cast<RowCtx *>(ctx);
             size_t nl = x->key.find('\n');
             json wj = osd_model::get(x->id);
-            json & rr = wj[x->key.substr(0, nl)][x->index]["range"];
+            json * item = range_item(wj, x->key.substr(0, nl), x->index);
+            if(!item) return;
+            json & rr = (*item)["range"];
             if(!rr.is_array() || rr.size() != 2) rr = json::array({0, 0});
             rr[atoi(x->key.c_str() + nl + 1)] = atoi(value);
             apply_widget(x->id, wj);
@@ -1146,7 +1171,9 @@ static void build_range(colstack_t * c, lv_obj_t * body, void * user)
     colstack_set_binding(row, [](void * ctx, const char * value) {
         RowCtx * x = static_cast<RowCtx *>(ctx);
         json wj = osd_model::get(x->id);
-        wj[x->key][x->index]["icon_path"] = value;
+        json * item = range_item(wj, x->key, x->index);
+        if(!item) return;
+        (*item)["icon_path"] = value;
         apply_widget(x->id, wj);
     }, own(row, new RowCtx{owner->id, owner->index, owner->key}));
 
@@ -1154,8 +1181,10 @@ static void build_range(colstack_t * c, lv_obj_t * body, void * user)
     colstack_set_action(row, [](void * ctx) {
         RowCtx * x = static_cast<RowCtx *>(ctx);
         json wj = osd_model::get(x->id);
-        wj[x->key].erase(wj[x->key].begin() + x->index);
-        apply_widget(x->id, wj);
+        if(range_item(wj, x->key, x->index)) {
+            wj[x->key].erase(wj[x->key].begin() + x->index);
+            apply_widget(x->id, wj);
+        }
         lv_async_call(pop_once, nullptr);
     }, own(row, new RowCtx{owner->id, owner->index, owner->key}));
     finish(c);
@@ -1166,7 +1195,7 @@ static void build_ranges(colstack_t * c, lv_obj_t * body, void * user)
     RowCtx * owner = static_cast<RowCtx *>(user);
     colstack_set_column_hooks(c, nullptr, reveal_refresh, nullptr);
     json w = osd_model::get(owner->id);
-    json list = w.value(owner->key, json::array());
+    json list = list_of(w, owner->key.c_str());
     colstack_add_title(c, body, "Shows the icon of the range the value is in");
     for(size_t i = 0; i < list.size(); i++) {
         const json & r = list[i];
@@ -1198,7 +1227,7 @@ static void build_facts(colstack_t * c, lv_obj_t * body, void * user)
     colstack_set_column_hooks(c, nullptr, reveal_refresh, nullptr);
     json w = osd_model::get(id);
     const sch::WidgetType * t = sch::findType(type_of(w));
-    json facts = w.value("facts", json::array());
+    json facts = list_of(w, "facts");
 
     if(w.contains("template")) colstack_add_title(c, body, ("Text: " + str(w, "template")).c_str());
     for(size_t i = 0; i < facts.size(); i++) {
@@ -1263,7 +1292,7 @@ static void build_fact(colstack_t * c, lv_obj_t * body, void * user)
     int index = owner->index;
     colstack_set_column_hooks(c, nullptr, reveal_refresh, nullptr);
     json w = osd_model::get(id);
-    json facts = w.value("facts", json::array());
+    json facts = list_of(w, "facts");
     if(index < 0 || index >= (int)facts.size()) {
         colstack_add_title(c, body, "This fact is gone");
         finish(c);
