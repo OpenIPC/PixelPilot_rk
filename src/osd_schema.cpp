@@ -78,7 +78,7 @@ const std::vector<WidgetType>& types() {
 		 0, -1, R"j({"timeout_ms": 10000, "facts": [{"name": "osd.custom_message"}]})j",
 		 true, false},
 		{"SignalWarningWidget", "Signal warning",
-		 {{"threshold", "Warn below/above", Kind::Number}, {"critical", "Full at", Kind::Number},
+		 {{"threshold", "Warning", Kind::Number}, {"critical", "Critical", Kind::Number},
 		  {"average_ms", "Smoothing (ms)", Kind::Int, 0, 10000, 100},
 		  {"rate", "Per-second rate", Kind::Bool},
 		  {"rate_divisor", "Rate divisor", Kind::Number, 0, 0, 1, 0, nullptr, 1}},
