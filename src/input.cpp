@@ -204,13 +204,24 @@ void setup_gpio(YAML::Node& config) {
     }
 }
 
+static bool has_button(const char *name) {
+    for (size_t i = 0; i < sizeof(gpio_buttons) / sizeof(gpio_buttons[0]); i++)
+        if (gpio_buttons[i].name && gpio_buttons[i].line && strcmp(gpio_buttons[i].name, name) == 0)
+            return true;
+    return false;
+}
+
 // Which buttons act on release (so a hold can mean something else): left/right
-// in the menu; in MOVE mode every direction repeats instead, and only the center
-// waits, as a hold cancels the move.
+// in the menu. In MOVE mode every direction repeats instead, and only the center
+// waits, as a hold cancels the move. On the on-screen keyboard (and the TX-profile
+// table) left/right move the selection, so they act on press and repeat too; only
+// without a center button does right still wait, its hold being ENTER.
 static bool waits_for_release(size_t button_index) {
     const char *name = gpio_buttons[button_index].name;
     if (control_mode == GSMENU_CONTROL_MODE_MOVE)
         return strcmp(name, "center") == 0;
+    if (control_mode == GSMENU_CONTROL_MODE_KEYBOARD)
+        return strcmp(name, "right") == 0 && !has_button("center");
     return strcmp(name, "right") == 0 || strcmp(name, "left") == 0;
 }
 
