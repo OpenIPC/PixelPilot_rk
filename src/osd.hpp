@@ -1,15 +1,14 @@
 #ifndef OSDPP_H
 #define OSDPP_H
 
-extern "C" {
-#include "drm.h"
-}
-#include <nlohmann/json.hpp>
+#include <string>
+
+struct modeset_output;
 
 typedef struct {
 	struct modeset_output *out;
 	int fd;
-	nlohmann::json config;
+	std::string config_path;  // OSD layout JSON; empty = no widgets
 } osd_thread_params;
 
 extern int osd_thread_signal;

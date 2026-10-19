@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include "colmenu.h"
 #include "colmenu_pages.h"
+#include "osd_editor_menu.h"
 #include "helper.h"       /* show_restart_notice(), find_first_focusable_obj() */
 #include "../menu.h"      /* MenuAction, screens */
 #include "../main.h"      /* sig_handler() — graceful shutdown / restart */
@@ -457,8 +458,9 @@ static const colmenu_item_t system_items[] = {
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_IMAGE, .label="Display",  .sub=&sys_display_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_VIDEO, .label="DVR",      .sub=&sys_dvr_page },
     { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_WIFI,  .label="Restream", .sub=&sys_restream_page },
+    { .kind=COLMENU_SUBMENU, .icon=LV_SYMBOL_EDIT,  .label="OSD",      .sub=&osd_editor_page },
 };
-static const colmenu_page_t system_page = { "System", "gs", "system", system_items, 5 };
+static const colmenu_page_t system_page = { "System", "gs", "system", system_items, 6 };
 
 /* WiFi. The WiFi page shows the live connection (get gs wifi ssid) — entering the
  * connected network gives Disconnect / Forget. "Networks" lists only AVAILABLE

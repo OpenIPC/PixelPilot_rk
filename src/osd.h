@@ -44,6 +44,21 @@ void osd_publish_str_fact(char const *name, osd_tag *tags, int n_tags, const cha
 // come back from a global flush.
 void osd_flush_facts(const char *const *prefixes, int n_prefixes);
 
+struct lv_obj_t;
+// Build the OSD widgets from the JSON layout at `config_path` into a full-screen
+// container on `parent` and start the fact processor thread. `assets_override`
+// (may be NULL) replaces the layout's assets_dir, e.g. for the simulator; it is
+// never written back. Call with the OSD lock held (see osd_lock).
+void osd_engine_start(struct lv_obj_t *parent, int screen_w, int screen_h,
+                      const char *config_path, const char *assets_override);
+// The lock serialising all LVGL work: the render loop (tick + lv_task_handler, which
+// runs the menu callbacks) and the fact processor thread. Not recursive.
+void osd_lock(void);
+void osd_unlock(void);
+// Let the widgets refresh from their latest facts, at most once per
+// refresh_frequency_ms. Call with the OSD lock held.
+void osd_tick_if_due(void);
+
 #ifndef USE_SIMULATOR
 uint32_t osd_gl_process(struct modeset_buf* buf);
 #endif
