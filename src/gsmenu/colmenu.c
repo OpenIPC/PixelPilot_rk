@@ -254,6 +254,110 @@ static void show_cmd_error(const char * cmd, int rc, const char * out, const cha
     g_err_active = true;
 }
 
+/* Generic modal: a title, a message and a vertical list of buttons. Up/Down move
+ * between the buttons, ENTER/Right picks one, Left/Back cancels (choice -1). The
+ * callback runs after the dialog is gone and the column has the keypad back. */
+typedef struct {
+    lv_obj_t *   backdrop;
+    lv_group_t * grp;
+    lv_group_t * restore;
+    void      (* cb)(int choice, void * user);
+    void *       user;
+    int          choice;
+} dlg_t;
+
+static void dlg_close_async(void * p)
+{
+    dlg_t * d = p;
+    lv_indev_set_group(indev_drv, d->restore);
+    lv_obj_delete(d->backdrop);
+    lv_group_delete(d->grp);
+    if(d->cb) d->cb(d->choice, d->user);
+    free(d);
+}
+
+static void dlg_key_cb(lv_event_t * e)
+{
+    dlg_t * d = lv_event_get_user_data(e);
+    uint32_t k = lv_event_get_key(e);
+    int choice;
+    /* on the key press, not CLICKED: see err_close_cb */
+    if(k == LV_KEY_ENTER || k == LV_KEY_RIGHT)
+        choice = (int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e));
+    else if(k == LV_KEY_LEFT || k == LV_KEY_ESC || k == LV_KEY_HOME)
+        choice = -1;
+    else
+        return;
+    if(!g_err_active) return;             /* already closing */
+    g_err_active = false;
+    d->choice = choice;
+    lv_async_call(dlg_close_async, d);
+}
+
+void colmenu_dialog(const char * title, const char * text, const char * buttons,
+                    void (*cb)(int choice, void * user), void * user)
+{
+    dlg_t * d = calloc(1, sizeof(*d));
+    d->restore = colstack_cur_group(g_cs);
+    d->cb = cb;
+    d->user = user;
+
+    lv_obj_t * bd = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(bd);
+    lv_obj_set_size(bd, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(bd, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(bd, LV_OPA_50, 0);
+    lv_obj_clear_flag(bd, LV_OBJ_FLAG_SCROLLABLE);
+    d->backdrop = bd;
+
+    lv_obj_t * panel = lv_obj_create(bd);
+    lv_obj_add_style(panel, &style_openipc_lightdark_background, LV_PART_MAIN);
+    lv_obj_set_width(panel, 640);
+    lv_obj_set_height(panel, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(panel, LV_PCT(80), 0);
+    lv_obj_set_style_pad_all(panel, 20, 0);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_center(panel);
+
+    lv_obj_t * t = lv_label_create(panel);
+    lv_label_set_text(t, title ? title : "");
+    lv_obj_set_style_text_color(t, lv_color_hex(0x8a93a6), 0);
+    lv_obj_set_style_pad_bottom(t, 12, 0);
+
+    if(text && *text) {
+        lv_obj_t * body = lv_label_create(panel);
+        lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(body, LV_PCT(100));
+        lv_obj_set_style_text_color(body, lv_color_hex(0xf2f4f8), 0);
+        lv_obj_set_style_pad_bottom(body, 16, 0);
+        lv_label_set_text(body, text);
+    }
+
+    d->grp = lv_group_create();
+    char * opts = strdup(buttons && *buttons ? buttons : "OK");
+    char * save = NULL;
+    intptr_t idx = 0;
+    for(char * tok = strtok_r(opts, "\n", &save); tok; tok = strtok_r(NULL, "\n", &save), idx++) {
+        lv_obj_t * btn = lv_button_create(panel);
+        lv_obj_set_width(btn, LV_PCT(100));
+        lv_obj_set_style_margin_bottom(btn, 6, 0);
+        lv_obj_add_style(btn, &style_openipc_dark_background, LV_PART_MAIN);
+        lv_obj_add_style(btn, &style_openipc, LV_PART_MAIN | LV_STATE_FOCUS_KEY);
+        lv_obj_remove_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_user_data(btn, (void *)idx);
+        lv_obj_t * bl = lv_label_create(btn);
+        lv_label_set_text(bl, tok);
+        lv_obj_center(bl);
+        lv_group_add_obj(d->grp, btn);
+        lv_obj_add_event_cb(btn, dlg_key_cb, LV_EVENT_KEY, d);
+    }
+    free(opts);
+    lv_indev_set_group(indev_drv, d->grp);
+    control_mode = GSMENU_CONTROL_MODE_NAV;
+    g_err_active = true;
+}
+
 /* Async command runner: the (possibly slow) command runs on a worker thread while
  * a spinner blocks the menu, matching the old menu's write behaviour. On finish a
  * failure shows the error dialog; `done` (optional) runs the caller's follow-up. */
@@ -846,6 +950,8 @@ typedef struct {
     /* prompt mode (colmenu_prompt): a standalone text entry with a custom OK
      * handler instead of the gsmenu.sh set — used e.g. for a wifi password. */
     const char * title;                              /* overlay caption (else param) */
+    char *       title_copy;                         /* owned copy (colmenu_prompt_text) */
+    char *       initial;                            /* owned preset text, or NULL       */
     void (*on_ok)(const char * text, void * user);   /* custom OK; NULL = generic set */
     void *       user;
     bool         owned;                              /* free this ctx on close       */
@@ -862,7 +968,11 @@ static void text_close_cb(void * p)
     if(t->group)   { lv_group_delete(t->group); t->group = NULL; }
     if(t->overlay) { lv_obj_delete(t->overlay); t->overlay = NULL; }
     control_mode = GSMENU_CONTROL_MODE_NAV;
-    if(t->owned) free(t);   /* standalone prompt ctx (row-owned ctx frees itself) */
+    if(t->owned) {          /* standalone prompt ctx (row-owned ctx frees itself) */
+        free(t->title_copy);
+        free(t->initial);
+        free(t);
+    }
 }
 
 /* After the async set: on success update the row's value + fire on_change; either
@@ -931,9 +1041,10 @@ static void open_text(void * ctx)
     lv_textarea_set_one_line(ta, true);
     lv_obj_set_width(ta, LV_PCT(100));
     lv_obj_add_style(ta, &style_openipc_dark_background, LV_PART_MAIN | LV_STATE_DEFAULT);
-    /* prompt mode starts empty; a bound field preloads its current value */
+    /* prompt mode starts empty (or with its preset); a bound field preloads its
+     * current value */
     char * cur = t->on_ok ? NULL : colmenu_get(t->type, t->page, t->param, NULL);
-    lv_textarea_set_text(ta, cur ? cur : "");
+    lv_textarea_set_text(ta, cur ? cur : t->initial ? t->initial : "");
     free(cur);
     t->ta = ta;
 
@@ -966,6 +1077,19 @@ void colmenu_prompt(const char * title, void (*on_ok)(const char * text, void * 
 {
     text_ctx_t * t = calloc(1, sizeof(text_ctx_t));
     t->title = title;
+    t->on_ok = on_ok;
+    t->user  = user;
+    t->owned = true;
+    open_text(t);
+}
+
+void colmenu_prompt_text(const char * title, const char * initial,
+                         void (*on_ok)(const char * text, void * user), void * user)
+{
+    text_ctx_t * t = calloc(1, sizeof(text_ctx_t));
+    t->title_copy = strdup(title ? title : "");
+    t->title = t->title_copy;
+    t->initial = initial ? strdup(initial) : NULL;
     t->on_ok = on_ok;
     t->user  = user;
     t->owned = true;
@@ -1214,4 +1338,7 @@ void colmenu_reflect_switch(const char * param, bool on)
 }
 
 lv_group_t * colmenu_root_group(void) { return colstack_root_group(g_cs); }
+colstack_t * colmenu_cs(void) { return g_cs; }
+colstack_t * colmenu_emit_cs(colmenu_emit_t * e) { return e->cs; }
+lv_obj_t *   colmenu_emit_body(colmenu_emit_t * e) { return e->body; }
 void colmenu_set_root_back(void (*cb)(void * ctx), void * ctx) { colstack_set_root_back(g_cs, cb, ctx); }

@@ -18,6 +18,10 @@
 
 #include "../../lvgl/lvgl.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct colstack colstack_t;
 
 /* Builder callback: fill `col_body` with the rows for a freshly pushed column.
@@ -98,6 +102,13 @@ void colstack_reflect_switch(colstack_t * cs, const char * param, bool on);
 void colstack_set_slider_live(lv_obj_t * row, void (*on_live)(void * ctx, const char * value),
                               void * ctx);
 
+/* Show a (dim) current value on the right of a submenu or action row. */
+void colstack_set_row_value(lv_obj_t * row, const char * text);
+
+/* Use fine slider steps of `step` raw units per key, accelerating while the key is
+ * held (instead of the default 1/20 of the range). */
+void colstack_set_slider_step(lv_obj_t * row, int32_t step);
+
 /* Attach an activation callback to an action row (fired on the ENTER key press). */
 void colstack_set_action(lv_obj_t * row, void (*on_activate)(void * ctx), void * ctx);
 
@@ -115,6 +126,28 @@ lv_obj_t * colstack_column_origin(colstack_t * cs, int idx);
 
 /* Re-run the top column's builder into a cleared body (refresh a dynamic list). */
 void colstack_rebuild_current(colstack_t * cs);
+/* Same, but keep the focused row position and the scroll (refresh after an edit). */
+void colstack_rebuild_current_keep_focus(colstack_t * cs);
+
+/* Hooks for the top column (call from its builder): `on_back` runs when Back is
+ * pressed in the column and returns true if it handled it (the column stays, e.g.
+ * to ask "save changes?" first); `on_reveal` runs (deferred) when the column is on
+ * top again after the one above it was popped, e.g. to refresh changed values. */
+void colstack_set_column_hooks(colstack_t * cs, bool (*on_back)(void * ctx),
+                               void (*on_reveal)(void * ctx), void * ctx);
+/* Body of the top column. */
+lv_obj_t * colstack_cur_body(colstack_t * cs);
+
+/* Show only the last `max_cols` columns, and none before column `from_idx` (e.g.
+ * a page that needs the screen keeps its parents out of the way). The limit ends
+ * by itself when column `from_idx` is popped; (0, 0) shows all columns. */
+void colstack_limit_visible(colstack_t * cs, int from_idx, int max_cols);
+/* Pack the columns against the right screen edge instead of the left one. */
+void colstack_set_dock_right(colstack_t * cs, bool right);
+bool colstack_dock_right(colstack_t * cs);
+/* Screen area the visible columns cover, and the area the stack can use; false
+ * if no column is visible. */
+bool colstack_visible_area(colstack_t * cs, lv_area_t * menu, lv_area_t * viewport);
 
 /* Resize the current (top) column to fit its widest row (clamped). Call after
  * a column has been fully populated. */
@@ -126,3 +159,7 @@ void colstack_autofit(colstack_t * cs);
  * key and the user is stranded. Call after a column is populated: if the group is
  * empty it drops in an inert, invisible focusable catcher so Back still pops. */
 void colstack_ensure_escapable(colstack_t * cs);
+
+#ifdef __cplusplus
+}
+#endif

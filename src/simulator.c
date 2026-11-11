@@ -9,9 +9,13 @@
 #include "menu.h"
 #include "input.h"
 #include "gsmenu/helper.h"
+#include "osd.h"
+
+void sim_facts_start(void);   /* sim_facts.c */
 
 
 int dvr_enabled = 0;
+uint32_t refresh_frequency_ms = 100;   /* OSD widget refresh (main.cpp's --osd-refresh) */
 uint64_t gtotal_tunnel_data = 0;
 bool disable_vsync = false;
 const char *dvr_template = "/tmp/record_%Y-%m-%d_%H-%M-%S.mp4";
@@ -76,8 +80,39 @@ int main(int argc, char **argv)
         }
     }
 
+    /* The real OSD engine runs in the sim: --osd-config picks the layout (it is
+     * also what the OSD editor saves to), --assets the icon dir (the layout's
+     * assets_dir points at the device install path), --res the screen size. */
+    const char * osd_config = NULL;
+    char assets[1024] = "./src/icons";
+    int width = 1920, height = 1080;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--osd-config") && i + 1 < argc) osd_config = argv[++i];
+        else if (!strcmp(argv[i], "--assets") && i + 1 < argc) snprintf(assets, sizeof(assets), "%s", argv[++i]);
+        else if (!strcmp(argv[i], "--res") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &width, &height);
+        else {
+            fprintf(stderr, "usage: %s [--osd-config <file>] [--assets <dir>] [--res WxH]\n", argv[0]);
+            return 1;
+        }
+    }
+    char * assets_abs = realpath(assets, NULL);   /* "A:" paths are opened relative to CWD otherwise */
+    if (!osd_config) {
+        /* Default: a scratch copy of the repo's layout, so saving from the OSD
+         * editor doesn't modify the tracked file. Seeded once, then kept. */
+        osd_config = "/tmp/pixelpilot_sim_osd.json";
+        if (access(osd_config, F_OK) != 0) {
+            FILE * in = fopen("./config_osd.json", "rb");
+            FILE * out = in ? fopen(osd_config, "wb") : NULL;
+            char buf[4096];
+            size_t n;
+            while (in && out && (n = fread(buf, 1, sizeof(buf), in)) > 0) fwrite(buf, 1, n, out);
+            if (in) fclose(in);
+            if (out) fclose(out);
+        }
+    }
+
     lv_init();
-    lv_disp_t * disp = lv_sdl_window_create(1920,1080);
+    lv_disp_t * disp = lv_sdl_window_create(width, height);
 
     // lv_log_register_print_cb(my_log_cb);
 
@@ -87,10 +122,21 @@ int main(int argc, char **argv)
     lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
     lv_image_set_inner_align(obj, LV_IMAGE_ALIGN_STRETCH);
 
+    enable_osd = 1;
+    osd_lock();
+    osd_engine_start(bottom, width, height, osd_config, assets_abs ? assets_abs : assets);
     pp_menu_main();
+    osd_unlock();
+    sim_facts_start();
+
+    /* Same locking as the device's OSD thread: everything touching LVGL (keys can
+     * too, e.g. 'r' or 't') runs under the OSD lock the fact processor takes. */
     while (1) {
+        osd_lock();
         handle_keyboard_input();
+        osd_tick_if_due();
         lv_task_handler();
+        osd_unlock();
         usleep(5000);
     }
 

@@ -1906,13 +1906,6 @@ int main(int argc, char **argv)
 	ret = pthread_create(&tid_display, NULL, __DISPLAY_THREAD__, NULL);
 	assert(!ret);
 	if (enable_osd) {
-		nlohmann::json osd_config;
-		if(osd_config_path != "") {
-			std::ifstream f(osd_config_path);
-			osd_config = nlohmann::json::parse(f);
-		} else {
-			osd_config = {};
-		}
 		if (mavlink_thread) {
 			ret = pthread_create(&tid_mavlink, NULL, __MAVLINK_THREAD__, &signal_flag);
 			assert(!ret);
@@ -1925,10 +1918,12 @@ int main(int argc, char **argv)
 			assert(!ret);
 		}
 
-		osd_thread_params *args = (osd_thread_params *)malloc(sizeof *args);
+		// The OSD thread loads the layout file itself (it is reloaded from the
+		// editor too). `new`, not malloc: the struct holds a std::string.
+		osd_thread_params *args = new osd_thread_params;
         args->fd = drm_fd;
         args->out = output_list;
-		args->config = osd_config;
+		args->config_path = osd_config_path;
 		ret = pthread_create(&tid_osd, NULL, __OSD_THREAD__, args);
 		assert(!ret);
 	}

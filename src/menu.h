@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define MAX_ACTIONS 5
 #define MAX_LABEL_LEN 50
@@ -28,3 +33,10 @@ int menu_is_recording(void);
 // void audio_set_enabled(int enabled);
 
 void pp_menu_main(void);
+
+/* Show/hide the logo bar at the top of the menu screen. */
+void pp_menu_set_header_visible(bool visible);
+
+#ifdef __cplusplus
+}
+#endif

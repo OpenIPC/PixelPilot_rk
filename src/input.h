@@ -9,7 +9,10 @@ typedef enum {
     GSMENU_CONTROL_MODE_NAV = 0,
     GSMENU_CONTROL_MODE_EDIT,
     GSMENU_CONTROL_MODE_SLIDER,
-    GSMENU_CONTROL_MODE_KEYBOARD
+    GSMENU_CONTROL_MODE_KEYBOARD,
+    /* Moving an OSD widget: the four directions (repeating while held), center =
+     * ENTER (done), held center / rec / Escape / 'x' = ESC (cancel). */
+    GSMENU_CONTROL_MODE_MOVE
 } gsmenu_control_mode_t;
 
 
