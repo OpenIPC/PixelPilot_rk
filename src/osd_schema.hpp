@@ -23,6 +23,7 @@ enum class Kind {
 	Bool,      // switch
 	Enum,      // one of `options`
 	Icon,      // a PNG from the assets dir
+	File,      // a path, picked in a file browser; `options`: '\n' separated extensions, nullptr = any
 	Color,     // {r, g, b, alpha}, 0..1 each
 	Ranges,    // IconSelectorWidget's ranges_and_icons
 };
@@ -33,7 +34,7 @@ struct Field {
 	Kind kind;
 	double min = 0, max = 0, step = 1;
 	int precision = 0;
-	const char* options = nullptr;  // Enum: '\n' separated
+	const char* options = nullptr;  // Enum: '\n' separated choices; File: extensions (".png")
 	double def = 0;                 // value when the key is missing
 };
 

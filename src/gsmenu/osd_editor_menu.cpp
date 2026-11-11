@@ -26,12 +26,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <climits>
 #include <cstdlib>
 #include <dirent.h>
 #include <map>
 #include <regex>
 #include <set>
 #include <string>
+#include <strings.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 extern "C" {
@@ -528,7 +532,9 @@ static void move_begin(uint32_t id)
 
 /* ── text prompts (one at a time) ──────────────────────────────────────────── */
 
-enum class PromptKind { Name, Field, Number, Convert };
+static void file_typed(const std::string & path);
+
+enum class PromptKind { Name, Field, Number, Convert, Path };
 static struct {
     PromptKind kind;
     uint32_t id;
@@ -575,6 +581,11 @@ static void prompt_ok(const char * text, void *)
             }
             break;
         }
+        case PromptKind::Path:
+            w[g_prompt.key] = t;
+            apply_widget(g_prompt.id, w);
+            file_typed(t);
+            return;
     }
     apply_widget(g_prompt.id, w);
     refresh_later();
@@ -599,6 +610,7 @@ static void build_categories(colstack_t * c, lv_obj_t * body, void * user);
 static void build_color(colstack_t * c, lv_obj_t * body, void * user);
 static void build_ranges(colstack_t * c, lv_obj_t * body, void * user);
 static void build_add(colstack_t * c, lv_obj_t * body, void * user);
+static void build_file_start(colstack_t * c, lv_obj_t * body, void * user);
 
 /* ── OSD: the widget list ──────────────────────────────────────────────────── */
 
@@ -930,6 +942,14 @@ static void add_field_row(colstack_t * c, lv_obj_t * body, uint32_t id, const js
             }
             row = colstack_add_dropdown(c, body, LV_SYMBOL_IMAGE, f.label, opts.c_str(), sel);
             colstack_set_binding(row, on_choice, own(row, new RowCtx{id, -1, f.key}));
+            break;
+        }
+        case sch::Kind::File: {
+            RowCtx * rc = new RowCtx{id, -1, f.key};
+            row = colstack_add_submenu(c, body, LV_SYMBOL_DIRECTORY, f.label, build_file_start, rc);
+            own(row, rc);
+            std::string v = str(w, f.key);
+            colstack_set_row_value(row, v.empty() ? "(none)" : v.substr(v.find_last_of('/') + 1).c_str());
             break;
         }
         case sch::Kind::Color: {
@@ -1478,4 +1498,203 @@ static void build_categories(colstack_t * c, lv_obj_t * body, void * user)
         colstack_set_row_value(row, (std::to_string(live) + " live").c_str());
     }
     finish(c);
+}
+
+/* ── file browser (Kind::File fields) ──────────────────────────────────────── */
+/*
+ *   <field>         the folder of the current file: Parent folder, Type a path,
+ *   │               sub-folders, then the files with an allowed extension
+ *   └ <folder>      a sub-folder (the same list, without Parent folder / Type a path)
+ *
+ * Picking a file applies it and goes back to the widget. Parent folder rebuilds
+ * the first column in place, so the menu doesn't grow a column per level up.
+ */
+
+static constexpr size_t FILE_ROWS_MAX = 200;   /* rows are costly to build on the device */
+
+static struct {
+    uint32_t id;
+    std::string key;
+    std::string exts;   /* '\n' separated, empty = any file */
+    std::string dir;    /* the first column's folder */
+    bool keep_dir;      /* the first column is rebuilt after Parent folder / Type a path */
+    int depth;          /* the widget's column */
+} g_file;
+
+static void build_file_dir(colstack_t * c, lv_obj_t * body, void * user);
+
+static std::string abs_path(const std::string & p)
+{
+    if(p.empty() || p[0] == '/') return p;
+    char cwd[PATH_MAX];
+    return std::string(getcwd(cwd, sizeof(cwd)) ? cwd : "") + "/" + p;
+}
+
+static std::string parent_dir(const std::string & p)
+{
+    size_t sl = p.find_last_of('/');
+    return sl == std::string::npos || sl == 0 ? "/" : p.substr(0, sl);
+}
+
+static std::string join_path(const std::string & dir, const std::string & name)
+{
+    return dir == "/" ? "/" + name : dir + "/" + name;
+}
+
+static bool is_dir(const std::string & p)
+{
+    struct stat st;
+    return stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/* The folder `path` is in, or its closest existing parent. */
+static std::string start_dir(const std::string & path)
+{
+    std::string d = path.empty() ? "/" : parent_dir(abs_path(path));
+    while(d != "/" && !is_dir(d)) d = parent_dir(d);
+    return d;
+}
+
+static bool ext_ok(const std::string & name, const std::string & exts)
+{
+    if(exts.empty()) return true;
+    size_t pos = 0;
+    while(true) {
+        size_t nl = exts.find('\n', pos);
+        std::string e = exts.substr(pos, nl - pos);
+        if(!e.empty() && name.size() > e.size() &&
+           strcasecmp(name.c_str() + name.size() - e.size(), e.c_str()) == 0) return true;
+        if(nl == std::string::npos) return false;
+        pos = nl + 1;
+    }
+}
+
+struct DirEntry {
+    std::string name;
+    bool dir;
+};
+
+/* Sub-folders, then the matching files of `dir`, each sorted; hidden ones left out. */
+static std::vector<DirEntry> list_dir(const std::string & dir, const std::string & exts)
+{
+    std::vector<DirEntry> out;
+    if(DIR * d = opendir(dir.c_str())) {
+        while(struct dirent * e = readdir(d)) {
+            if(e->d_name[0] == '.') continue;
+            struct stat st;   /* stat, not d_type: follows symlinks */
+            if(stat(join_path(dir, e->d_name).c_str(), &st) != 0) continue;
+            if(S_ISDIR(st.st_mode))                                   out.push_back({e->d_name, true});
+            else if(S_ISREG(st.st_mode) && ext_ok(e->d_name, exts)) out.push_back({e->d_name, false});
+        }
+        closedir(d);
+    }
+    std::sort(out.begin(), out.end(), [](const DirEntry & a, const DirEntry & b) {
+        if(a.dir != b.dir) return a.dir;
+        return strcasecmp(a.name.c_str(), b.name.c_str()) < 0;
+    });
+    return out;
+}
+
+static void file_done(void *)
+{
+    while(colstack_depth(cs()) > g_file.depth) colstack_pop(cs());
+}
+
+static void file_pick(void * ctx)
+{
+    json w = osd_model::get(g_file.id);
+    if(w.is_null()) return;
+    w[g_file.key] = static_cast<RowCtx *>(ctx)->key;
+    apply_widget(g_file.id, w);
+    lv_async_call(file_done, nullptr);
+}
+
+static void file_rebuild(void *) { colstack_rebuild_current(cs()); }
+
+/* Type a path: applied by prompt_ok; show its folder. Not popped from here: the
+ * prompt hands focus back to this column when it closes. */
+static void file_typed(const std::string & path)
+{
+    g_file.dir = start_dir(path);
+    g_file.keep_dir = true;
+    lv_async_call(file_rebuild, nullptr);
+}
+
+static void file_rows(colstack_t * c, lv_obj_t * body, const std::string & dir, bool first)
+{
+    std::string cur = abs_path(str(osd_model::get(g_file.id), g_file.key.c_str()));
+    lv_obj_t * path = colstack_add_title(c, body, dir.c_str());
+    lv_obj_set_width(path, lv_pct(100));   /* wrap a long path instead of scrolling sideways */
+    if(first) {
+        if(dir != "/") {
+            lv_obj_t * row = colstack_add_action(c, body, LV_SYMBOL_UP, "Parent folder");
+            colstack_set_action(row, [](void *) {
+                g_file.dir = parent_dir(g_file.dir);
+                g_file.keep_dir = true;
+                lv_async_call(file_rebuild, nullptr);   /* this row goes with the rebuild */
+            }, nullptr);
+        }
+        lv_obj_t * row = colstack_add_action(c, body, LV_SYMBOL_KEYBOARD, "Type a path");
+        colstack_set_action(row, [](void *) {
+            const sch::Field * f = field_of(g_file.id, g_file.key);
+            prompt(PromptKind::Path, g_file.id, -1, g_file.key, f ? f->label : g_file.key,
+                   str(osd_model::get(g_file.id), g_file.key.c_str()));
+        }, nullptr);
+    }
+
+    auto entries = list_dir(dir, g_file.exts);
+    lv_obj_t * focus = nullptr;   /* the current file, or the folder it is in */
+    size_t n = std::min(entries.size(), FILE_ROWS_MAX);
+    for(size_t i = 0; i < n; i++) {
+        const DirEntry & en = entries[i];
+        std::string p = join_path(dir, en.name);
+        lv_obj_t * row;
+        if(en.dir) {
+            RowCtx * rc = new RowCtx{0, -1, p};
+            row = colstack_add_submenu(c, body, LV_SYMBOL_DIRECTORY, en.name.c_str(), build_file_dir, rc);
+            own(row, rc);
+            if(cur.compare(0, p.size() + 1, p + "/") == 0) focus = row;
+        } else {
+            row = colstack_add_action(c, body, LV_SYMBOL_FILE, en.name.c_str());
+            colstack_set_action(row, file_pick, own(row, new RowCtx{0, -1, p}));
+            if(p == cur) {
+                colstack_set_row_value(row, LV_SYMBOL_OK);
+                focus = row;
+            }
+        }
+    }
+    if(entries.size() > n)
+        colstack_add_title(c, body, (std::to_string(entries.size() - n) + " more not shown").c_str());
+    if(entries.empty()) colstack_add_title(c, body, g_file.exts.empty() ? "Empty folder" : "No matching files here");
+    finish(c);
+
+    if(focus) {
+        /* open on it, centred so the files around it are visible too */
+        lv_group_focus_obj(focus);
+        lv_obj_update_layout(body);
+        lv_anim_delete(body, NULL);
+        lv_area_t rc, bc;
+        lv_obj_get_coords(focus, &rc);
+        lv_obj_get_coords(body, &bc);
+        lv_obj_scroll_to_y(body, lv_obj_get_scroll_y(body) + (rc.y1 + rc.y2) / 2 - (bc.y1 + bc.y2) / 2, LV_ANIM_OFF);
+    }
+}
+
+static void build_file_start(colstack_t * c, lv_obj_t * body, void * user)
+{
+    RowCtx * rc = static_cast<RowCtx *>(user);
+    const sch::Field * f = field_of(rc->id, rc->key);
+    if(!g_file.keep_dir || g_file.id != rc->id || g_file.key != rc->key)
+        g_file.dir = start_dir(str(osd_model::get(rc->id), rc->key.c_str()));
+    g_file.keep_dir = false;
+    g_file.id = rc->id;
+    g_file.key = rc->key;
+    g_file.exts = f && f->options ? f->options : "";
+    g_file.depth = colstack_depth(c) - 1;   /* back to the widget once a file is picked */
+    file_rows(c, body, g_file.dir, true);
+}
+
+static void build_file_dir(colstack_t * c, lv_obj_t * body, void * user)
+{
+    file_rows(c, body, static_cast<RowCtx *>(user)->key, false);
 }

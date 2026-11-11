@@ -93,7 +93,7 @@ const std::vector<WidgetType>& types() {
 		  {"refresh_interval_ms", "Refresh (ms)", Kind::Int, 5, 1000, 1, 0, nullptr, 16}},
 		 0, 0, R"j({"shm_name": "msposd", "refresh_interval_ms": 16, "facts": []})j", true, true},
 		{"MspDisplayPortWidget", "MSP DisplayPort",
-		 {{"font_path", "Font file", Kind::Text},
+		 {{"font_path", "Font file", Kind::File, 0, 0, 1, 0, ".png"},
 		  {"udp_port", "UDP port", Kind::Number, 1, 65535, 1, 0, nullptr, 14551}},
 		 0, 0, R"j({"font_path": "/usr/share/fonts/font_btfl_hd.png", "udp_port": 14551, "facts": []})j", true, true},
 	};
