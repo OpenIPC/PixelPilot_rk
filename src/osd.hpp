@@ -1,7 +1,10 @@
 #ifndef OSDPP_H
 #define OSDPP_H
 
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 struct modeset_output;
 
