@@ -75,6 +75,12 @@ if [ $SKIP_SETUP -lt 1 ]; then
             tee /etc/apt/sources.list.d/80-radxa-rk3566.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/rk3566-bookworm rk3566-bookworm main"
             ;;
         bullseye)
+            # Debian 11 is out of LTS: security.debian.org still serves the
+            # bullseye-security index, but its packages are gone (404). They
+            # are on archive.debian.org now.
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
+                [ -f "$f" ] && sed -i -E 's#https?://(security|deb)\.debian\.org/debian-security#http://archive.debian.org/debian-security#' "$f"
+            done
             tee /etc/apt/sources.list.d/70-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye/ bullseye main"
             tee /etc/apt/sources.list.d/80-rockchip.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bullseye rockchip-bullseye main"
             ;;
